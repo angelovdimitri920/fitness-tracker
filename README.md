@@ -14,22 +14,239 @@ and is stored locally in your browser. No accounts, no server database, no track
 
 ## What it does
 
-- **Workout engine** — generates a daily gym session from your chosen *focus* (Lose & Tone /
-  Build Muscle / Power / Endurance / General) × *intensity* (Quick / Standard / Full) × the
-  day's *split* (Push / Pull / Lower / Upper / Full Body / Glutes / Arms / Core) × your recent
-  training. It picks exercises, sets/reps, set types (drop sets, rest-pause, failure), and
-  cardio (warm-up / mid-workout / finisher) appropriate to all of those — and never repeats the
-  same machine or movement within a day.
-- **Set logging** — work/warm-up/drop/failure/rest-pause sets, supersets, plate calculator,
-  rest timer, per-exercise swaps, skip, and 1RM estimates.
-- **Strength programs** — 5/3/1-style training-max progression.
-- **Nutrition** — food/macro logging, water, meal plans, recipes, barcode lookup (Open Food
-  Facts), adaptive TDEE, and diet presets.
-- **Running / marathon** — run logging, training plans, pace zones, race predictor.
-- **Body** — weight, body-fat, measurements, BMI, and trend projections.
-- **Progress & goals** — PRs, Wilks/DOTS, strength standards, achievements, streaks, charts.
-- **Recovery** — daily check-ins, soreness/muscle-recovery tracking, deload scheduling.
-- **PWA** — installs to your home screen and runs **fully offline** once cached (service worker).
+PF Fitness Tracker rolls the half-dozen apps a serious lifter/runner usually juggles —
+a workout logger (Strong/Hevy), a macro tracker (MyFitnessPal/Cronometer), a run planner
+(Strava/Garmin), a body-metrics app, and a progress dashboard — into one local-first PWA.
+Because it's built for a single user, it does things subscription apps won't: it **generates and
+periodizes** your training instead of just recording it, it **models your specific gym's
+equipment**, and it cross-references lifting + running + nutrition + recovery in one place — with
+no ads, no account, no paywall, and every number derived from your own logged data.
+
+It's organized into **ten pages** (bottom navigation). Each is documented below: what it does,
+where it goes beyond typical apps, and whether it's feature-complete or has room to grow.
+
+### 🏠 Home — daily command center
+A dashboard that surfaces only what matters *today*, rebuilt on every visit.
+- **Greeting + streak header** — time-aware greeting and your current workout streak.
+- **Today's plan card** — gym / run / both / rest, with the day's split + focus, and live logged
+  status ("✅ Gym logged · Easy run 2 mi"); tap to jump to Today.
+- **Recovery check-in** — inline sleep-hours + sleep-quality / energy / soreness inputs that feed
+  your recovery score without leaving the dashboard.
+- **⚡ Quick Log** — one-tap **+Water** and **Log Weight**, the two most frequent entries.
+- **Marathon glance** — current training week/phase with a jump to the Marathon page.
+- **This Week** — week-to-date volume, sets, cardio minutes, and run mileage.
+- **🏆 1000 lb Club** — live bench+squat+deadlift total from your logged PRs vs the 1000 lb goal.
+- **Strength-program card** — if a program (e.g. 5/3/1) is active, today's prescribed lifts.
+- **🥗 Today's Fuel** — calories / protein logged vs target.
+- **💊 Supplements** — today's supplement checklist with one-tap "taken" toggles + streaks.
+- **⚖️ Body Weight** — latest weight + trend; **📋 Weekly Check-In** on Sundays / when due.
+- **Backup reminder** — a banner if you haven't exported a backup in 30+ days.
+
+*vs other apps:* most open to a generic feed or an empty log; this opens to a context-aware
+briefing that already knows your schedule, recovery, and targets. **Feature-complete.** Optional
+polish: drag-to-reorder or show/hide cards.
+
+### 🏋️ Today — the live workout
+The most-used screen and the app's centerpiece. Rather than a blank logger, it **auto-builds** an
+appropriate session, then gives you a deep logging surface.
+- **Week strip** — the current week with per-day dots (gym/run/rest + completion); tap any day.
+- **Auto-generated workout** — from your focus × intensity × the day's split × what you trained in
+  the last 48 h, the engine selects exercises, set/rep targets, rest, set types, and cardio.
+- **Intensity selector** — Quick / Standard / Full rescale exercise count, sets, and cardio to a
+  target time band (~30–45 / 60–90 / 90–120 min).
+- **Set logging** — per-set weight + reps with done toggles, supporting **work, warm-up, drop,
+  failure, and rest-pause** set types. Warm-up sets auto-suggest from your working weight; advanced
+  set types are auto-assigned per focus and editable.
+- **Add/remove sets & "Continue Drop"** — extend any exercise or build multi-stage drop chains.
+- **Supersets** — link two exercises; the app alternates them, equalizes their set counts, and
+  visually groups the cards.
+- **Per-exercise swap** — replace any exercise with an equipment-valid alternative for the same
+  muscle (never one already in today's workout).
+- **Skip** — drop an exercise for today without losing it from the template (excluded from
+  volume / completion / PRs).
+- **Plate calculator** — per-set bar-loading visual (which plates per side) for barbell lifts.
+- **Rest timer + workout timer** — auto-starting rest countdown with audio cues, plus a
+  pause/resume session timer (both leak-free).
+- **Cardio blocks** — warm-up, optional mid-workout, and finisher cardio, each with its own
+  machine, duration, target, swap, skip, and timer; **a machine never repeats within a day.**
+- **Live stats bar** — running sets, volume, minutes, calories, completion %, and PRs.
+- **Est. 1RM + progressive-overload alerts** — per-set 1RM estimate and a nudge when you're ready
+  to add weight.
+- **Smart note** — a plain-English summary of the day's plan and any advanced sets.
+- **Split switcher** — override the day's split on the fly.
+- **Rich templates** — save a session (exercises, sets, weights, supersets, intensity) as a
+  reusable template and re-apply it; "Auto workout" resets back to the engine.
+- **Save → summary → history** — saving computes volume/sets/calories/completion/PRs, shows a
+  post-workout summary, then writes to history (idempotent — re-saving never duplicates).
+- **Run mode** — on run days the page becomes a run logger (distance, time, pace, HR, RPE,
+  cadence, elevation, splits, injury tag).
+
+*vs other apps:* Strong/Hevy log what *you* pick; this *prescribes* a periodized session and still
+lets you override everything, with cardio, supersets, drop sets, and a plate calc built in.
+**Feature-complete** and heavily verified. Possible additions: optional per-set RPE, a global
+warm-up-ramp auto-fill, and a rest-day mobility flow.
+
+### 📋 Plan — schedule & periodization
+- **Week-focus selector** — set the week's training focus (drives the whole engine).
+- **Calendar** — week / 2-week / month views of gym/run/rest days, color-coded, with
+  logged-volume/mileage badges; tap a day to edit its type/split or add a note.
+- **Weekly schedule editor** — assign which weekdays are gym/run/both/rest and each gym day's
+  split; changes propagate to Today, the week strip, and auto-rotate.
+- **Auto-rotate splits** — cycle a muscle-balanced rotation so consecutive days don't overlap;
+  logged days freeze, manual overrides win.
+- **Training-load heatmap** — an 8-week volume/intensity heatmap.
+- **Deload scheduler** — schedule deloads (or get a recommendation from accumulated load), with
+  "due"/"active" banners and the engine reducing volume on those weeks.
+- **Strength-program card** — pick/configure a strength program.
+
+*vs other apps:* periodization, auto-rotation, and deload management are usually coach-only or
+premium-tier; here they're built in and visual. **Feature-complete.** Room to grow: drag-and-drop
+calendar editing and full mesocycle templates.
+
+### 🧰 Equipment — your gym, modeled
+This is what lets the engine pick only exercises you can actually do.
+- **Gym profiles** — multiple gyms (e.g. "My Planet Fitness," a home gym), each with its own
+  equipment list; switch the active gym and the whole engine adapts.
+- **Equipment catalogue** — a large catalogue of machines/equipment, each expandable to the
+  exercises it enables, with muscles worked.
+- **Enable/disable** — toggle equipment or individual exercises; disabled ones are excluded from
+  generation and substitution.
+- **Custom exercises** — add your own movements.
+- **Accessory estimator** — derive every accessory's working weight from your big-4 lifts via
+  strength ratios (one button).
+- **Strength profile** — your working weights per lift, used for plate math, 1RM, and prescriptions.
+
+*vs other apps:* most apps use a flat global exercise list; modeling *your specific gym's
+equipment* and gating generation on it is unusual and genuinely useful for a commercial-gym
+member. **Feature-complete** for use. The underlying catalogue has some unused/alternate entries
+(noted in `CLAUDE.md`) worth tidying, and a "scan my gym" first-run wizard would smooth setup.
+
+### 🏃 Marathon / Running — endurance hub
+- **Marathon configuration** — pick a training program + race date; the app derives your current
+  week and phase.
+- **Run programs** — multiple plans (casual re-entry → full marathon) with weekly run types/mileage.
+- **24-week phase map** — visual base / build / peak / taper map.
+- **This week's runs** — the prescribed runs for the week.
+- **Pace zones + race-pace calculator** — easy/tempo/interval/long paces and a target-pace tool.
+- **Race-time predictor** — Riegel-model predictions across distances from a recent result.
+- **Race countdown** — days to race + % of training completed.
+- **Training-run + race-day fuel planners** — carb/fluid plans scaled to run duration/distance.
+- **Long-run history + progression trend**, **run consistency** (plan adherence), **running PRs**.
+- **Shoe mileage** — track mileage per pair for rotation/retirement.
+- **Stretch library** and **post-race recovery** protocol.
+
+*vs other apps:* this is the *planning + analysis* layer Strava charges for — structured plans,
+pace zones, predictors, fueling, shoe rotation — not GPS tracking. **Feature-complete** as a
+planner. The deliberate gap vs Strava/Garmin is live GPS/HR capture (logging is manual); a future
+GPX import would bridge it.
+
+### ⚖️ Body — metrics & trends
+- **Weight logging** — log today's weight (lb/kg), also via Home quick-log.
+- **Weight trend chart** — bodyweight over time with a smoothed moving average so daily noise
+  doesn't mislead.
+- **BMI & goal progress** — BMI plus progress toward goal weight, **direction-aware** (works for a
+  cut or a bulk).
+- **Time-to-goal projection** — projects your goal date + weekly rate from your recent trend.
+- **Body-fat tracking**, **measurements** (waist/arms/etc., add/edit/delete + trend charts), and
+  **health markers / vitals & labs** (blood pressure, resting HR, etc.).
+
+*vs other apps:* trend smoothing + a direction-aware goal projection beats MyFitnessPal's raw
+graph and rivals a dedicated app like Happy Scale, while also holding measurements and lab
+markers. **Feature-complete.** Could add: progress photos and a weight-vs-intake overlay.
+
+### 🥗 Nutrition — full macro tracker
+- **Meal logging** — foods into Breakfast/Lunch/Dinner/Snacks with running macro totals.
+- **Macro goals + bars** — calorie/protein/carb/fat targets with progress bars.
+- **Food database + search + "My Foods"** — built-in foods, search, and your saved custom foods.
+- **Barcode lookup** — Open Food Facts lookup (external product names safely escaped).
+- **Beverages** — quick logger (water/coffee/tea/soda/juice) with volume-scaled calories/sodium
+  and hydration weighting.
+- **Water tracking** — daily water with a goal + 14-day chart.
+- **Micronutrients** — fiber/sugar/sodium and micro breakdown.
+- **Meal plans** (build & apply reusable day-plans), **meal prep** (log portions from batches),
+  **recipes** (build + log servings with macro estimation), and **copy yesterday**.
+- **14 diet presets** — High-Protein, Balanced, Keto, Mediterranean, Pescatarian, Vegetarian,
+  Vegan, Paleo, DASH, Low-Carb, Carnivore, Flexitarian, Zone, Endurance-Carb — each with a macro
+  split, science notes, and priority/avoid foods.
+- **Adaptive TDEE** — adjusts your calorie target from your actual weight-change trend, not a
+  static formula.
+- **Intermittent-fasting timer** and **supplement scan** (flags which logged foods cover your
+  tracked supplements, whole-word matched).
+
+*vs other apps:* it matches MyFitnessPal's core logging (DB, barcode, custom foods, meal plans)
+while adding adaptive TDEE, an IF timer, 14 evidence-noted diet presets, and supplement
+cross-referencing — with no ads or premium gate. **Feature-complete** for daily use. The one area
+MFP/Cronometer still lead is raw database/restaurant breadth (this leans on Open Food Facts + your
+own foods); a larger seeded DB or a second food API would close that.
+
+### 🏆 Goals — targets & achievements
+- **Active goals** — goal weight, the **1000 lb-club hero goal**, race countdown, and more — every
+  one computed from *logged* data via dedicated helpers (nothing is pre-awarded).
+- **Achievements** — ~35 achievements across weight, strength, the 1000-lb club, running,
+  consistency, and schedule, each unlocked by a real test against your history.
+- **Upcoming milestones** — the next thresholds you're approaching.
+
+*vs other apps:* honest gamification — achievements derive strictly from logged performance, and
+the headline goal ties to your big-3 PRs. **Feature-complete.** Could add user-defined custom
+goals and a shareable achievement card.
+
+### 📈 Progress — analytics (six tabs)
+- **Activity** — all-time summary, a 12-week workout-calendar heatmap, workout-type breakdown
+  (60 days), workout frequency (8 weeks), weekly workout time, longest streak, and an 80/20
+  intensity-vs-time split.
+- **Strength** — strength standards vs bodyweight, a lift-ratio "health check" (imbalances),
+  predicted-1RM milestones, **Wilks/DOTS** with an info modal, volume by muscle group and by split
+  type (30 days), per-exercise progression charts, "ready to progress" suggestions, and **plateau
+  detection**.
+- **Body** — bodyweight trend, measurement trends, and a training-vs-weight correlation.
+- **Nutrition** — calorie-vs-target, protein-vs-goal, and water charts, plus weekly macro averages.
+- **Marathon** — weekly mileage, pace trend, long-run progression, week-by-week compliance.
+- **Recovery** — recovery-score trend (14 days), energy/soreness trends, sleep hours/quality
+  charts, and a muscle-recovery (48/72 h) map.
+
+*vs other apps:* Wilks/DOTS, lift-ratio analysis, plateau detection, muscle-recovery mapping, and
+an 80/20 audit are powerlifting/coach-grade analytics rarely bundled into a consumer app — and
+they span lifting, running, nutrition, and recovery in one place. **Feature-complete**, and the
+app's analytical strength. Charts are lightweight/custom-drawn; future polish could add
+date-range pickers and per-chart export (some CSV exports already live in Settings).
+
+### 🗂️ History — your logbook
+- **Chronological log** — every saved gym + run session, grouped by month.
+- **Session detail** — the full breakdown per entry: exercises, sets/weights/reps, set types,
+  cardio, duration, calories, PRs, rating, and notes.
+- **Edit/delete** — delete a session; PRs and streaks are **recomputed** so stats stay correct.
+- **Gym / run / "both" days** — a lift and a run on the same day are shown distinctly.
+
+*vs other apps:* a solid logbook, with the nice touch that deletions correctly recompute
+PRs/streaks (many apps leave stale records). **Feature-complete.** Could add inline editing of a
+past session's sets (currently delete/re-log) and search/filter by exercise.
+
+### Settings & platform (cross-cutting)
+Reachable from the gear icon: **profile** (height/age/goal weight/activity), **weight units**,
+**default intensity**, all the engine **toggles** (auto-rotate, auto-superset, warm-ups,
+auto-timer, smart notes, run mode, net-carbs, adaptive TDEE), **reminders** with a master switch,
+an **app-lock PIN**, **light/dark theme**, the optional **AI Exercise Guides** key field,
+**JSON export/import**, **CSV exports** (weights/nutrition/workouts/runs/health), a **printable
+report**, **NAS (Tailscale) backup**, and **reset**. The app installs as a home-screen PWA and
+runs **fully offline** once cached.
+
+### Overall — feature-completeness & how it compares
+**The app is functionally feature-complete for daily use.** Every page works, it's been verified
+across the full workout-generation matrix, and it's been hardened over multiple review passes. Its
+real edge over mainstream apps is **integration and intelligence**: it generates and periodizes
+training, models your specific gym, and unifies lifting + running + nutrition + recovery +
+analytics with no subscription, ads, or account — every metric from your own data.
+
+Where dedicated apps still lead, by design:
+- **No live GPS/HR capture** — running is manual-log + analysis, not tracking (a future GPX import
+  is the bridge).
+- **Food-database breadth** trails MyFitnessPal/Cronometer (relies on Open Food Facts + your foods).
+- **No multi-device sync** — data is per-device `localStorage`; JSON export/import + NAS backup is
+  the deliberate, private alternative.
+
+The smaller, optional enhancements noted per page (custom goals, progress photos, drag-and-drop
+calendar, per-chart date ranges, inline history edits, GPX import) are the natural next iterations —
+none are blockers to daily use.
 
 ---
 
