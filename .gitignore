@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+
+# Internal dev/planning notes — not part of the shipped app
+HANDOFF.md
+NEXT-STEPS.md
+
+# Never commit a real API key or local config
+*.key
+config.local.js
+
+# Local-only Anthropic key (preserved for pasting into Settings; never commit)
+ANTHROPIC_KEY_LOCAL.txt
+ANTHROPIC_KEY_LOCAL_README.txt
