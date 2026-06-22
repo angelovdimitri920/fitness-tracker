@@ -308,10 +308,13 @@ none are blockers to daily use.
 | `sw.js` | Service worker — offline caching + "new version" update banner. Bump `CACHE_VERSION` on each deploy. |
 | `manifest.json` | PWA manifest (name, icons, theme, `start_url`). |
 | `icon-192.png`, `icon-512.png` | Home-screen / install icons. |
-| `README.md` | This file. |
+| `README.md` | This file — overview + per-page features + iPhone/Tailscale setup. |
+| `CLAUDE.md` | Architecture, work/research done, conventions for future changes. |
+| `docs/CONTROLS.md` | Per-control reference: every control → the function that powers it. |
 
-All five files must be served **together from the same folder** for the PWA (offline + install)
-to work.
+The five **app** files (`pf_workout_tracker.html`, `sw.js`, `manifest.json`, and the two icons)
+must be served **together from the same folder** for the PWA (offline + install) to work; the
+Markdown docs are reference-only.
 
 ---
 
