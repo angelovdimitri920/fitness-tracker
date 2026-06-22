@@ -309,6 +309,7 @@ none are blockers to daily use.
 | `manifest.json` | PWA manifest (name, icons, theme, `start_url`). |
 | `icon-192.png`, `icon-512.png` | Home-screen / install icons. |
 | `README.md` | This file — overview + per-page features + iPhone/Tailscale setup. |
+| `HANDOFF-CLAUDE.md` | Pick-up handoff: current status, how to resume features, how to deploy to a phone. |
 | `CLAUDE.md` | Architecture, work/research done, conventions for future changes. |
 | `docs/CONTROLS.md` | Per-control reference: every control → the function that powers it. |
 

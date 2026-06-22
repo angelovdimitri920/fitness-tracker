@@ -4,6 +4,9 @@ Context for the developer and for any future [Claude Code](https://claude.com/cl
 session working on this repo. The user-facing overview lives in [`README.md`](README.md); this
 file is the deeper "how it's built, what's been done, what's left."
 
+> **Picking up fresh? Start with [`HANDOFF-CLAUDE.md`](HANDOFF-CLAUDE.md)** — current status, how
+> to resume feature work (with the suggested backlog), and how to get it running on a phone.
+
 ---
 
 ## 1. What this is
