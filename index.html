@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>PF Fitness Tracker</title>
+<link rel="canonical" href="./pf_workout_tracker.html">
+<meta http-equiv="refresh" content="0; url=./pf_workout_tracker.html">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#f5c400">
+<style>
+  html,body{height:100%;margin:0}
+  body{background:#080808;color:#f0f0f0;font-family:system-ui,-apple-system,sans-serif;
+       display:flex;align-items:center;justify-content:center;text-align:center}
+  a{color:#f5c400}
+</style>
+</head>
+<body>
+<!-- The whole app is a single file, pf_workout_tracker.html. This page only exists so the
+     bare directory URL (e.g. https://<user>.github.io/fitness-tracker/) lands on the app
+     instead of a 404. The manifest's start_url still points straight at the app, so an
+     installed home-screen icon never goes through this redirect. -->
+<p>Loading PF Fitness Tracker&hellip;<br><a href="./pf_workout_tracker.html">Continue</a></p>
+<script>location.replace('./pf_workout_tracker.html');</script>
+</body>
+</html>
