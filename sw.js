@@ -16,7 +16,7 @@
    the new worker and shows a "new version ready — Reload" banner.
    ------------------------------------------------------------------ */
 
-const CACHE_VERSION = 'pf-cache-v3';        // <-- bump this string on each deploy
+const CACHE_VERSION = 'pf-cache-v4';        // <-- bump this string on each deploy
 const APP_SHELL = './pf_workout_tracker.html';
 const PRECACHE_URLS = [
   './pf_workout_tracker.html',
