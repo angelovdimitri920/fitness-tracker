@@ -5215,15 +5215,25 @@ function calcWorkoutDuration(intensityParam, tplKey, focusKey){
     return selectWorkoutForDuration(tpl.exercises, intensityParam, fp, recent48, tplKey, getActiveGym()).estMin;
   }catch(e){ return 60; }
 }
+// Range form, so the intensity buttons say the same thing as the estimate line below them.
+function calcWorkoutDurationRange(intensityParam, tplKey, focusKey){
+  try{
+    var tpl=WTPL[tplKey]||WTPL.upper;
+    var fp=FOCUS_META[focusKey||'general']||FOCUS_META.general;
+    var recent48=(typeof getRecentMuscles==='function')?getRecentMuscles(48):{};
+    var sel=selectWorkoutForDuration(tpl.exercises, intensityParam, fp, recent48, tplKey, getActiveGym());
+    return sel.estLowMin+'–'+sel.estHighMin;
+  }catch(e){ return '60–90'; }
+}
 
 // Update the intensity card time labels with calculated durations for the current workout.
 function updateIntensityTimes(k, tplKey){
   try{
     var fk=S.weekFocus||'general';
     ['quick','standard','full'].forEach(function(lvl){
-      var mins=calcWorkoutDuration(lvl,tplKey,fk);
+      var rng=calcWorkoutDurationRange(lvl,tplKey,fk);
       var btn=document.querySelector('#intCard .ibtn[data-int="'+lvl+'"] .itime');
-      if(btn) btn.textContent='~'+mins+' min';
+      if(btn) btn.textContent=rng+' min';
     });
   }catch(e){}
 }
@@ -5474,6 +5484,7 @@ function _renderIntEstLine(k,sel,exs,intensity,pinned,fp,tplKey){
     +'<span style="color:var(--mu)">('+tgt+' min target)</span>'+(pinned?' <span style="color:#a78bfa">· 📋 template</span>':arBadge)
     +'<div style="margin-top:3px;font-size:9px;color:var(--mu)">'+parts+'</div>'
     +'<div style="margin-top:2px;font-size:9px;color:var(--mu)">Moving between machines and loading plates is included. Pauses aren\'t — pause the timer for those.</div>'
+    +'<div style="margin-top:3px;font-size:9px;color:var(--gr);letter-spacing:.3px">🔒 House rule: minimum '+MIN_WORK_SETS+' work sets on every exercise — more is fine, fewer is not.</div>'
     +ssChip;
   iel.setAttribute('data-est-mid',String(mid));
 }
@@ -13237,6 +13248,13 @@ function removeExtraSet(ei, si){
   var sets=sess.gym.exercises[ei].sets;
   if(!sets[si]) return;
   if(sets[si].done){ showToast('Cannot remove a completed set'); return; }
+  // HARD RULE: three work sets minimum, whatever the focus, intensity, weight or reps.
+  // Warm-up sets and drop-set extensions are not work sets and don't count toward it.
+  var workSets=sets.filter(function(s){ return (s.type||'wk')==='wk'; }).length;
+  if((sets[si].type||'wk')==='wk' && workSets<=MIN_WORK_SETS){
+    showToast('⛔ '+MIN_WORK_SETS+' work sets is the minimum on every exercise');
+    return;
+  }
   sets.splice(si, 1);
   saveS();
   buildTodayWorkout();
