@@ -1974,7 +1974,9 @@ canvas{width:100%!important;display:block}
   <div id="spPRList"></div>
 </div>
 </div></div>
-<div class="mo" id="swapModal"><div class="md"><div class="mh"></div><button class="mc" onclick="closeModal('swapModal')">✕</button><div class="mt">🔄 SWAP EXERCISE</div><div style="font-size:12px;color:var(--mu);margin-bottom:12px" id="swapHint"></div><div id="swapList"></div></div></div>
+<div class="mo" id="swapModal"><div class="md"><div class="mh"></div><button class="mc" onclick="closeModal('swapModal')">✕</button><div class="mt">🔄 SWAP EXERCISE</div><div style="font-size:12px;color:var(--mu);margin-bottom:8px" id="swapHint"></div>
+<input id="swapFilter" type="search" class="ex-note-inp" placeholder="Search alternatives…" oninput="renderSwapList(this.value)" style="width:100%;padding:9px 11px;font-size:13px;margin-bottom:10px">
+<div id="swapList"></div></div></div>
 
 <div class="mo" id="intervalTimerModal"><div class="md"><div class="mh"></div><button class="mc" onclick="ivtReset(true);closeModal('intervalTimerModal')">✕</button><div class="mt">⏱️ INTERVAL TIMER</div>
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -6700,9 +6702,147 @@ function bcLog(){
   saveS(); bcClose(); buildNutritionPage();
   showToast('✓ '+_bcProduct.n+' logged');
 }
-function openSwap(idx,name){var g=getMG(name);if(!g){showToast('No alternatives found');return;}var gym=getActiveGym();var _swapK=dKey(vDate);var _usedExNames={};(getRenderedExList(_swapK)||[]).forEach(function(e,i){if(i!==idx&&e&&e.n)_usedExNames[e.n]=1;});var list=(ELIB[g]||[]).filter(function(e){return e.n!==name&&!_usedExNames[e.n]&&isExerciseAvailable(e.n,gym.equipment)&&isExerciseUserEnabled(e.n);});el('swapHint').textContent='Targeting: '+g.toUpperCase()+' · '+list.length+' alternatives';var html=list.map(function(e,li){return '<div class="sopt" data-ei="'+idx+'" data-n="'+li+'" onclick="doSwapIdx('+idx+','+li+')"><div class="sname">'+e.n+'</div><div class="starget">'+e.t+'</div></div>';}).join('');html+='<div class="sopt" style="background:var(--bg)" onclick="undoSwap('+idx+')"><div class="sname" style="color:var(--mu)">\u21a9\ufe0f Reset to Original</div></div>';el('swapList').innerHTML=html;el('swapList')._list=list;openModal('swapModal');}
+
+// ═══════════════════════════════════════════════════════════════════
+// ONE-LINE EXERCISE BLURBS (for pickers)
+// ═══════════════════════════════════════════════════════════════════
+// The swap list used to show only the target-muscle string, which for a list of
+// forty alternatives says very little about what each movement actually is. These
+// produce "Horizontal pull — lats, mid traps, rhomboids" from the movement pattern
+// plus the primary muscles already recorded in EX_INFO.
+var MOVEMENT_PATTERNS=[
+  {re:/leg extension/i,                                             s:'Quad isolation'},
+  {re:/leg curl|nordic/i,                                           s:'Hamstring isolation'},
+  {re:/calf/i,                                                      s:'Calf raise'},
+  {re:/shrug/i,                                                     s:'Trap isolation'},
+  {re:/pull-?down|pull-?up|chin-?up|pullover/i,                     s:'Vertical pull'},
+  {re:/\brow\b|rows\b/i,                                            s:'Horizontal pull'},
+  {re:/overhead press|shoulder press|push press|military|arnold/i,  s:'Vertical press'},
+  {re:/bench press|chest press|floor press|incline press|decline press|supine press|push-?up/i, s:'Horizontal press'},
+  {re:/lateral raise|front raise|rear delt|reverse fly|face pull|upright row/i, s:'Shoulder isolation'},
+  {re:/\bfly\b|flye|pec deck|crossover/i,                           s:'Chest isolation'},
+  {re:/deadlift|romanian|\brdl\b|good morning|hip thrust|glute bridge|hyperextension|back extension/i, s:'Hip hinge'},
+  {re:/abduct|adduct|kickback|glute (machine|trainer)/i,            s:'Hip isolation'},
+  {re:/squat|leg press|hack|lunge|step-?up|sissy|pistol/i,          s:'Knee-dominant leg'},
+  {re:/tricep|skull|push-?down|press-?down|\bdips?\b|kickback/i,    s:'Elbow extension'},
+  {re:/\bcurl\b/i,                                                  s:'Elbow flexion'},
+  {re:/crunch|sit-?up|\bplank\b|pallof|wood ?chop|rotary torso|leg raise|dead bug|russian twist|\bab\b|abdominal|oblique|hollow/i, s:'Core'},
+  {re:/carry|farmer|sled|prowler|battle rope|slam|throw|jump|clean|snatch|thruster|burpee/i, s:'Power / conditioning'},
+  {re:/stretch|mobility|foam roll/i,                                s:'Mobility'}
+];
+function movementPattern(name){
+  for(var i=0;i<MOVEMENT_PATTERNS.length;i++){ if(MOVEMENT_PATTERNS[i].re.test(name)) return MOVEMENT_PATTERNS[i].s; }
+  return '';
+}
+// "Primary: Lats, Middle Trapezius. Secondary: Biceps." → "lats, middle trapezius"
+function _primaryMuscles(info){
+  var m=(info&&info.muscles)||'';
+  var pm=/primary\s*:\s*([^.]+)/i.exec(m);
+  var txt=pm?pm[1]:m.split('.')[0];
+  txt=String(txt||'').replace(/\s+/g,' ').trim().toLowerCase();
+  var parts=txt.split(/\s*,\s*/).filter(Boolean).slice(0,3);
+  return parts.join(', ');
+}
+// Within one muscle group most alternatives share the same primary muscles, so the
+// pattern alone doesn't help you choose. The modality (and whether it is one limb at a
+// time) is what actually distinguishes them.
+var MODALITY_TAGS=[
+  {re:/smith machine/i, s:'Smith'},
+  {re:/plate-?loaded/i, s:'plate-loaded'},
+  {re:/\bcable\b|crossover|pulley/i, s:'cable'},
+  {re:/\bmachine\b|pec deck/i, s:'machine'},
+  {re:/\bbarbell\b|\bez[- ]?bar|trap bar|landmine/i, s:'barbell'},
+  {re:/dumbbell/i, s:'dumbbell'},
+  {re:/kettlebell/i, s:'kettlebell'},
+  {re:/\bbands?\b|resistance band/i, s:'band'},
+  {re:/\btrx\b|suspension/i, s:'TRX'},
+  {re:/medicine ball|\bball\b/i, s:'med ball'},
+  {re:/push-?up|pull-?up|chin-?up|\bdips?\b|plank|bodyweight|hanging|sit-?up|crunch/i, s:'bodyweight'}
+];
+function _modality(name){
+  for(var i=0;i<MODALITY_TAGS.length;i++){ if(MODALITY_TAGS[i].re.test(name)) return MODALITY_TAGS[i].s; }
+  return '';
+}
+var _blurbCache={};
+function exerciseBlurb(name, fallbackTarget){
+  if(_blurbCache[name]!==undefined) return _blurbCache[name];
+  var out='';
+  try{
+    var info=getExInfo(name);
+    var pat=movementPattern(name);
+    var mus=_primaryMuscles(info);
+    if(pat&&mus) out=pat+' — '+mus;
+    else if(mus) out='Trains '+mus;
+    else if(pat) out=pat;
+    var tags=[];
+    var mod=_modality(name); if(mod) tags.push(mod);
+    if(/single-?arm|single-?leg|one-?arm|one-?leg|unilateral|split squat|lunge|bulgarian|pistol|alternating/i.test(name)) tags.push('one side at a time');
+    if(tags.length) out=(out?out+' · ':'')+tags.join(' · ');
+  }catch(e){}
+  if(!out) out=fallbackTarget||'';
+  _blurbCache[name]=out;
+  return out;
+}
+
+// Replacement picker. Listed A→Z (it used to come out in library order, which is
+// effectively random when you are scanning forty options on a phone) with a one-line
+// explanation of what each movement is, plus a search box because some muscle groups
+// have a hundred alternatives.
+function openSwap(idx,name){
+  var g=getMG(name);
+  if(!g){showToast('No alternatives found');return;}
+  var gym=getActiveGym();
+  var _swapK=dKey(vDate);
+  var _usedExNames={};
+  (getRenderedExList(_swapK)||[]).forEach(function(e,i){if(i!==idx&&e&&e.n)_usedExNames[e.n]=1;});
+  var list=(ELIB[g]||[]).filter(function(e){
+    return e.n!==name && !_usedExNames[e.n] && isExerciseAvailable(e.n,gym.equipment) && isExerciseUserEnabled(e.n);
+  }).sort(function(a,b){ return a.n.localeCompare(b.n,undefined,{sensitivity:'base'}); });
+  el('swapHint').textContent='Targeting: '+g.toUpperCase()+' · '+list.length+' alternatives · A→Z';
+  el('swapList')._list=list;
+  el('swapList')._idx=idx;
+  renderSwapList('');
+  var sf=el('swapFilter'); if(sf){ sf.value=''; }
+  openModal('swapModal');
+}
+// Renders (or re-renders, on search) the alternatives list.
+function renderSwapList(q){
+  var listEl=el('swapList'); if(!listEl) return;
+  var list=listEl._list||[], idx=listEl._idx;
+  q=String(q||'').trim().toLowerCase();
+  var shown=q?list.filter(function(e){
+    return e.n.toLowerCase().indexOf(q)>=0 || (e.t||'').toLowerCase().indexOf(q)>=0;
+  }):list;
+  var html=shown.map(function(e){
+    var li=list.indexOf(e);
+    var blurb=exerciseBlurb(e.n,e.t);
+    var base=getBaseWeight(e.n);
+    var baseTag=base>0?'<span style="color:var(--ye);font-family:\'DM Mono\',monospace;font-size:9px"> · starts at '+toDisplayWeight(base)+' '+getWeightUnit()+'</span>':'';
+    return '<div class="sopt" data-ei="'+idx+'" data-n="'+li+'" onclick="doSwapIdx('+idx+','+li+')">'
+      +'<div class="sname">'+escapeHtml(e.n)+'</div>'
+      +'<div class="starget">'+escapeHtml(blurb)+baseTag+'</div>'
+      +'</div>';
+  }).join('');
+  if(!shown.length) html='<div style="padding:16px;text-align:center;font-size:12px;color:var(--mu)">Nothing matches “'+escapeHtml(q)+'”.</div>';
+  html+='<div class="sopt" style="background:var(--bg)" onclick="undoSwap('+idx+')"><div class="sname" style="color:var(--mu)">↩️ Reset to Original</div></div>';
+  listEl.innerHTML=html;
+}
 function doSwapIdx(ei,li){var listEl=el('swapList'),list=listEl._list||[];var e=list[li];if(!e)return;doSwap(ei,e.n,e.t);}
-function doSwap(idx,name,target){var k=dKey(vDate),tpl=WTPL[getEffTpl(k)],it=S.sessions[k].gym.intensity||'standard',exs=tpl.exercises.slice();if(it==='quick')exs=exs.filter(function(e){return e.p<=1;});else if(it==='standard')exs=exs.filter(function(e){return e.p<=2;});if((S.weekFocus||'general')==='power'&&it!=='full'){exs=exs.filter(function(e){return e.p<=1;});}S.swaps[k+':'+idx]=Object.assign({},exs[idx]||{},{n:name,t:target});S.sessions[k].gym.exercises[idx]={sets:[]};saveS();closeModal('swapModal');buildTodayWorkout();showToast('🔄 Swapped!');}
+// Carry over the sets/reps/rest of the exercise being REPLACED. This used to re-derive
+// a filtered template list and read exs[idx] from it — the invariant the rest of the app
+// is careful about — so after the pool-based engine started choosing the day's list, a
+// swap could inherit a completely different exercise's prescription.
+function doSwap(idx,name,target){
+  var k=dKey(vDate);
+  var rendered=getRenderedExList(k)||[];
+  var cur=rendered[idx]||{};
+  S.swaps[k+':'+idx]=Object.assign({},cur,{n:name,t:target});
+  S.sessions[k].gym.exercises[idx]={sets:[]};
+  saveS();
+  closeModal('swapModal');
+  buildTodayWorkout();
+  showToast('🔄 Swapped to '+name);
+}
 function undoSwap(idx){var k=dKey(vDate);delete S.swaps[k+':'+idx];S.sessions[k].gym.exercises[idx]={sets:[]};saveS();closeModal('swapModal');buildTodayWorkout();showToast('↩️ Reset');}
 function checkVolAlert(k,dow){var alertEl=el('volAlert');if(!alertEl||cMode!=='gym')return;var tplKey=getEffTpl(k),focus=(WTPL[tplKey]||{}).focus;var lastSame=S.history.filter(function(h){return h.type==='gym'&&h.focus===focus&&h.split===tplKey;}).slice(-1)[0];if(!lastSame){alertEl.innerHTML='';return;}var gymSess=S.sessions[k]&&S.sessions[k].gym,curr=gymSess?Object.values(gymSess.exercises||{}).reduce(function(a,ex){return a+(ex.sets||[]).filter(function(s){return s.done;}).reduce(function(b,s){return b+(parseFloat(s.weight)||0)*(parseFloat(s.reps)||0);},0);},0):0;if(!curr){alertEl.innerHTML='';return;}var diff=curr-(lastSame.volume||0);var _wuVA=getWeightUnit(),_diffD2=toDisplayWeight(Math.abs(diff));if(diff>0)alertEl.innerHTML='<div class="alert alert-up">📈 Up '+toDisplayWeight(Math.round(diff))+' '+_wuVA+' vs last '+focus+'!</div>';else if(diff<-50)alertEl.innerHTML='<div class="alert alert-dn">📉 Volume down '+Math.round(_diffD2)+' '+_wuVA+' vs last session.</div>';else alertEl.innerHTML='';}
 function updateStats(){
@@ -23133,7 +23273,23 @@ var EX_INFO_DEFAULT = {
   videoSearch:null
 };
 
+// 92 of the entries in EX_INFO carry their coaching note as a `tips` array rather than
+// a `cues` string — including staples like Cable Low Row, Hip Thrust Machine and Plank.
+// Every renderer reads `.cues`, so those exercises showed an empty (or literally
+// "undefined") Coaching Cue box: the missing "quick notes" on some workouts. This
+// normalises both directions once, at the single point every card goes through.
+function _normalizeExInfo(info){
+  if(!info) return info;
+  if(!info.cues && info.tips && info.tips.length) {
+    return Object.assign({}, info, {cues: info.tips.join(' ')});
+  }
+  if(!info.cues) return Object.assign({}, info, {cues: EX_INFO_DEFAULT.cues});
+  return info;
+}
 function getExInfo(name){
+  return _normalizeExInfo(_getExInfoRaw(name));
+}
+function _getExInfoRaw(name){
   if(S.customExInfo&&S.customExInfo[name]) return S.customExInfo[name];
   if(EX_INFO[name]) return EX_INFO[name];
   // New canonical name → look up legacy EX_INFO key
@@ -26356,6 +26512,14 @@ function openExInfo(exName){
       '<div style="font-size:9px;color:#a78bfa;letter-spacing:1px;margin-bottom:5px;text-transform:uppercase">🧠 Coaching Cue</div>'+
       '<div style="font-size:12px;color:#ccc;line-height:1.6;font-style:italic">'+info.cues+'</div>'+
     '</div>'+
+    // Entries that carry a separate tips list get it shown as well, rather than only
+    // having its first line folded into the cue.
+    ((info.tips&&info.tips.length)
+      ?'<div style="background:rgba(245,196,0,.05);border:1px solid rgba(245,196,0,.15);border-radius:8px;padding:11px;margin-bottom:10px">'+
+        '<div style="font-size:9px;color:var(--ye);letter-spacing:1px;margin-bottom:6px;text-transform:uppercase">💡 Tips</div>'+
+        info.tips.map(function(t){return '<div style="display:flex;gap:6px;margin-bottom:5px"><div style="color:var(--ye);flex-shrink:0">▸</div><div style="font-size:12px;color:#ccc;line-height:1.5">'+t+'</div></div>';}).join('')+
+       '</div>'
+      :'')+
     '<a href="'+ytUrl+'" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:8px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.25);border-radius:8px;padding:11px;text-decoration:none;color:var(--re)">'+
       '<span style="font-size:1.1rem">▶️</span>'+
       '<span style="font-size:10px;letter-spacing:1px">WATCH VIDEO DEMO ON YOUTUBE</span>'+
@@ -26408,7 +26572,7 @@ function openExInfo(exName){
     content += '<div style="font-size:10px;color:var(--mu);margin-bottom:8px;line-height:1.4">Same muscle group focus — swap or pair with these:</div>';
     content += '<div style="display:flex;flex-direction:column;gap:4px">';
     relatedExercises.forEach(function(ex){
-      content += '<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 8px;background:var(--s3);border-radius:6px;cursor:pointer" onclick="closeModal(\'exInfoModal\');setTimeout(function(){openExInfo(\''+ex.n.replace(/'/g,"\\'")+'\')}},50)">';
+      content += '<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 8px;background:var(--s3);border-radius:6px;cursor:pointer" onclick="closeModal(\'exInfoModal\');setTimeout(function(){openExInfo(\''+ex.n.replace(/'/g,"\\'")+'\')},50)">';
       content += '<span style="font-size:11px;color:#fff">'+ex.n+'</span>';
       content += '<span style="font-size:9px;color:var(--mu);font-family:\'DM Mono\',monospace">'+ex.t+'</span>';
       content += '</div>';
@@ -27168,14 +27332,14 @@ function onExDrop(e, targetRenderPos){
 // ═══════════════════════════════════════════════════════════════
 // ── Split (workout-day) info modals ────────────────────────────────
 var SPLIT_INFO={
-  upper:{bestFor:'Upper/lower & 4-day splits',freq:'1–2×/week',desc:'Trains every pushing and pulling muscle of the upper body in one session — chest, back, shoulders, and arms. Pairs with a Lower day for a balanced 4-day week.'},
-  lower:{bestFor:'Upper/lower & 4-day splits',freq:'1–2×/week',desc:'Hits the entire lower body — quads, hamstrings, glutes, and calves — with heavy compound work up front. The counterpart to Upper day.'},
-  fullbody:{bestFor:'2–3 day/week training',freq:'2–3×/week',desc:'One session that touches every major muscle group plus core. Ideal when you train only 2–3 days a week or want high weekly frequency per muscle.'},
-  glutes:{bestFor:'Glute/leg specialization',freq:'1×/week',desc:'A posterior-chain and glute hypertrophy focus — deadlifts, hip thrusts, hack squats and direct glute work. Great as a dedicated lower-body specialization day.'},
-  arms:{bestFor:'Shoulders & arm focus',freq:'1×/week',desc:'Shoulders plus biceps and triceps with a cardio finisher. A good accessory/“pump” day or a 5th day in a body-part split.'},
-  push:{bestFor:'Push/Pull/Legs (PPL)',freq:'1–2×/week',desc:'The “push” of a PPL split — all the pressing muscles: chest, shoulders, and triceps. Run it 1–2× per week opposite Pull and Legs.'},
-  pull:{bestFor:'Push/Pull/Legs (PPL)',freq:'1–2×/week',desc:'The “pull” of a PPL split — back and biceps. Vertical and horizontal pulling plus direct arm work. Pairs with Push and Legs.'},
-  core:{bestFor:'Add-on / dedicated core',freq:'1–2×/week',desc:'Direct abdominal, oblique, and lower-back/stability work. Use as a short standalone day or bolt onto the end of another session.'}
+  upper:{short:'Chest, back, shoulders and arms in one session.',bestFor:'Upper/lower & 4-day splits',freq:'1–2×/week',desc:'Trains every pushing and pulling muscle of the upper body in one session — chest, back, shoulders, and arms. Pairs with a Lower day for a balanced 4-day week.'},
+  lower:{short:'Quads, hamstrings, glutes and calves, heavy work first.',bestFor:'Upper/lower & 4-day splits',freq:'1–2×/week',desc:'Hits the entire lower body — quads, hamstrings, glutes, and calves — with heavy compound work up front. The counterpart to Upper day.'},
+  fullbody:{short:'Every major muscle group plus core in one go.',bestFor:'2–3 day/week training',freq:'2–3×/week',desc:'One session that touches every major muscle group plus core. Ideal when you train only 2–3 days a week or want high weekly frequency per muscle.'},
+  glutes:{short:'Posterior chain: deadlifts, hip thrusts and direct glute work.',bestFor:'Glute/leg specialization',freq:'1×/week',desc:'A posterior-chain and glute hypertrophy focus — deadlifts, hip thrusts, hack squats and direct glute work. Great as a dedicated lower-body specialization day.'},
+  arms:{short:'Shoulders, biceps and triceps — the accessory / pump day.',bestFor:'Shoulders & arm focus',freq:'1×/week',desc:'Shoulders plus biceps and triceps with a cardio finisher. A good accessory/“pump” day or a 5th day in a body-part split.'},
+  push:{short:'All the pressing muscles: chest, shoulders, triceps.',bestFor:'Push/Pull/Legs (PPL)',freq:'1–2×/week',desc:'The “push” of a PPL split — all the pressing muscles: chest, shoulders, and triceps. Run it 1–2× per week opposite Pull and Legs.'},
+  pull:{short:'All the pulling muscles: back and biceps.',bestFor:'Push/Pull/Legs (PPL)',freq:'1–2×/week',desc:'The “pull” of a PPL split — back and biceps. Vertical and horizontal pulling plus direct arm work. Pairs with Push and Legs.'},
+  core:{short:'Abs, obliques and lower back — short standalone or bolt-on.',bestFor:'Add-on / dedicated core',freq:'1–2×/week',desc:'Direct abdominal, oblique, and lower-back/stability work. Use as a short standalone day or bolt onto the end of another session.'}
 };
 function openSplitInfo(key){
   var tpl=WTPL[key]; if(!tpl) return;
@@ -27313,7 +27477,13 @@ function openSplitSwitcher(){
     return splitOverlapScore(a)-splitOverlapScore(b);
   })[0];
 
-  var html=sorted.map(function(s){
+  // Listed A→Z by name so the same workout is always in the same place, with a one-line
+  // explanation of what each one is. Recency/overlap still drive the ✓ Recommended badge
+  // and the overlap warning — they just no longer reshuffle the list under your thumb.
+  var alpha=allSplits.slice().sort(function(a,b){
+    return (WTPL[a]?WTPL[a].focus:a).localeCompare(WTPL[b]?WTPL[b].focus:b,undefined,{sensitivity:'base'});
+  });
+  var html=alpha.map(function(s){
     var tpl=WTPL[s]; if(!tpl) return '';
     var isCurrent=s===currentSplit;
     var isRec=s===recommended&&!isCurrent;
@@ -27323,11 +27493,13 @@ function openSplitSwitcher(){
     var doneNote=recentCount>0?'<span style="font-size:9px;color:var(--mu);margin-left:4px">·'+recentCount+'x this week</span>':'';
     var overlapS=splitOverlapScore(s);
     var overlapNote=overlapS>=3?'<span style="font-size:9px;color:var(--or)"> · ⚠ overlap</span>':overlapS>=1?'<span style="font-size:9px;color:var(--ye)"> · moderate overlap</span>':'';
+    var si=(typeof SPLIT_INFO!=='undefined'&&SPLIT_INFO[s])||{};
+    var blurb=si.short||tpl.exercises.slice(0,3).map(function(e){return e.n.split(' ').slice(0,2).join(' ');}).join(' · ');
     return '<div class="'+cls+'" onclick="confirmSplitSwitch(\''+s+'\')'+(isCurrent?';return':'')+'">'
       +'<div class="split-opt-name" style="display:flex;align-items:center;justify-content:space-between;gap:8px"><span>'+tpl.focus+recNote+(isCurrent?' <span style="font-size:9px;color:var(--mu)">(current)</span>':'')+'</span>'
       +'<button onclick="event.stopPropagation();openSplitInfo(\''+s+'\')" title="What is this split?" style="flex-shrink:0;width:26px;height:26px;border-radius:7px;border:1px solid var(--b2);background:var(--s3);color:#94a3b8;font-size:12px;cursor:pointer">ℹ️</button></div>'
-      +'<div class="split-opt-sub">'+tpl.exercises.slice(0,3).map(function(e){return e.n.split(' ').slice(0,2).join(' ');}).join(' · ')+'</div>'
-      +'<div style="font-size:9px;color:var(--mu);margin-top:3px">'+doneNote+overlapNote+'</div>'
+      +'<div class="split-opt-sub">'+escapeHtml(blurb)+'</div>'
+      +'<div style="font-size:9px;color:var(--mu);margin-top:3px">'+(si.bestFor?'<span style="color:#64748b">Best for '+escapeHtml(si.bestFor)+'</span>':'')+doneNote+overlapNote+'</div>'
       +'</div>';
   }).join('');
 
