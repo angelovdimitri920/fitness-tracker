@@ -4113,7 +4113,21 @@ var TYPES={
 return TYPES[name]||'machine';
 }
 
+// Wrapper: whatever the progression logic below arrives at, a suggestion can never be
+// lighter than the equipment's own starting weight. Estimating 40 lb for a leg press
+// whose sled already weighs 160 lb is not a suggestion, it is a wrong number.
 function getProgression(exName, targetReps, targetSets, weightMult){
+  var res=_getProgressionRaw(exName, targetReps, targetSets, weightMult);
+  try{
+    var base=getBaseWeight(exName);
+    if(base>0&&res&&res.weight!=null&&res.weight<base){
+      res.weight=base;
+      if(res.badge==='est') res.msg='starts at '+toDisplayWeight(base)+' '+getWeightUnit();
+    }
+  }catch(e){}
+  return res;
+}
+function _getProgressionRaw(exName, targetReps, targetSets, weightMult){
 // Active strength program drives its main lifts (top working set headline; per-set ramp
 // is applied in the set renderer). Accessories fall through to focus-based progression.
 var _ap=getActiveProgramFor(exName);
@@ -4536,6 +4550,10 @@ function rehydrateCustomCatalogues(){
 
 function migrateState(){
 if(!S.profile)S.profile={name:'',heightIn:72,goalWeight:185,age:null};
+// Pre-loaded ("starts at") weights the user has measured on their own machines, and
+// which exercises they log as "+plates" rather than as a total.
+if(!S.baseWeights)S.baseWeights={};
+if(!S.weightEntry)S.weightEntry={};
 if(!S.planView)S.planView='week';
 if(S.planOffset===undefined)S.planOffset=0;
 if(!S.weekFocus||S.weekFocus==='auto')S.weekFocus='general';
@@ -5760,7 +5778,7 @@ if(_apEx){
 
 var fprog3=FOCUS_PROGRESSION[S.weekFocus||'general']||FOCUS_PROGRESSION.general;
 var isComp=isCompound(ex.n), progW=prog.weight||0;
-var warmups=(isComp&&progW&&(S.prefs?S.prefs.showWarmups!==false:true))?getWarmupSets(progW):[];
+var warmups=(isComp&&progW&&(S.prefs?S.prefs.showWarmups!==false:true))?getWarmupSets(progW,ex.n):[];
 var _lastSessLine='';
 var _lsData=getLastExSessionSets(ex.n);
 if(_lsData&&_lsData.sets&&_lsData.sets.length){
@@ -5776,13 +5794,18 @@ if(_lsData&&_lsData.sets&&_lsData.sets.length){
       +'</div>';
   }
 }
-var sH='<div class="sgrid" style="grid-template-columns:20px 50px 1fr 1fr 55px 28px"><div class="sh">#</div><div class="sh">TYPE</div><div class="sh">'+getWeightUnit().toUpperCase()+'</div><div class="sh">REPS</div><div class="sh">PREV</div><div class="sh">✓</div>';
+// The weight column header follows the entry mode, so a "+plates" card reads
+// consistently from the header down rather than mixing totals and added weight.
+var _cardAddedMode=(!noWeight&&getBaseWeight(ex.n)>0&&getWeightEntryMode(ex.n)==='added');
+var _cardBase=_cardAddedMode?getBaseWeight(ex.n):0;
+var sH='<div class="sgrid" style="grid-template-columns:20px 50px 1fr 1fr 55px 28px"><div class="sh">#</div><div class="sh">TYPE</div><div class="sh">'+(_cardAddedMode?'+'+getWeightUnit().toUpperCase():getWeightUnit().toUpperCase())+'</div><div class="sh">REPS</div><div class="sh">PREV</div><div class="sh">✓</div>';
 // Warmup rows
 warmups.forEach(function(wu,wi){
 var wuDone=exD.warmups&&exD.warmups[wi];
+var _wuShown=_cardAddedMode?Math.max(0,wu.weight-_cardBase):wu.weight;
 sH+='<div class="snum" style="color:#94a3b8">'+(wi+1)+'</div>'+
 '<div onclick="openSetTypeInfo(\'wu\')" style="cursor:pointer"><select class="stype wu" disabled style="pointer-events:none"><option>Warm-Up</option></select></div>'+
-'<input class="sinp" type="number" value="'+toDisplayWeight(wu.weight)+'" style="opacity:.55" readonly>'+
+'<input class="sinp" type="number" value="'+toDisplayWeight(_wuShown)+'" title="'+toDisplayWeight(wu.weight)+' '+getWeightUnit()+' total" style="opacity:.55" readonly>'+
 '<input class="sinp" type="number" value="'+wu.reps+'" style="opacity:.55" readonly>'+
 '<div class="sprev" style="color:#94a3b8">'+wu.label+'</div>'+
 '<button class="sdone '+(wuDone?'chk':'')+' wu-check" onclick="toggleWarmup('+ei+','+wi+',this)" style="width:26px;height:26px;border-radius:50%;border:2px solid '+(wuDone?'var(--gr)':'#334155')+';background:'+(wuDone?'var(--gr)':'none')+';cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;color:'+(wuDone?'#fff':'transparent')+'">✓</button>';
@@ -5829,6 +5852,16 @@ if(set.done){
   if(set.weight && !noWeight){displayW=String(toDisplayWeight(parseFloat(set.weight)||0)||'');}
   if(_isAdv && set.reps){displayR=set.reps;}
 }
+// "+plates" entry mode: the input shows only what goes ON the bar/sled, while the
+// value STORED stays the true total (see updateSet / entryToTotalLbs).
+var _exBase=noWeight?0:getBaseWeight(ex.n);
+var _addedMode=(_exBase>0&&getWeightEntryMode(ex.n)==='added');
+var _displayWEntry='';
+if(_addedMode){
+  var _totLbsNow=parseFloat(set.weight)||0;
+  if(!_totLbsNow&&displayW) _totLbsNow=fromDisplayWeight(parseFloat(displayW)||0);
+  _displayWEntry=_totLbsNow>0?String(toDisplayWeight(Math.max(0,_totLbsNow-_exBase))||''):'';
+}
 var prev=getPrevBest(ex.n,s);
 var prevDisp=prev?'<span style="color:var(--gr)">'+prev+'</span>':'-';
 var setType=set.type||'wk';
@@ -5841,7 +5874,7 @@ sH+='<div class="snum">'+(s+1)+'</div>'+
 (_advSuggestEnabled?'<option value="ds"'+(setType==="ds"?' selected':'')+'>Drop Set</option>'+'<option value="fl"'+(setType==="fl"?' selected':'')+'>Failure</option>'+'<option value="rp"'+(setType==="rp"?' selected':'')+'>Rest-Pause</option>':'')+
 '</select>'+
 '</div>'+
-'<input class="sinp" type="number" inputmode="decimal" placeholder="'+(noWeight?'bw':(suggWeight?toDisplayWeight(suggWeight):getWeightUnit()))+'" value="'+displayW+'" oninput="updateSet('+ei+','+s+',\'weight\',this.value)"'+(noWeight?' disabled style="opacity:.4"':'')+'>'+
+'<input class="sinp" type="number" inputmode="decimal" placeholder="'+(noWeight?'bw':(_addedMode?'+plates':(suggWeight?toDisplayWeight(suggWeight):getWeightUnit())))+'" value="'+(_addedMode?_displayWEntry:displayW)+'" oninput="updateSet('+ei+','+s+',\'weight\',this.value)"'+(noWeight?' disabled style="opacity:.4"':'')+'>'+
 repInputHTML+'<div class="sprev">'+prevDisp+'</div>'+
 '<button class="sdone '+(set.done?'chk':'')+'" onclick="toggleSet('+ei+','+s+',this)">✓</button>';
 // AMRAP top set (strength program "+" set) — prompt the user to push & log actual reps
@@ -5856,9 +5889,19 @@ if(set.done && !noWeight && (setType==='wk'||setType==='ds'||setType==='fl'||set
     sH+='<div style="grid-column:3/-1;padding:1px 2px 3px;font-family:\'DM Mono\',monospace;font-size:9px;color:#6366f1;letter-spacing:.5px">Est 1RM: '+toDisplayWeight(_inlineORM)+' '+getWeightUnit()+'</div>';
   }
 }
-// Per-set plate loading hint (Settings → "Plate loading display"; barbell lifts only)
-if(S.prefs&&S.prefs.plateDisplay&&!noWeight&&/barbell/i.test(ex.n)&&set.weight&&parseFloat(set.weight)>45){
-  var _phint=_plateHint(parseFloat(set.weight)||0);
+// "+plates" mode: show the total the typed number resolves to, so the real load is
+// never in doubt.
+if(_addedMode){
+  var _totNow=parseFloat(set.weight)||0;
+  sH+='<div id="totHint_'+ei+'_'+s+'" style="grid-column:3/-1;padding:0 2px 3px;font-family:\'DM Mono\',monospace;font-size:9px;color:#94a3b8;letter-spacing:.3px">'
+    +(_totNow>0?('= <span style="color:var(--ye)">'+toDisplayWeight(_totNow)+' '+getWeightUnit()+'</span> total ('+toDisplayWeight(_exBase)+' base + '+toDisplayWeight(Math.max(0,_totNow-_exBase))+' added)'):'')
+    +'</div>';
+}
+// Per-set plate loading hint (Settings → "Plate loading display"). Now driven by the
+// exercise's real base weight, so a leg press sled or a Smith bar gets a correct
+// per-side breakdown instead of the old hard-coded 45 lb Olympic bar.
+if(S.prefs&&S.prefs.plateDisplay&&!noWeight&&isPlateLoaded(ex.n)&&set.weight&&parseFloat(set.weight)>_exBase){
+  var _phint=plateHintFor(ex.n,parseFloat(set.weight)||0);
   if(_phint) sH+='<div style="grid-column:3/-1;padding:0 2px 3px;font-family:\'DM Mono\',monospace;font-size:9px;color:#94a3b8;letter-spacing:.3px">🏋️ '+_phint+' /side</div>';
 }
 // Remove row for user-added sets beyond template count (skip ds  --  they have their own remove)
@@ -5909,6 +5952,7 @@ html+='<div id="exCard_'+ei+'" class="exrow '+(isSwapped?'swapped':'')+'" data-e
 '<div style="min-width:0;flex:1">'+
 '<div class="exname">'+ex.n+(isSwapped?' <span class="badge bp" style="margin-left:5px">SWAPPED</span>':'')+badgeHtml+'</div>'+(getStrengthNote(ex.n)?'<div style="font-size:10px;color:#f97316;padding:2px 0 0;line-height:1.4">⚠️ '+getStrengthNote(ex.n)+'</div>':'')+
 '<div class="extgt">'+ex.t+' · '+ex.sets+'×'+ex.reps+' · Rest '+ex.rest+'s</div>'+
+_baseWeightChip(ei,ex)+
 suggLine+
 _lastSessLine+'</div></div><div style="display:flex;gap:6px"><button class="ex-info-btn" onclick="openExInfo(\''+ex.n.replace(/'/g,"\\'")+'\')" title="Exercise info">ℹ️</button><button class="ex-info-btn" onclick="openExChart(\''+ex.n.replace(/'/g,"\\'")+'\')" title="Progress chart" style="background:rgba(245,196,0,.1);border-color:rgba(245,196,0,.25);color:var(--ye)">📈</button><button class="swpbtn" onclick="openSwap('+ei+',\''+ex.n.replace(/'/g,"\\'")+'\')">🔄</button>'+
 '<button onclick="openLinkModal('+ei+')" style="background:none;border:none;cursor:pointer;font-size:16px;padding:2px 4px;line-height:1">&#x1F517;</button>'+
@@ -6021,7 +6065,35 @@ if(_savedRun){
   el('cmpFill').style.background='var(--ru)';
 }
 var sess=(S.sessions[k]&&S.sessions[k].run)||{},_runProg=RUN_PROGRAMS[(S.setup&&S.setup.runProgram)||'marathon']||RUN_PROGRAMS.marathon,_progTotal=_runProg.totalWeeks||24,wk=Math.min(_progTotal,Math.max(1,mWeekNum(vDate))),phase=getPhase(wk),tpl=MPLAN.templates[getTK(phase.name)],rdays=S.setup.runDays.slice().sort(function(a,b){return a-b;});var idx=rdays.indexOf(dow);if(idx<0)idx=0;var run=getProgRunForWeek(wk,idx);if(!run)return;el('todaySub').textContent='🏃 '+(_runProg.id==='marathon'?phase.name:_runProg.label)+' · Week '+wk+(_progTotal?' of '+_progTotal:'');var _todayRunIdx=0;_runCards=[{type:run.type,dist:run.dist,desc:run.desc}];if(!S.sessions[k].run)S.sessions[k].run={};var _rs=S.sessions[k].run;el('wContent').innerHTML=(_savedRun?'<div class="card" style="background:rgba(16,185,129,.06);border-color:rgba(16,185,129,.3)"><div style="display:flex;align-items:center;gap:8px"><span style="font-size:1.2rem">✅</span><div><div style="font-size:13px;font-weight:700;color:var(--gr)">Run Logged</div><div style="font-size:11px;color:var(--mu)">'+(_savedRun.distance?_savedRun.distance+' mi · ':'')+(_savedRun.pace?_savedRun.pace+'/mi · ':'')+(_savedRun.status||'completed')+'</div></div><button class="btn btn-g bsm" style="margin-left:auto" onclick="buildTodayWorkout()">Edit</button></div></div>':'')+'<div class="rcard" style="cursor:pointer" onclick="openRunDetailByIdx(0)"><div class="fbet" style="margin-bottom:4px"><div><div class="rtype">'+run.type+' RUN</div><div class="rtitle">'+run.dist+' mile '+run.type.toLowerCase()+' run</div></div><span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--ru);border:1px solid rgba(16,185,129,.3);padding:3px 8px;border-radius:6px">Tap for details ›</span></div><div class="rdesc">'+run.desc+'</div>'+buildPaceTargetChip(run.type)+getLastRunLine(run.type)+'</div>'+buildPreRunStretches(k,run.type)+'<div class="card"><div class="slbl">📊 Log Your Run</div><div class="g2"><div><label>Distance (mi)</label><input type="number" inputmode="decimal" step="0.1" placeholder="'+run.dist+'" value="'+(_rs.distance||'')+'" id="runDistInp" oninput="updateRun(\'distance\',this.value)"></div><div><label>Time (min)</label><input type="number" inputmode="decimal" placeholder="min" value="'+(_rs.duration||'')+'" id="runDurInp" oninput="updateRun(\'duration\',this.value)"></div><div><label>Avg Pace (auto)</label><input type="text" placeholder="auto" value="'+(_rs.pace||'')+'" id="runPaceInp" oninput="updateRun(\'pace\',this.value)"></div><div><label>Avg HR (bpm)</label><input type="number" inputmode="numeric" placeholder="optional" value="'+(_rs.hr||'')+'" oninput="updateRun(\'hr\',this.value)"></div><div><label>Calories (auto)</label><input type="number" inputmode="numeric" id="runCalInp" placeholder="auto" value="'+(_rs.calories||'')+'" oninput="updateRun(\'calories\',this.value)"></div><div><label>Effort 1-10</label><input type="number" inputmode="numeric" placeholder="RPE" min="1" max="10" value="'+(_rs.rpe||'')+'" oninput="updateRun(\'rpe\',this.value)"></div><div><label>Cadence (spm)</label><input type="number" inputmode="numeric" placeholder="175" min="100" max="230" value="'+(_rs.cadence||'')+'" oninput="updateRun(\'cadence\',this.value)"></div><div><label>Elevation (ft)</label><input type="number" inputmode="numeric" placeholder="0" min="0" value="'+(_rs.elevation||'')+'" oninput="updateRun(\'elevation\',this.value)"></div></div><div class="mt12"><label>Notes</label><textarea rows="2" placeholder="How did it feel?" oninput="updateRun(\'notes\',this.value)">'+(_rs.notes||'')+'</textarea></div><div class="mt12"><label>Status</label><select onchange="updateRun(\'status\',this.value)"><option value="">- Select -</option><option value="completed"'+(_rs.status==='completed'?' selected':'')+'>✅ Completed</option><option value="modified"'+(_rs.status==='modified'?' selected':'')+'>📝 Modified</option><option value="skipped"'+(_rs.status==='skipped'?' selected':'')+'>❌ Skipped</option></select></div><div class="mt8"><label>Injury / Issue (optional)</label><select onchange="updateRun(\'injuryTag\',this.value)"><option value=""'+(!_rs.injuryTag?' selected':'')+'>None</option><option value="knee"'+(_rs.injuryTag==='knee'?' selected':'')+'>🦵 Knee</option><option value="itband"'+(_rs.injuryTag==='itband'?' selected':'')+'>⚡ IT Band</option><option value="shin"'+(_rs.injuryTag==='shin'?' selected':'')+'>🦴 Shin Splints</option><option value="hip"'+(_rs.injuryTag==='hip'?' selected':'')+'>🏃 Hip / Glute</option><option value="foot"'+(_rs.injuryTag==='foot'?' selected':'')+'>👟 Foot / Plantar</option><option value="ankle"'+(_rs.injuryTag==='ankle'?' selected':'')+'>🦶 Ankle</option><option value="calf"'+(_rs.injuryTag==='calf'?' selected':'')+'>🦵 Calf</option><option value="illness"'+(_rs.injuryTag==='illness'?' selected':'')+'>🤒 Illness</option><option value="fatigue"'+(_rs.injuryTag==='fatigue'?' selected':'')+'>😴 Fatigue / Overtraining</option></select></div><div class="mt12"><button class="btn btn-p bfw" onclick="saveWorkoutPrompt()">💾 Log Run</button></div></div>'+buildRunSplitSection(S.sessions[k].run)+buildPostRunStretches(k,run.type);}
-function updateSet(ei,si,field,val){var k=dKey(vDate);if(field==='weight'&&val!==''){var _pw=parseFloat(val)||0;if(_pw<0)_pw=0;if(_pw>1500)_pw=1500;val=String(_pw);}var storedVal=(field==='weight'&&val!=='')?String(fromDisplayWeight(parseFloat(val)||0)):val;var _ex=S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.exercises[ei];if(!_ex||!_ex.sets||!_ex.sets[si])return;var _set=_ex.sets[si];_set[field]=storedVal;if(field==='weight')_set.auto=false;if(field==='reps')_set.autoR=false;saveS();updateStats();}
+function updateSet(ei,si,field,val){var k=dKey(vDate);if(field==='weight'&&val!==''){var _pw=parseFloat(val)||0;if(_pw<0)_pw=0;if(_pw>1500)_pw=1500;val=String(_pw);}var storedVal=(field==='weight'&&val!=='')?String(fromDisplayWeight(parseFloat(val)||0)):val;
+// In "+plates" entry mode the number typed is only what was ADDED — fold in the bar or
+// sled weight so what gets STORED is always the true total (every 1RM, volume and PR
+// calculation downstream depends on that).
+if(field==='weight'&&storedVal!==''){
+  try{
+    var _exsW=getRenderedExList(k)||[];
+    var _nW=_exsW[ei]&&_exsW[ei].n;
+    if(_nW) storedVal=String(entryToTotalLbs(_nW,parseFloat(storedVal)||0));
+  }catch(e){}
+}
+var _ex=S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.exercises[ei];if(!_ex||!_ex.sets||!_ex.sets[si])return;var _set=_ex.sets[si];_set[field]=storedVal;if(field==='weight')_set.auto=false;if(field==='reps')_set.autoR=false;saveS();updateStats();
+// Refresh the "= total" readout next to the input without rebuilding the page.
+if(field==='weight'){try{_refreshTotalHint(ei,si);}catch(e){}}
+}
+// Live "= 205 lbs total" caption under an input that is in "+plates" mode.
+function _refreshTotalHint(ei,si){
+  var elh=document.getElementById('totHint_'+ei+'_'+si);
+  if(!elh) return;
+  var k=dKey(vDate);
+  var exs=getRenderedExList(k)||[];
+  var n=exs[ei]&&exs[ei].n; if(!n) return;
+  var set=S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.exercises[ei]&&S.sessions[k].gym.exercises[ei].sets[si];
+  var tot=set?(parseFloat(set.weight)||0):0;
+  var base=getBaseWeight(n);
+  elh.innerHTML=tot>0
+    ?('= <span style="color:var(--ye)">'+toDisplayWeight(tot)+' '+getWeightUnit()+'</span> total ('+toDisplayWeight(base)+' base + '+toDisplayWeight(Math.max(0,tot-base))+' added)')
+    :'';
+}
 function toggleSet(ei,si,btn){
   var k=dKey(vDate);
   var gym=S.sessions[k]&&S.sessions[k].gym;
@@ -6804,8 +6876,10 @@ function toggleSkipExercise(ei){
   saveS(); buildTodayWorkout();
   showToast(exD.skipped?'⊘ Exercise skipped today':'↩ Exercise restored');
 }
-// "2×45 + 1×25 /side" hint for barbell work sets (Olympic 45 lb bar).
-function _plateHint(totalLbs){
+// "2×45 + 1×25 /side" hint. Superseded by plateHintFor(), which uses the exercise's
+// real base weight instead of assuming a 45 lb Olympic bar; kept as a thin alias.
+function _plateHint(totalLbs,exName){
+  if(exName) return plateHintFor(exName,totalLbs);
   var perSide=(totalLbs-45)/2;
   if(perSide<=0) return null;
   var parts=[], rem=perSide;
@@ -12197,6 +12271,180 @@ var PLATE_SIZES = [
   {w:2.5,col:'#a78bfa', label:'2.5'}
 ];
 
+// ═══════════════════════════════════════════════════════════════════
+// BASE (PRE-LOADED) WEIGHT
+// ═══════════════════════════════════════════════════════════════════
+// Plenty of equipment already weighs something before the first plate goes on: an
+// Olympic bar is 45 lb, a plate-loaded leg press sled starts around 160 lb, a Smith
+// machine carriage is counterbalanced down to ~20 lb. Logging "2 plates" as 90 lb
+// under-reports the real load by a lot, and the plate hint was hard-coded to a 45 lb
+// bar for every lift.
+//
+// The number stored on a set is ALWAYS the TOTAL weight in lbs — every 1RM, volume,
+// PR and progression calculation is unchanged. What this adds is:
+//   • a known base weight per exercise (a table + pattern rules + user overrides), and
+//   • an optional "+plates" entry mode that adds the base for you as you type.
+//
+// Every value here is a sensible default and every one is editable per exercise, since
+// sleds and carriages genuinely differ between gyms — tap the base chip on the card.
+
+// Exact, well-known starting weights. lbs.
+var BASE_WEIGHT_EXACT={
+  // Free-weight bars
+  'Olympic Barbells':45,
+  'Fixed Barbells':0,          // the labelled weight IS the total
+  'EZ Curl Bar':25,
+  'Trap Bar / Hex Bar':45,
+  'Safety Squat Bar':65,
+  // Plate-loaded (Hammer-Strength style) — carriage/sled weight before plates
+  'Plate-Loaded Leg Press':160,
+  'Leg Press Machine':160,
+  'Plate-Loaded Hack Squat':95,
+  'Squat / Lunge Machine':70,
+  'Plate-Loaded Incline Press':35,
+  'Plate-Loaded Decline Press':35,
+  'Plate-Loaded Supine Press':35,
+  'Plate-Loaded Shoulder Press':35,
+  'Plate-Loaded Chest Press':35,
+  'Plate-Loaded Seated Row':30,
+  'Plate-Loaded Lat Pull-Down':25,
+  'Plate-Loaded Glute Trainer':40,
+  'Plate-Loaded Standing Calf':60,
+  'Plate-Loaded Seated Calf':25,
+  'Hip Thrust Machine':45,
+  // Smith machines are counterbalanced; the bar is far lighter than an Olympic bar.
+  'Smith Machine':20
+};
+// Pattern rules, applied to the exercise NAME when there is no exact entry. First match
+// wins, so the order matters.
+var BASE_WEIGHT_RULES=[
+  {re:/smith machine/i,            w:20,  why:'Smith machine carriage (counterbalanced)'},
+  {re:/\bez[- ]?bar|ez curl/i,     w:25,  why:'EZ curl bar'},
+  {re:/trap bar|hex bar/i,         w:45,  why:'Trap bar'},
+  {re:/safety squat bar/i,         w:65,  why:'Safety squat bar'},
+  {re:/leg press/i,                w:160, why:'Leg press sled'},
+  {re:/hack squat/i,               w:95,  why:'Hack squat carriage'},
+  {re:/\bbarbell\b|\(barbell\)/i,  w:45,  why:'Olympic bar'},
+  {re:/plate-?loaded/i,            w:35,  why:'Plate-loaded carriage'}
+];
+// Movements that are never pre-loaded, whatever their name suggests — the pin stack or
+// the dumbbell IS the number you read off it.
+// Word boundaries matter here: a bare "chin" also matches ma-CHIN-e, which silently
+// zeroed the base weight of every Smith Machine movement.
+var BASE_WEIGHT_NONE=/dumbbell|cable|\bbands?\b|bodyweight|machine \(adjustable\)|\bpull-?ups?\b|\bchin-?ups?\b|\bdips?\b|\bpush-?ups?\b|\bplank\b|\bcrunch(es)?\b|kettlebell|medicine ball|\btrx\b|landmine|inverted row/i;
+
+// The base weight (lbs) for an exercise: user override first, then the exact table,
+// then the pattern rules, else 0.
+function getBaseWeight(exName){
+  if(!exName) return 0;
+  if(S.baseWeights&&S.baseWeights[exName]!=null) return parseFloat(S.baseWeights[exName])||0;
+  if(BASE_WEIGHT_EXACT[exName]!=null) return BASE_WEIGHT_EXACT[exName];
+  if(BASE_WEIGHT_NONE.test(exName)) return 0;
+  for(var i=0;i<BASE_WEIGHT_RULES.length;i++){
+    if(BASE_WEIGHT_RULES[i].re.test(exName)) return BASE_WEIGHT_RULES[i].w;
+  }
+  return 0;
+}
+// Short label explaining where the base weight comes from, for the card chip.
+function getBaseWeightWhy(exName){
+  if(S.baseWeights&&S.baseWeights[exName]!=null) return 'Your measured value';
+  if(BASE_WEIGHT_EXACT[exName]!=null) return 'Standard for this equipment';
+  for(var i=0;i<BASE_WEIGHT_RULES.length;i++){
+    if(BASE_WEIGHT_RULES[i].re.test(exName)) return BASE_WEIGHT_RULES[i].why;
+  }
+  return '';
+}
+// Entry mode per exercise: 'total' (type the whole load) or 'added' (type only what you
+// put on, the base is added for you). Stored globally per exercise because it is a
+// property of the machine, not of one day.
+function getWeightEntryMode(exName){
+  if(!S.weightEntry) return 'total';
+  return S.weightEntry[exName]==='added'?'added':'total';
+}
+function setWeightEntryMode(exName,mode){
+  if(!S.weightEntry) S.weightEntry={};
+  if(mode==='added') S.weightEntry[exName]='added'; else delete S.weightEntry[exName];
+  saveS();
+}
+function toggleWeightEntryMode(ei){
+  var k=dKey(vDate);
+  var exs=getRenderedExList(k)||[];
+  var ex=exs[ei]; if(!ex) return;
+  if(getBaseWeight(ex.n)<=0){ showToast('This exercise has no pre-loaded weight'); return; }
+  var next=getWeightEntryMode(ex.n)==='added'?'total':'added';
+  setWeightEntryMode(ex.n,next);
+  buildTodayWorkout();
+  showToast(next==='added'?'⚖️ Enter added plates only — base is added for you':'⚖️ Enter the total weight');
+}
+// Convert between what the user types and the TOTAL that gets stored.
+function entryToTotalLbs(exName,typedLbs){
+  if(getWeightEntryMode(exName)!=='added') return typedLbs;
+  var base=getBaseWeight(exName);
+  if(!(typedLbs>0)) return base>0?base:typedLbs;
+  return typedLbs+base;
+}
+function totalToEntryLbs(exName,totalLbs){
+  if(getWeightEntryMode(exName)!=='added') return totalLbs;
+  return Math.max(0,totalLbs-getBaseWeight(exName));
+}
+// Let the user record what the sled or carriage on THEIR machine actually weighs.
+function editBaseWeight(ei){
+  var k=dKey(vDate);
+  var exs=getRenderedExList(k)||[];
+  var ex=exs[ei]; if(!ex) return;
+  var cur=getBaseWeight(ex.n);
+  var unit=getWeightUnit();
+  var v=prompt('Starting weight of '+ex.n+' before any plates ('+unit+').\n\nSet 0 if it starts empty.',
+               String(toDisplayWeight(cur)));
+  if(v===null) return;
+  var n=parseFloat(v);
+  if(isNaN(n)||n<0){ showToast('Enter a number, or 0'); return; }
+  if(!S.baseWeights) S.baseWeights={};
+  S.baseWeights[ex.n]=fromDisplayWeight(n);
+  saveS();
+  buildTodayWorkout();
+  showToast('⚖️ '+ex.n+' base set to '+n+' '+unit);
+}
+// The plate breakdown per side for a given TOTAL, using this exercise's real base
+// weight rather than assuming a 45 lb bar.
+function plateHintFor(exName,totalLbs){
+  var base=getBaseWeight(exName);
+  if(base<=0) return null;
+  var perSide=(totalLbs-base)/2;
+  if(perSide<=0) return null;
+  var parts=[], rem=perSide;
+  PLATE_SIZES.forEach(function(p){
+    var n=Math.floor(rem/p.w+1e-9);
+    if(n>0){ parts.push(n+'×'+p.label); rem=Math.round((rem-n*p.w)*1000)/1000; }
+  });
+  if(rem>0.01||!parts.length) return null;
+  return parts.join(' + ');
+}
+// True when this exercise is loaded with plates you put on by hand (so a per-side
+// breakdown means something). A pin-stack machine has a base of 0 and is excluded.
+function isPlateLoaded(exName){
+  return getBaseWeight(exName)>0 && !BASE_WEIGHT_NONE.test(exName||'');
+}
+// The chip under an exercise's name: what it already weighs empty, and the switch
+// between typing the total and typing only the plates you add.
+function _baseWeightChip(ei,ex){
+  var base=getBaseWeight(ex.n);
+  if(!(base>0)) return '';
+  var unit=getWeightUnit();
+  var added=getWeightEntryMode(ex.n)==='added';
+  var why=getBaseWeightWhy(ex.n);
+  return '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:4px">'
+    +'<button onclick="event.stopPropagation();editBaseWeight('+ei+')" title="'+_safeAttr(why||'Starting weight before plates')+' — tap to correct for your gym" '
+    +'style="padding:3px 8px;border-radius:999px;border:1px solid rgba(245,196,0,.3);background:rgba(245,196,0,.08);color:var(--ye);font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:.3px;cursor:pointer">'
+    +'⚖️ STARTS AT '+toDisplayWeight(base)+' '+unit+' ✎</button>'
+    +'<button onclick="event.stopPropagation();toggleWeightEntryMode('+ei+')" title="Switch between logging the total weight and logging only the plates you add" '
+    +'style="padding:3px 8px;border-radius:999px;font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:.3px;cursor:pointer;'
+    +(added?'border:1px solid rgba(16,185,129,.4);background:rgba(16,185,129,.1);color:var(--gr)'
+           :'border:1px solid var(--b2);background:var(--s3);color:var(--mu)')+'">'
+    +(added?'LOGGING: +PLATES':'LOGGING: TOTAL')+'</button>'
+    +'</div>';
+}
+
 function calcPlates(){
   var targetEl=el('plateTargetWt'), barEl=el('plateBarWt'), resEl=el('plateResult');
   if(!targetEl||!barEl||!resEl) return;
@@ -12621,14 +12869,23 @@ var COMPOUND_EX = ['Bench Press (Barbell)','Barbell Back Squat','Deadlifts (Barb
 
 function isCompound(name){ return COMPOUND_EX.indexOf(name)>=0; }
 
-function getWarmupSets(workingW){
+// Warm-up ramp. The percentage applies to the load you ADD, not to the total: 40% of a
+// 340 lb leg press is 136 lb, which is less than the empty sled and cannot be set up.
+// With a base weight the ramp runs base → base + pct x (working - base).
+function warmupWeightFor(exName, workingW, pct){
+  var base=(typeof getBaseWeight==='function')?getBaseWeight(exName):0;
+  if(!(base>0)) return Math.round(workingW*pct/5)*5;
+  var added=Math.max(0, workingW-base);
+  return Math.round((base+added*pct)/5)*5;
+}
+function getWarmupSets(workingW, exName){
 if(!workingW||workingW<20) return [];
 var focus=S&&S.weekFocus||'general';
 var fm=(typeof FOCUS_META!=='undefined'&&FOCUS_META[focus])||{wuReps:[10,6],wuPct2:0.65};
 var r1=fm.wuReps[0], r2=fm.wuReps[1], pct2=fm.wuPct2||0.65;
 return [
-  {weight:Math.round(workingW*0.4/5)*5,  reps:r1, type:'wu', label:'Warmup 40%'},
-  {weight:Math.round(workingW*pct2/5)*5, reps:r2, type:'wu', label:'Warmup '+(Math.round(pct2*100))+'%'}
+  {weight:warmupWeightFor(exName, workingW, 0.4),  reps:r1, type:'wu', label:'Warmup 40%'},
+  {weight:warmupWeightFor(exName, workingW, pct2), reps:r2, type:'wu', label:'Warmup '+(Math.round(pct2*100))+'%'}
 ];
 }
 
@@ -12733,6 +12990,9 @@ function autoFillSetType(ei, si, newType){
   var focus=S.weekFocus||'general';
   var fm=FOCUS_META[focus]||FOCUS_META.general;
   var workingW=getWorkingWeight(ei);
+  // Needed so a warm-up percentage ramps from this equipment's own starting weight.
+  var _exNameForWu='';
+  try{ var _rl=getRenderedExList(k)||[]; _exNameForWu=(_rl[ei]&&_rl[ei].n)||''; }catch(e){}
 
   // Count how many wu sets already exist before this one
   var wuCount=0;
@@ -12744,7 +13004,7 @@ function autoFillSetType(ei, si, newType){
     // Warm-up: 40% if first wu, pct2% if second+
     var pct = wuCount===0 ? 0.4 : (fm.wuPct2||0.65);
     var repIdx = wuCount===0 ? 0 : 1;
-    sets[si].weight = workingW>0 ? String(Math.round(workingW*pct/5)*5) : '';
+    sets[si].weight = workingW>0 ? String(warmupWeightFor(_exNameForWu, workingW, pct)) : '';
     sets[si].reps   = String(fm.wuReps[repIdx]||10);
     sets[si].label  = 'Warmup '+(Math.round(pct*100))+'%';
   } else if(newType==='ds'){
