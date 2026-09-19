@@ -7150,7 +7150,7 @@ var FOCUS_META={
   general:   {em:'⚖️', lb:'General Fitness',   reps:[8,12],  rest:75,  cardurMult:1.0, weightPct:1.00, restLabel:'60-90s',  midCardio:false, midCardioCount:0, wuReps:[10,6],  wuPct2:0.65, dsReps:[8,12],  rpReps:12},
   power:     {em:'⚡', lb:'Power & Strength',   reps:[3,5],   rest:210, cardurMult:0.5, weightPct:1.15, restLabel:'3-4 min', midCardio:false, midCardioCount:0, wuReps:[5,3],   wuPct2:0.70, dsReps:[6,8],   rpReps:7},
   muscle:    {em:'💪', lb:'Build Muscle',        reps:[6,12],  rest:90,  cardurMult:0.75,weightPct:0.95, restLabel:'60-90s',  midCardio:false, midCardioCount:0, wuReps:[8,5],   wuPct2:0.65, dsReps:[8,12],  rpReps:15},
-  tone:      {em:'🔥', lb:'Lose & Tone',         reps:[12,15], rest:52,  cardurMult:1.6, weightPct:0.70, restLabel:'45-60s',  midCardio:true,  midCardioCount:1, wuReps:[12,8],  wuPct2:0.60, dsReps:[10,15], rpReps:20},
+  tone:      {em:'🔥', lb:'Lose & Tone',         reps:[10,14], rest:75,  cardurMult:1.6, weightPct:0.85, restLabel:'70-90s',  midCardio:true,  midCardioCount:1, wuReps:[12,8],  wuPct2:0.60, dsReps:[10,15], rpReps:20},
   endurance: {em:'🏃', lb:'Endurance',           reps:[15,20], rest:35,  cardurMult:1.9, weightPct:0.60, restLabel:'30-45s',  midCardio:true,  midCardioCount:2, wuReps:[15,10], wuPct2:0.60, dsReps:[15,20], rpReps:22}
 };
 // Evidence sources:
@@ -7161,7 +7161,14 @@ var FOCUS_META={
 //            ~1-2 RIR — the proximity-to-failure that drives hypertrophy. 0.85 (≈68% 1RM) would leave
 //            3-4 RIR at 9 reps (under-stimulating); progression also advances at a 6-rep floor
 //            (FOCUS_PROGRESSION.muscle.progressCeil=6), confirming the heavier-leaning load is intended.
-// tone:      Upper hypertrophy range 12-15 reps. 45-60s rest maximizes calorie burn. 70% 1RM appropriate.
+// tone:      REVISED (Sept 2026) against current evidence. Was 12-15 reps @ 70% with 52s rest —
+//            the classic 'light weights, high reps to tone' model. Two problems: Schoenfeld's 2024
+//            Bayesian meta-analysis finds inter-set rests UNDER 60s measurably cost hypertrophy
+//            (via reduced volume load), and a deficit is exactly when muscle retention matters most;
+//            and network meta-analysis of training under caloric restriction shows lean mass is
+//            preserved by keeping the LOAD respectable, not by chasing reps. So: 10-14 reps at 85%
+//            with 75s rest, and the fat loss still comes from the elevated cardio multiplier (1.6x)
+//            plus the mid-workout block — the levers that actually create the deficit.
 // endurance: Muscular endurance zone 15-20 reps @ 50-65% 1RM. 30-45s rest for circuit conditioning.
 
 
@@ -7257,7 +7264,7 @@ var FOCUS_PROGRESSION={
   general:   {floor:8,  ceil:12, weightStep:5},
   power:     {floor:3,  ceil:5,  weightStep:5},
   muscle:    {floor:6,  ceil:12, progressCeil:6, weightStep:5},
-  tone:      {floor:12, ceil:15, weightStep:5},
+  tone:      {floor:10, ceil:14, weightStep:5},
   endurance: {floor:15, ceil:20, weightStep:5}
 };
 
@@ -7406,17 +7413,17 @@ var FOCUS_DETAIL = {
   tone: {
     color: '#f97316',
     tagline: 'Burn fat. Build definition. Look and feel athletic.',
-    goal: 'Simultaneous fat loss and muscle retention (body recomposition). Higher rep ranges with shorter rest periods create an elevated metabolic demand  --  you burn more calories during and after training (EPOC effect). Best for those who want to lean out and see muscle definition.',
-    science: 'Upper end of hypertrophy rep range (12-15) at 70% 1RM. Short 45-60s rest periods maximize growth hormone response and caloric expenditure during the session. Mid-workout cardio blocks maintain elevated heart rate, creating a prolonged calorie burn window. EPOC (excess post-exercise oxygen consumption) is highest with this training style.',
-    reps: '12-15 reps per set',
-    rest: '45-60 seconds between sets (52s default)',
-    weight: '~70% of your estimated 1RM',
+    goal: 'Simultaneous fat loss and muscle retention (body recomposition). The lifting keeps the load respectable so you hold onto the muscle you have; the fat loss comes from the extra cardio and your diet, not from lifting lighter. Best for leaning out without giving back the muscle you built.',
+    science: 'Updated September 2026. The old setup here was the classic light-weight/high-rep toning model (12-15 reps at 70%, 52s rest), and it works against you on a cut. Schoenfeld’s 2024 Bayesian meta-analysis finds inter-set rests under 60s measurably reduce hypertrophy through lost volume load, and network meta-analyses of training under caloric restriction show lean mass is preserved by keeping the LOAD up rather than by adding reps. So this focus now runs 10-14 reps at ~85% with 75s rest, and creates the deficit where it actually comes from: the 1.6x cardio finisher, the mid-workout cardio block, and your food log.',
+    reps: '10-14 reps per set',
+    rest: '70-90 seconds between sets (75s default)',
+    weight: '~85% of your working weight — deliberately heavier than a classic toning routine, so you keep muscle while you cut.',
     advSets: 'Standard: Drop Set on all p1 exercises. Full: Failure Set on all p1, Drop Set on all p2. Combined with short rest, Drop Sets keep metabolic stress high and calorie burn elevated.',
     cardio: 'Full cardio finisher (1.6× template duration) PLUS one mid-workout cardio block inserted between exercise groups. Mid-workout cardio keeps heart rate elevated throughout the session and significantly increases total calorie burn.',
-    uniqueStat: {label:'Calorie Burn', val:'~350-500 extra cal/session from short rest + metabolic stress'},
-    progression: 'Double progression: work toward 15 reps on all sets, then add 5 lbs.',
+    uniqueStat: {label:'Calorie Burn', val:'~300-450 extra cal/session, mostly from the cardio blocks'},
+    progression: 'Double progression: work toward 14 reps on all sets, then add 5 lbs.',
     supersets: 'Antagonist supersets auto-seeded on Standard and Full intensity. Combined with short rest, supersets dramatically increase training density and calorie burn  --  ideal for Tone focus.',
-    tips: ['Keep moving between sets  --  light walking or stretching during rest is fine.', 'Hydration is critical at this rest length  --  drink water every few exercises.', 'The mid-workout cardio will feel uncomfortable. That\'s the point  --  it\'s where the fat loss happens.', 'Track weekly scale weight and photos. Recomposition changes show in photos before the scale.']
+    tips: ['Don\'t drop the weight just because you\'re cutting  --  the load is what tells your body to keep the muscle.', 'Keep moving between sets  --  light walking or stretching during rest is fine.', 'The mid-workout cardio will feel uncomfortable. That\'s the point  --  it\'s where the deficit comes from.', 'Hit your protein. Muscle retention on a cut is far more about protein and load than about rep count.', 'Track weekly scale weight and photos. Recomposition changes show in photos before the scale.']
   },
   endurance: {
     color: '#10b981',
@@ -13074,7 +13081,7 @@ return [
 var SET_TYPE_INFO = {
   wk:{name:'Work Set',desc:'Your main working sets. These drive all progress.',
     how:'Perform the prescribed reps at working weight with full effort. The double progression engine tracks these to decide when to increase weight.',
-    focusNote:{general:'8-12 reps, 60-90s rest.',power:'3-5 heavy reps, 3-4 min rest. Speed and force are priority.',muscle:'6-12 reps, 60-90s rest. Feel the muscle working.',tone:'12-15 reps, 45-60s rest. Keep metabolic stress high.',endurance:'15-20 reps, 30-45s rest. Build work capacity.'},
+    focusNote:{general:'8-12 reps, 60-90s rest.',power:'3-5 heavy reps, 3-4 min rest. Speed and force are priority.',muscle:'6-12 reps, 60-90s rest. Feel the muscle working.',tone:'10-14 reps, 70-90s rest. Keep the load up while you cut.',endurance:'15-20 reps, 30-45s rest. Build work capacity.'},
     tips:['Only Work sets count toward progression.','Control both the lift and lower.','Log reps honestly.']},
   wu:{name:'Warm-Up Set',desc:'Progressive sets that prime joints and nervous system before heavy work.',
     how:'Two auto-generated sets at 40% and 65-70% of working weight. Reps match your focus: lower for Power, higher for Endurance. Never skip these.',
