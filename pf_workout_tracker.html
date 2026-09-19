@@ -3567,6 +3567,44 @@ var EXERCISE_DEPS={
 };
 
 // Check if an exercise is available given current gym equipment
+// An EXERCISE_DEPS entry used to have to match a gym-profile item character for
+// character, and the deps branch returns early — so a near-miss silently made an
+// exercise unreachable no matter what you ticked in your gear list. A profile listing
+// "Kettlebells (Light 8-16 kg)" did not satisfy a dep of "Kettlebells", which hid every
+// kettlebell movement; "Agility Ladder Area" did not satisfy "Agility Ladder". These
+// normalise both sides before comparing.
+function _equipKey(s){
+  return String(s||'')
+    .toLowerCase()
+    .replace(/\([^)]*\)/g,' ')                 // drop weight/size qualifiers
+    .replace(/\b(area|station|track|zone|rack)\b/g,' ')
+    .replace(/[^a-z0-9]+/g,' ')
+    .trim();
+}
+// A dep can name several things at once ("Ab Roller / Ab Wheel"); any part counts.
+function _equipVariants(s){
+  return String(s||'').split(/\s*\/\s*/).map(_equipKey).filter(Boolean);
+}
+function _equipSatisfies(dep, gymEquipment){
+  if(gymEquipment.indexOf(dep) >= 0) return true;
+  var want=_equipVariants(dep);
+  if(!want.length) return false;
+  // A dep of "Bodyweight" needs no equipment at all.
+  if(want.indexOf('bodyweight') >= 0) return true;
+  for(var i=0;i<gymEquipment.length;i++){
+    var have=_equipVariants(gymEquipment[i]);
+    for(var h=0;h<have.length;h++){
+      for(var w=0;w<want.length;w++){
+        if(have[h]===want[w]) return true;
+        // Allow a qualified profile item to satisfy a general dep and vice versa
+        // ("kettlebells light 8 16 kg" ⊃ "kettlebells"), but only on whole words so
+        // "leg press" never satisfies "press".
+        if(have[h].indexOf(want[w]+' ')===0 || want[w].indexOf(have[h]+' ')===0) return true;
+      }
+    }
+  }
+  return false;
+}
 function isExerciseAvailable(exName, gymEquipment){
   if(!gymEquipment||!gymEquipment.length) return true;
   // Normalize legacy equipment names so old gym profiles still work
@@ -3584,7 +3622,7 @@ function isExerciseAvailable(exName, gymEquipment){
   var deps = EXERCISE_DEPS[exName];
   if(deps){
     for(var di=0;di<deps.length;di++){
-      if(gymEquipment.indexOf(deps[di]) >= 0) return true;
+      if(_equipSatisfies(deps[di], gymEquipment)) return true;
     }
     return false; // Has dependencies but none are in gym
   }
@@ -23394,6 +23432,7 @@ var EQUIPMENT_CATALOGUE = [
     {n:'Plate-Loaded Standing Calf',sub:'Calves · Plate-Loaded'},
     {n:'Plate-Loaded Seated Calf',sub:'Calves · Plate-Loaded'},
     {n:'Calf Extension Machine',sub:'Calves'},
+    {n:'Donkey Calf Raise Machine',sub:'Calves · Gastrocnemius'},
     {n:'GHD Machine',sub:'Hamstrings / Lower Back'},
     {n:'Belt Squat Machine',sub:'Quads · Glutes · Spine-Sparing'},
     {n:'Lying Leg Curl Machine',sub:'Hamstrings'},
