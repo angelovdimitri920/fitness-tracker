@@ -2291,7 +2291,6 @@ chest:[
   {n:'Plate-Loaded Chest Press',t:'Chest · Triceps'},
   {n:'Chest Press Machine',t:'Pectorals · Triceps'},
   {n:'Pec Deck / Fly Machine',t:'Pectorals'},
-  {n:'Pec Fly / Rear Delt (Rear)',t:'Rear Delts'},
   {n:'Smith Machine Bench Press',t:'Chest · Triceps'},
   {n:'Smith Machine Incline Press',t:'Upper Chest'},
   {n:'Cable Chest Fly (High)',t:'Pectorals'},
@@ -2411,6 +2410,7 @@ back:[
   {n:'Incline Dumbbell Row',t:'Back · Rear Delts'},
 ],
 shoulders:[
+  {n:'Pec Fly / Rear Delt (Rear)',t:'Rear Delts · Upper Back',p:1},
   {n:"Barbell Push Press",t:"Shoulders · Triceps · Legs",p:1},
   {n:"Barbell Seated Overhead Press",t:"Shoulders · Triceps",p:1},
   {n:"Behind-the-Neck Barbell Press",t:"Shoulders · Upper Back · Triceps",p:3},
@@ -5176,33 +5176,77 @@ function updateIntensityTimes(k, tplKey){
 // endurance's short rest → more fit), then fills the rest of the band with cardio
 // so every setting always includes cardio and lands in its band.
 var INTENSITY_BANDS={quick:[30,45], standard:[60,90], full:[90,120]};
+
+// HARD RULE: never fewer than three work sets on any exercise, whatever the focus,
+// intensity, weight or rep count. Three is the floor that every study on both
+// strength and hypertrophy treats as a real working dose; anything can go ABOVE it.
+var MIN_WORK_SETS=3;
+
 // Focus- AND exercise-specific set counts. Compounds (priority ≤1 / isCompound) get more
 // sets than accessories, and the count shifts by focus: Power = more sets of few reps
-// (e.g. 5×3), Endurance = fewer sets of high reps (e.g. 3×18), etc.
+// (e.g. 5×3), Endurance = the 3-set floor at high reps, etc. No entry may drop below
+// MIN_WORK_SETS — _focusSetCount clamps regardless.
 var SETS_BY_FOCUS={
   power:    {comp:5, acc:3},
   muscle:   {comp:4, acc:3},
-  general:  {comp:3, acc:3},
-  tone:     {comp:3, acc:2},
-  endurance:{comp:3, acc:2}
+  general:  {comp:4, acc:3},
+  tone:     {comp:3, acc:3},
+  endurance:{comp:3, acc:3}
 };
 function _focusSetCount(ex, intensity, focus){
   // Active strength program dictates set count for its main lifts (e.g. 5/3/1 → 3 sets).
-  if(ex&&ex.n){ var _ap=getActiveProgramFor(ex.n); if(_ap) return _ap.setCount; }
+  if(ex&&ex.n){ var _ap=getActiveProgramFor(ex.n); if(_ap) return Math.max(MIN_WORK_SETS,_ap.setCount); }
   var s=SETS_BY_FOCUS[focus]||SETS_BY_FOCUS.general;
   var isComp=(ex.p!=null ? ex.p<=1 : false) || (typeof isCompound==='function' && isCompound(ex.n));
   var nSets=isComp?s.comp:s.acc;
-  if(intensity==='quick') nSets=Math.max(2,nSets-1); // Quick trims one work set
-  return nSets;
+  // "Quick" shortens the session by dropping EXERCISES, never by cutting an exercise
+  // below three sets — a 2-set exercise is not worth the walk to the machine.
+  if(intensity==='quick'&&nSets>MIN_WORK_SETS) nSets=nSets-1;
+  return Math.max(MIN_WORK_SETS,nSets);
 }
-// Estimated minutes a single exercise adds: work sets (≈42s effort + focus rest)
-// plus ~2 warm-up sets for compounds. Uses the focus-specific set count.
+
+// ── REAL-WORLD TIME MODEL ───────────────────────────────────────────────────
+// The old estimate counted 42s of effort plus the prescribed rest and nothing else,
+// so it under-read every session badly: it ignored walking between machines, loading
+// plates, adjusting seats, warm-up ramps and the fact that prescribed rests always run
+// long in a busy gym. These numbers are what the estimates are actually built from, in
+// one place so they can be tuned.
+var TIME_MODEL={
+  secPerRep: 3.5,            // ~1.5s up + ~2s controlled down
+  setChangeoverSec: 12,      // get in/out of position, un/re-rack
+  restSlopMult: 1.15,        // prescribed rests run ~15% long in practice
+  warmupSetSec: 30,          // a warm-up set is quick and light
+  warmupRestSec: 45,
+  transitionCompoundSec: 105,// find the rack/bar, load plates, set safeties
+  transitionMachineSec: 60,  // walk over, set the pin and the seat
+  sessionOverheadMin: 5      // arriving, changing, filling the bottle, phone
+};
+// Seconds one exercise costs end to end: getting to it and set up, plus every work
+// set's effort and the rest between them, plus a compound's warm-up ramp.
+function _exLiftSeconds(rawEx, intensity, fp, focus){
+  focus=focus||S.weekFocus||'general';
+  var sets=_focusSetCount(rawEx, intensity, focus);
+  var reps=parseInt(rawEx&&rawEx.reps,10);
+  if(!(reps>0)) reps=Math.round(((fp&&fp.reps?fp.reps[0]:8)+(fp&&fp.reps?fp.reps[1]:12))/2);
+  var isComp=(typeof isCompound==='function')&&isCompound(rawEx.n);
+  var rest=(rawEx&&rawEx.rest)||(fp&&fp.rest)||60;
+  var perSet=reps*TIME_MODEL.secPerRep+TIME_MODEL.setChangeoverSec;
+  // Rest happens BETWEEN sets — n sets means n-1 rests; the rest after the last set is
+  // absorbed by the walk to the next exercise (the transition below).
+  var restTotal=(sets-1)*rest*TIME_MODEL.restSlopMult;
+  var wu=0;
+  if(isComp&&(S.prefs?S.prefs.showWarmups!==false:true)){
+    wu=2*(TIME_MODEL.warmupSetSec+TIME_MODEL.warmupRestSec);
+  }
+  var transition=isComp?TIME_MODEL.transitionCompoundSec:TIME_MODEL.transitionMachineSec;
+  return sets*perSet + restTotal + wu + transition;
+}
 function _exLiftMinutes(rawEx, intensity, fp, focus){
-  var sets = _focusSetCount(rawEx, intensity, focus||S.weekFocus||'general');
-  var work = sets*(42+(fp.rest||60))/60;
-  var wu = (isCompound(rawEx.n) && (S.prefs?S.prefs.showWarmups!==false:true)) ? 2*65/60 : 0;
-  return work + wu;
+  return _exLiftSeconds(rawEx, intensity, fp, focus)/60;
 }
+// Supersets alternate round-for-round: the pair's rests overlap, so a supersetted pair
+// runs roughly 25% quicker than the two exercises done back to back.
+var SUPERSET_TIME_SAVING=0.25;
 // Build the exercise POOL for a split: the programmed template exercises first, then
 // equipment-available accessories (from ELIB) for the same muscle groups, distributed
 // round-robin across groups. This gives the duration engine room to scale the exercise
@@ -5246,14 +5290,16 @@ function selectWorkoutForDuration(tplExercises, intensity, fp, recent48, tplKey,
   var focus = S.weekFocus||'general';
   // Mid-cardio blocks defined for this split/focus (each only renders if its `after`
   // position falls within the chosen exercise count — computed precisely below).
-  var midCards = (typeof getMidCardio==='function' && tplKey) ? (getMidCardio(tplKey, focus)||[]) : [];
+  var midCards = (typeof getMidCardio==='function' && tplKey) ? (getMidCardio(tplKey, focus, intensity)||[]) : [];
   // Warm-up cardio: focus-dependent. Power often skips it (CNS priority).
   var warmupMin = (focus==='power') ? (intensity==='quick'?0:4) : (intensity==='quick'?5:(intensity==='full'?8:6));
   var midEach = 6;
   var baseFin = (intensity==='quick') ? 7 : (intensity==='full'?14:10);
   var minFin = (intensity==='quick') ? 6 : 10;
-  // Exercise time budget = target minus reserved cardio (warm-up + nominal mid + base finisher).
-  var exBudget = targetMid - (warmupMin + midCards.length*midEach) - baseFin;
+  // Exercise time budget = target minus reserved cardio (warm-up + nominal mid + base
+  // finisher) and minus the fixed session overhead (arriving, changing, water, phone).
+  var overheadMin = TIME_MODEL.sessionOverheadMin;
+  var exBudget = targetMid - (warmupMin + midCards.length*midEach) - baseFin - overheadMin;
   // Count bounds scale with the SPLIT's own size (so different days differ) and intensity;
   // the time budget is still the real driver between min and max.
   var n = (typeof WTPL!=='undefined' && tplKey && WTPL[tplKey]) ? WTPL[tplKey].exercises.length : ((tplExercises&&tplExercises.length)||7);
@@ -5290,6 +5336,25 @@ function selectWorkoutForDuration(tplExercises, intensity, fp, recent48, tplKey,
     if(chosen.length>=minCount && (lift+add) > exBudget) break;
     chosen.push(sorted[x]); lift+=add;
   }
+  // Second pass: a focus whose cardio is capped (Power especially — see FINISHER_CAP
+  // below) can't reach the bottom of its band on cardio alone. Rather than padding with
+  // cardio that fights the goal, spend the gap on more LIFTING, which is what a longer
+  // strength session should actually be.
+  (function(){
+    var capPeek={power:15, muscle:20, general:25, tone:45, endurance:45};
+    var cap=capPeek[focus]!=null?capPeek[focus]:30;
+    var midNow=midCards.filter(function(mc){return mc.after!=null&&mc.after>=0&&mc.after<chosen.length;}).length;
+    var bestCase=lift+warmupMin+midNow*midEach+cap+overheadMin;
+    if(bestCase>=band[0]) return;
+    var hardMax=Math.min(pool.length, maxCount+4);
+    for(var y=0; y<sorted.length && chosen.length<hardMax; y++){
+      if(chosen.indexOf(sorted[y])>=0) continue;
+      var addMin=_exLiftMinutes(sorted[y].ex, intensity, fp, focus);
+      if(lift+addMin+warmupMin+midNow*midEach+minFin+overheadMin > band[1]) break;
+      chosen.push(sorted[y]); lift+=addMin;
+      if(lift+warmupMin+midNow*midEach+cap+overheadMin>=band[0]) break;
+    }
+  })();
   chosen.sort(function(a,b){return a.i-b.i;}); // pool order (template first, then accessories by group)
   // Apply the focus/exercise-specific set count to each chosen exercise
   var exercises=chosen.map(function(c){ return Object.assign({}, c.ex, {sets:_focusSetCount(c.ex, intensity, focus)}); });
@@ -5297,10 +5362,126 @@ function selectWorkoutForDuration(tplExercises, intensity, fp, recent48, tplKey,
   // the chosen exercise count), so the finisher precisely fills the band.
   var renderedMid = midCards.filter(function(mc){ return mc.after!=null && mc.after>=0 && mc.after < chosen.length; }).length;
   // Finisher cardio fills whatever time remains to hit the band (extends when lifting is short).
-  var finisherMin = Math.round(targetMid - lift - warmupMin - renderedMid*midEach);
-  finisherMin = Math.max(minFin, Math.min(finisherMin, 45));
-  var estMin = Math.round(lift + warmupMin + renderedMid*midEach + finisherMin);
-  return { exercises:exercises, plan:{warmupMin:warmupMin, midEachMin:midEach, finisherMin:finisherMin}, estMin:estMin };
+  var finisherMin = Math.round(targetMid - lift - warmupMin - renderedMid*midEach - overheadMin);
+  // Cap the finisher by FOCUS, not just by the band. Letting cardio stretch to fill the
+  // whole remaining band gave Power/Full a 46-minute finisher — which is exactly the
+  // interference effect the Power guidance warns against. When the cap bites, the
+  // session simply comes in under the band rather than being padded with cardio that
+  // works against the goal.
+  var FINISHER_CAP={power:15, muscle:20, general:25, tone:45, endurance:45};
+  var finCap=FINISHER_CAP[focus]!=null?FINISHER_CAP[focus]:30;
+  finisherMin = Math.max(minFin, Math.min(finisherMin, finCap));
+  var cardioMin = warmupMin + renderedMid*midEach + finisherMin;
+  var estMin = Math.round(lift + cardioMin + overheadMin);
+  // A real session is a range, not a number: sets get cut short, rests run long, a
+  // machine is busy. ±18% around the plan is what the estimate is honestly worth, and
+  // it is what the intensity buttons show. Time spent with the timer PAUSED (bathroom,
+  // water, a phone call) is deliberately not modelled — that is exactly what pausing is
+  // for, so it should not inflate the estimate.
+  var estLowMin = Math.max(5, Math.round(estMin*0.85));
+  var estHighMin = Math.round(estMin*1.18);
+  return {
+    exercises:exercises,
+    plan:{warmupMin:warmupMin, midEachMin:midEach, finisherMin:finisherMin},
+    estMin:estMin, estLowMin:estLowMin, estHighMin:estHighMin,
+    breakdown:{liftMin:Math.round(lift), cardioMin:Math.round(cardioMin), overheadMin:overheadMin}
+  };
+}
+
+// Renders the "Today's estimate" line under the intensity buttons. Called late in
+// buildGym so supersets (seeded there) are already reflected. Shows the honest range
+// and what it is made of, so the number is inspectable rather than magic.
+function _renderIntEstLine(k,sel,exs,intensity,pinned,fp,tplKey){
+  var iel=el('intEstLine'); if(!iel||!sel) return;
+  var focus=S.weekFocus||'general';
+  var saved=_supersetSavingMinutes(k,exs,intensity,fp,focus);
+  var lo=Math.max(5,Math.round((sel.estLowMin||sel.estMin)-saved));
+  var hi=Math.round((sel.estHighMin||sel.estMin)-saved);
+  var mid=Math.max(5,Math.round(sel.estMin-saved));
+  var tgt=intensity==='quick'?'30–45':intensity==='standard'?'60–90':'90–120';
+  var arBadge=(!pinned&&S.prefs&&S.prefs.autoRotateSplits&&!(S.dayConfig[k]&&S.dayConfig[k].split&&S.dayConfig[k].split!=='auto'))
+    ?' <span style="color:#a78bfa">· 🔄 auto-split</span>':'';
+  var b=sel.breakdown||{};
+  var lift=Math.max(0,Math.round((b.liftMin||0)-saved));
+  var parts='lifting + rest '+lift+'m · cardio '+(b.cardioMin||0)+'m · setup '+(b.overheadMin||0)+'m'+(saved>=1?' · supersets −'+Math.round(saved)+'m':'');
+  // Superset switch, right here rather than buried in Settings — it changes the plan
+  // and the time, so it belongs next to the estimate.
+  var ssOn=!(S.prefs&&S.prefs.autoSuperset===false);
+  var ssCount=Object.keys((S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.supersets)||{}).length/2;
+  var ssChip='<button onclick="toggleSupersetsToday()" style="margin-top:7px;padding:5px 11px;border-radius:999px;cursor:pointer;font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:.5px;'
+    +(ssOn?'border:1px solid rgba(167,139,250,.45);background:rgba(124,58,237,.14);color:#a78bfa'
+          :'border:1px solid var(--b2);background:var(--s3);color:var(--mu)')+'">'
+    +'🔗 SUPERSETS '+(ssOn?('ON'+(ssCount>=1?' · '+Math.round(ssCount)+' pair'+(ssCount>1?'s':''):' · none today')):'OFF')+'</button>';
+  iel.innerHTML='⏱ Today\'s estimate: <span style="color:var(--ye)">'+lo+'–'+hi+' min</span> · '+exs.length+' exercises + cardio '
+    +'<span style="color:var(--mu)">('+tgt+' min target)</span>'+(pinned?' <span style="color:#a78bfa">· 📋 template</span>':arBadge)
+    +'<div style="margin-top:3px;font-size:9px;color:var(--mu)">'+parts+'</div>'
+    +'<div style="margin-top:2px;font-size:9px;color:var(--mu)">Moving between machines and loading plates is included. Pauses aren\'t — pause the timer for those.</div>'
+    +ssChip;
+  iel.setAttribute('data-est-mid',String(mid));
+}
+
+// Minutes a supersetted pairing saves: the two exercises share their rests, so the
+// pair runs ~SUPERSET_TIME_SAVING quicker than doing them back to back.
+function _supersetSavingMinutes(k, exs, intensity, fp, focus){
+  try{
+    var sess=S.sessions[k]&&S.sessions[k].gym;
+    var ss=sess&&sess.supersets; if(!ss) return 0;
+    var seen={}, saved=0;
+    Object.keys(ss).map(Number).forEach(function(a){
+      var b=ss[a];
+      if(b===undefined||seen[a]||seen[b]) return;
+      seen[a]=seen[b]=true;
+      if(!exs[a]||!exs[b]) return;
+      var pairMin=_exLiftMinutes(exs[a],intensity,fp,focus)+_exLiftMinutes(exs[b],intensity,fp,focus);
+      saved+=pairMin*SUPERSET_TIME_SAVING;
+    });
+    return saved;
+  }catch(e){ return 0; }
+}
+
+var SUPERSET_ANTAGONISTS={
+  chest:['back'], back:['chest','shoulders'], shoulders:['back'],
+  biceps:['triceps'], triceps:['biceps'],
+  quads:['hamstrings'], hamstrings:['quads','glutes'], glutes:['hamstrings'],
+  core:['lowerback'], lowerback:['core']
+};
+// Pick antagonist pairs among the chosen exercises. Only accessory work is paired —
+// pairing two heavy compounds costs more on the bar than it saves on the clock — and
+// a pair is never split across a mid-workout cardio block.
+function computeAutoSupersets(exs, midCardByIndex, maxPairs, focus){
+  var pairs=[], used={};
+  maxPairs=maxPairs||2;
+  function mg(n){ try{ return (typeof getMG==='function')?getMG(n):null; }catch(e){ return null; } }
+  function isHeavy(ex){ return (ex.p!=null&&ex.p<=1)&&(typeof isCompound==='function'&&isCompound(ex.n)); }
+  function eligible(i){ return !used[i]&&exs[i]&&!isHeavy(exs[i])&&mg(exs[i].n); }
+  // Partners must be close together (short walk between stations) and must not have a
+  // cardio block between them.
+  function adjacentOk(a,b){
+    if((b-a)>2) return false;
+    for(var c=a;c<b;c++){ if(midCardByIndex&&midCardByIndex.hasOwnProperty(c)) return false; }
+    return true;
+  }
+  function scan(match){
+    for(var a=0; a<exs.length && pairs.length<maxPairs; a++){
+      if(!eligible(a)) continue;
+      var ga=mg(exs[a].n);
+      for(var b=a+1; b<exs.length; b++){
+        if(!eligible(b)||!adjacentOk(a,b)) continue;
+        if(!match(ga,mg(exs[b].n))) continue;
+        pairs.push([a,b]); used[a]=used[b]=true; break;
+      }
+    }
+  }
+  // 1) True antagonists — the best pairing: one muscle rests while its opposite works.
+  scan(function(ga,gb){ return SUPERSET_ANTAGONISTS[ga] && SUPERSET_ANTAGONISTS[ga].indexOf(gb)>=0; });
+  // 2) Non-competing pairs, for metabolic focuses only. A push or pull day has no
+  //    antagonists in it at all, and forcing one there is how the old fixed index pairs
+  //    ended up linking a rear-delt fly to a bicep curl and calling it antagonist work.
+  //    Two unrelated isolation movements (lateral raise + pushdown) still superset fine.
+  if(pairs.length===0 && (focus==='tone'||focus==='endurance'||focus==='muscle')){
+    scan(function(ga,gb){ return ga&&gb&&ga!==gb; });
+  }
+  return pairs;
 }
 
 function buildGym(k,dow){el('intCard').style.display='block';el('cmpCard').style.display='block';
@@ -5351,7 +5532,8 @@ if(_pinned){
 var exs=_sel.exercises.slice();
 sess._cardioPlan=_sel.plan;
 sess._estDuration=_sel.estMin;
-(function(){ var _iel=el('intEstLine'); if(_iel){ var _tgt=intensity==='quick'?'30–45':intensity==='standard'?'60–90':'90–120'; var _arBadge=(!_pinned&&S.prefs&&S.prefs.autoRotateSplits&&!(S.dayConfig[k]&&S.dayConfig[k].split&&S.dayConfig[k].split!=='auto'))?' <span style="color:#a78bfa">· 🔄 auto-split</span>':''; _iel.innerHTML='⏱ Today\'s estimate: <span style="color:var(--ye)">~'+_sel.estMin+' min</span> · '+exs.length+' exercises + cardio <span style="color:var(--mu)">('+_tgt+' min target)</span>'+(_pinned?' <span style="color:#a78bfa">· 📋 template</span>':_arBadge); } })();
+// The estimate line is rendered near the end of buildGym (see _renderIntEstLine),
+// once supersets have been seeded — they meaningfully shorten the session.
 // Apply focus reps/rest overrides to each exercise.
 // Pinned templates keep their saved reps/rest exactly — no focus re-override.
 exs=exs.map(function(ex,i){
@@ -5408,7 +5590,7 @@ if(_sel.plan.warmupMin>0){
   var warmupState=getCardioState(k,'warmup',0);
   html+=buildCardioBlock('warmup',warmupObj,warmupState,0,tplKey);
 }
-var midCards=getMidCardio(tplKey, S.weekFocus||'general');
+var midCards=getMidCardio(tplKey, S.weekFocus||'general', intensity);
 var midCardByIndex={};
 midCards.forEach(function(mc,mci){midCardByIndex[mc.after]=mci;});
 
@@ -5426,10 +5608,14 @@ if(sess.exOrder.length !== exs.length){
 var orderedExs = sess.exOrder.map(function(i){return {ex:exs[i], origIdx:i};});
 
 // ── AUTO-SUPERSET SEEDING ──────────────────────────────────────────────────
-// Pre-built antagonist pairs per split for Tone and Muscle focuses.
-// Only seeds when: (1) no supersets set yet, (2) focus supports supersets,
-// (3) intensity shows enough exercises (standard/full).
-// User can always unlink via the chain icon. Power focus skipped (long rest incompatible).
+// Supersets are OPTIONAL and off-able — Settings → "Auto-suggest supersets", or the
+// 🔗 chip on the Today page. Nothing here runs when they are switched off, and turning
+// them off clears any that were already seeded for an unsaved session.
+//
+// Pairing is computed from the ACTUAL muscle groups of the exercises the engine picked,
+// not from fixed template indices. Those indices were written against the stock 7-item
+// templates; once the duration engine started choosing from a larger pool, index [3,4]
+// could link two quad movements and call it an antagonist pair.
 (function(){
   var _focus=S.weekFocus||'general';
   // Research confirms: antagonist supersets suit all focuses EXCEPT Power.
@@ -5439,8 +5625,7 @@ var orderedExs = sess.exOrder.map(function(i){return {ex:exs[i], origIdx:i};});
   var _ssEligible=(_focus!=='power');
   var _ssIntensity=(intensity==='standard'||intensity==='full');
   if(!_ssEligible||!_ssIntensity) return;
-  // Pinned templates carry their own superset pairings (or deliberately none) — the
-  // hardcoded per-split index pairs below assume the stock template layout.
+  // Pinned templates carry their own superset pairings (or deliberately none).
   if(sess.exListPinned) return;
   if(!sess.supersets) sess.supersets={};
   // Only auto-seed if no supersets exist yet AND user hasn't explicitly unlinked
@@ -5450,23 +5635,9 @@ var orderedExs = sess.exOrder.map(function(i){return {ex:exs[i], origIdx:i};});
   if(Object.keys(sess.supersets).length>0) return;
   if(sess.userUnlinkedSupersets) return; // user opted out for this session
 
-  // Antagonist pairs per split: [ei_a, ei_b] using FILTERED exercise indices
-  // exs is already filtered by intensity, so indices match sess.exercises keys
-  var _autoPairs={
-    upper:    [[3,4]],   // Lat Pull-Down Machine(3) <-> Pec Fly/Rear Delt(4)  --  back pull vs rear delt
-    lower:    [[3,4]],   // Leg Extension(3) <-> Seated Leg Curl(4)  --  quads/hams classic
-    fullbody: [[4,5]],   // Abdominal Machine(4) <-> Back Extension(5)  --  core/lower back
-    glutes:   [[3,4]],   // Hip Adductor/Abductor(3) <-> Prone Leg Curl(4)
-    arms:     [[3,4]],   // Triceps Extension(3) <-> Dependent Curl(4)  --  tri/bi classic
-    push:     [[3,4]],   // Dumbbell Lateral Raises(3) <-> Cable Tricep Push-Down(4)
-    pull:     [[3,4]],   // Pec Fly/Rear Delt(3) <-> Dumbbell Bicep Curls(4)
-    core:     [[2,3]],   // Abdominal Machine(2) <-> Back Extension(3)  --  abs vs lower back antagonist
-  };
-
-  var _pairs=_autoPairs[tplKey]||[];
+  var _pairs=computeAutoSupersets(exs, midCardByIndex, 2, _focus);
   _pairs.forEach(function(pair){
     var a=pair[0], b=pair[1];
-    // Verify both exercises exist in the filtered exs array
     if(exs[a]&&exs[b]){
       sess.supersets[a]=b;
       sess.supersets[b]=a;
@@ -5474,7 +5645,7 @@ var orderedExs = sess.exOrder.map(function(i){return {ex:exs[i], origIdx:i};});
       if(sess.activeSuperset===undefined) sess.activeSuperset=Math.min(a,b);
     }
   });
-  if(Object.keys(sess.supersets).length>0) saveS();
+  if(Object.keys(_pairs).length>0) saveS();
 })();
 
 // ── SUPERSET SET-COUNT EQUALIZATION ─────────────────────────────────────────
@@ -5728,7 +5899,10 @@ if(setType==='ds'){
 }
 sH+='</div>';
 
-var _ss=S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.supersets||{};var _isSS=_ss[ei]!==undefined;var _ssP=_ss[ei];var _ssPName='';if(_isSS){var _ssT=WTPL[getEffTpl(k)];if(_ssT&&_ssT.exercises[_ssP])_ssPName=S.swaps[k+':'+_ssP]?S.swaps[k+':'+_ssP].n:_ssT.exercises[_ssP].n;}
+// The partner's name must come from the RENDERED list (exs), not from the raw template:
+// the duration engine picks exercises from a pool, so template index _ssP is usually a
+// different movement — the card was naming the wrong partner.
+var _ss=S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.supersets||{};var _isSS=_ss[ei]!==undefined;var _ssP=_ss[ei];var _ssPName='';if(_isSS&&exs[_ssP])_ssPName=exs[_ssP].n;
 html+='<div id="exCard_'+ei+'" class="exrow '+(isSwapped?'swapped':'')+'" data-ei="'+ei+'" data-renderpos="'+renderPos+'" draggable="true" ondragstart="onExDragStart(event,'+renderPos+')" ondragover="onExDragOver(event)" ondragleave="onExDragLeave(event)" ondrop="onExDrop(event,'+renderPos+')" ondragend="onExDragEnd(event)">'+
 '<div class="fbet"><div style="min-width:0;flex:1;display:flex;align-items:flex-start;gap:6px">'+
 '<div class="ex-drag-handle" title="Drag to reorder">⠿</div>'+
@@ -5799,6 +5973,9 @@ el('wContent').innerHTML=_gymSavedBanner+html;
 // Re-attach any cardio countdown that is still running (they live in state, so they
 // survive this rebuild, a reload, and the app being backgrounded).
 try{restoreCardioTimers();}catch(e){console.warn('restoreCardioTimers failed:',e);}
+// Estimate line — rendered here, after supersets are seeded, so the saving they buy
+// is reflected in the number the intensity card shows.
+try{_renderIntEstLine(k,_sel,exs,intensity,_pinned,fp,tplKey);}catch(e){console.warn('_renderIntEstLine failed:',e);}
 // Second pass: re-render with correct set types in state (types now correct)
 if(!_bgPass2){_bgPass2=true;try{buildGym(k,dow);}catch(e){console.warn('buildGym second pass failed:',e);}_bgPass2=false;}
 // Sync any remaining badge differences
@@ -6810,7 +6987,11 @@ var MID_CARDIO={
   }
 };
 
-function getMidCardio(tplKey, focusKey){
+function getMidCardio(tplKey, focusKey, intensity){
+  // Quick sessions skip mid-workout cardio blocks entirely. The whole point of Quick is
+  // to be in and out inside 30–45 min; two fixed 6-minute circuits on top of the lifting
+  // floor pushed every Tone/Endurance Quick day past 50 min.
+  if(intensity==='quick') return [];
   if(!MID_CARDIO[tplKey]) return [];
   return MID_CARDIO[tplKey][focusKey] || [];
 }
@@ -10449,10 +10630,38 @@ function toggleAdvSuggest(){
 // These prefs are "enabled unless ===false" throughout the app, so toggle the EFFECTIVE
 // value — flipping a raw undefined with ! would set it to true (a visual no-op) and the
 // first tap to disable would silently do nothing.
+// Turning supersets off has to affect the workout ALREADY on screen, not just the next
+// one: the old version only stopped future seeding, so the day you switched it off you
+// still had to unlink every pair by hand. Off clears the pairings from any unsaved
+// session; on re-seeds them.
 function toggleAutoSuperset(){
   S.prefs.autoSuperset=!(S.prefs.autoSuperset!==false);
   _applyToggle('autoSupersetToggle',S.prefs.autoSuperset);
+  applySupersetPrefToSession();
   saveS();
+  try{ if(typeof buildTodayWorkout==='function') buildTodayWorkout(); }catch(e){}
+  showToast(S.prefs.autoSuperset?'🔗 Supersets on':'🔗 Supersets off');
+}
+// Apply the current superset preference to the day being viewed (only while it is still
+// unsaved — a session already in history is a record and is left alone).
+function applySupersetPrefToSession(){
+  var k=dKey(vDate);
+  var sess=S.sessions[k]&&S.sessions[k].gym;
+  if(!sess) return;
+  if(S.history.some(function(h){return h.date===k&&h.type==='gym';})) return;
+  if(S.prefs.autoSuperset===false){
+    sess.supersets={};
+    sess.activeSuperset=undefined;
+    sess.userUnlinkedSupersets=true;
+  } else {
+    // Let the builder re-seed on the next render.
+    sess.userUnlinkedSupersets=false;
+  }
+}
+// Today-page chip so the switch is reachable mid-workout, not buried in Settings.
+function toggleSupersetsToday(){
+  if(!S.prefs) S.prefs={};
+  toggleAutoSuperset();
 }
 function toggleWarmupSets(){
   S.prefs.showWarmups=!(S.prefs.showWarmups!==false);
