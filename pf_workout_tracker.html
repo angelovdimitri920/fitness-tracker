@@ -6085,9 +6085,9 @@ if(mrc&&mrg){
 mrc.style.display='block';
 mrg.innerHTML=buildMuscleRecovery();
 // Warn if today's workout overlaps recently trained muscles
-var tpl2=WTPL[getEffTpl(k)]||WTPL.upper;
+var _ovList=getRenderedExList(k)||(WTPL[getEffTpl(k)]||WTPL.upper).exercises;
 var todayMG={};
-tpl2.exercises.forEach(function(ex){var g=getMG(ex.n);if(g)todayMG[g]=1;});
+_ovList.forEach(function(ex){var g=getMG(ex.n);if(g)todayMG[g]=1;});
 var recent48=getRecentMuscles(48);
 var overlap=Object.keys(todayMG).filter(function(g){return recent48[g]>0;});
 var wb=el('muscleWarnBadge');
@@ -7110,7 +7110,7 @@ function getRenderedExList(k){
   if(g&&g.exList&&g.exList.length) return g.exList;
   var tpl=WTPL[getEffTpl(k)]||WTPL.upper, it=(g&&g.intensity)||'standard';
   var exs=tpl.exercises.slice();
-  if(it==='quick')exs=exs.filter(function(e){return e.p<=1;}).map(function(e){return Object.assign({},e,{sets:Math.max(2,e.sets-1)});});
+  if(it==='quick')exs=exs.filter(function(e){return e.p<=1;}).map(function(e){return Object.assign({},e,{sets:Math.max(MIN_WORK_SETS,e.sets-1)});});
   else if(it==='standard')exs=exs.filter(function(e){return e.p<=2;});
   if((S.weekFocus||'general')==='power'&&it!=='full')exs=exs.filter(function(e){return e.p<=1;});
   return exs.map(function(ex,i){return S.swaps[k+':'+i]||ex;});
@@ -25082,12 +25082,10 @@ function reorderSupersetCards(k){
 function updateSetTypeBadgesInDOM(k){
   // After applySmartSetTypes runs, sync set type badges in the rendered DOM.
   var sess=S.sessions[k]; if(!sess||!sess.gym) return;
-  var tpl=WTPL[getEffTpl(k)]; if(!tpl) return;
-  var intensity=sess.gym.intensity||'standard';
-  var exs=tpl.exercises.slice();
-  if(intensity==='quick') exs=exs.filter(function(e){return e.p<=1;});
-  else if(intensity==='standard') exs=exs.filter(function(e){return e.p<=2;});
-  if((S.weekFocus||'general')==='power'&&intensity!=='full'){exs=exs.filter(function(e){return e.p<=1;});}
+  // Must index by the RENDERED list: the card ids are exCard_<index-into-exList>, and a
+  // re-derived template filter has not matched those indices since the duration engine
+  // started choosing from a pool.
+  var exs=getRenderedExList(k)||[];
   exs.forEach(function(ex,ei){
     var card=document.getElementById('exCard_'+ei);
     if(!card) return;
@@ -27451,7 +27449,10 @@ function buildSwapWorkoutBanner(k){
   // Muscle overlap check: warn if today's split hits muscles trained in last 48h
   var recent48=getRecentMuscles(48);
   var todayMuscles={};
-  currentTpl.exercises.forEach(function(ex){var g=getMG(ex.n);if(g)todayMuscles[g]=1;});
+  // Overlap is about what you're ACTUALLY doing today, which may differ from the raw
+  // template once the duration engine has chosen from the pool.
+  ((getRenderedExList(k)||[]).length?getRenderedExList(k):currentTpl.exercises)
+    .forEach(function(ex){var g=getMG(ex.n);if(g)todayMuscles[g]=1;});
   var overlapMuscles=Object.keys(todayMuscles).filter(function(g){return recent48[g]>0;});
   var overlapNote='';
   if(overlapMuscles.length>=3){
@@ -28906,12 +28907,15 @@ function buildTodayProgramCard(){
   var dtype=getDayType(dKey(vDate));
   if(dtype!=='gym'&&dtype!=='both') return;
   var p=STRENGTH_PROGRAMS[st.id];
-  var tpl=WTPL[getEffTpl(dKey(vDate))]; if(!tpl) return;
+  // Read the day's actual exercises, not the raw template — the program card was
+  // listing lifts that are not in today's session and omitting ones that are.
+  var _todayEx=getRenderedExList(dKey(vDate))||[];
+  if(!_todayEx.length){ var _tplFb=WTPL[getEffTpl(dKey(vDate))]; if(!_tplFb) return; _todayEx=_tplFb.exercises; }
   var wk=(st.id==='531')?(st.week||0):0;
   var sets=p.weeks?p.weeks[wk].sets:p.scheme;
   var wkLbl=p.weeks?(' · '+p.weeks[wk].label):'';
   var rows=[];
-  tpl.exercises.forEach(function(ex){
+  _todayEx.forEach(function(ex){
     var key=(typeof getStrKey==='function')?getStrKey(ex.n):null;
     if(key && p.lifts.indexOf(key)>=0){
       var base=p.basis==='tm'?_getProgramTM(key):((S.strength&&S.strength[key])||0);
