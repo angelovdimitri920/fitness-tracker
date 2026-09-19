@@ -36,6 +36,22 @@ persisted to `localStorage`. No backend, no accounts, no analytics.
     exercises `{n,t,sets,reps,rest,p}` and a cardio finisher.
   - `FOCUS_META` / `SETS_BY_FOCUS` / `FOCUS_PROGRESSION` / `INTENSITY_BANDS` — the focus
     (tone/muscle/power/endurance/general) × intensity (quick/standard/full) parameters.
+  - `MIN_WORK_SETS` (= 3) — **hard rule**: no exercise is ever prescribed, or allowed to be
+    edited down to, fewer than three work sets. Enforced in `_focusSetCount`, in the
+    `getRenderedExList` legacy fallback, and in `removeExtraSet`.
+  - `TIME_MODEL` — every constant behind the duration estimate in one place (per-rep tempo, set
+    changeover, rest slop, warm-up ramp cost, per-exercise transition split by compound vs
+    machine, fixed session overhead). `_exLiftSeconds` is the only consumer.
+    `selectWorkoutForDuration` returns `estMin`/`estLowMin`/`estHighMin` + a `breakdown`;
+    `_renderIntEstLine` renders it after supersets are seeded.
+  - `FINISHER_CAP` (inside `selectWorkoutForDuration`) — cardio is capped per focus rather than
+    stretched to fill the band; when the cap bites, the builder adds another **lift** instead.
+  - `getBaseWeight` / `BASE_WEIGHT_EXACT` / `BASE_WEIGHT_RULES` / `BASE_WEIGHT_NONE` — the
+    pre-loaded weight of bars and plate-loaded machines, with `S.baseWeights` overrides. The
+    weight STORED on a set is always the true total; `S.weightEntry` only changes what the input
+    shows (`entryToTotalLbs` / `totalToEntryLbs`).
+  - `computeAutoSupersets` / `SUPERSET_ANTAGONISTS` — pairs come from the chosen exercises'
+    actual muscle groups, never from fixed template indices.
   - `selectWorkoutForDuration()` — picks the exercise count + cardio durations to fit the
     intensity's time band, de-prioritizing muscles trained in the last 48h (`getRecentMuscles`).
   - `buildGym()` — renders the day; snapshots the chosen list onto `sess.exList`.
@@ -45,15 +61,33 @@ persisted to `localStorage`. No backend, no accounts, no analytics.
 - **Invariant (important):** `sess.exList` (set in `buildGym`) is the single source of truth for
   today's rendered exercises. Every index-keyed consumer must read it via `getRenderedExList(k)`
   — never re-derive a filtered template list (that historically dropped/misattributed sets).
+- **Timers — all three are wall-clock based and persisted.** iOS suspends `setInterval` the
+  moment a home-screen PWA is backgrounded, so anything that counts by decrementing a variable
+  per tick silently stops. Store an absolute deadline (or start instant) and derive elapsed time
+  from `Date.now()`:
+  - Cardio: `S.sessions[k].gym.cardioBlocks[key].timer`, repainted by one shared ticker
+    (`_cardioTickAll`) so a page rebuild can never orphan a countdown. `restoreCardioTimers()`
+    re-attaches after every `buildGym`.
+  - Rest: `_restEndAt` mirrored to `localStorage['pf_restTimer']`, restored by
+    `restoreRestTimer()`.
+  - Workout: `S.sessions[k].gym.wTimer` ({startedAt, accumMs, running, active}), loaded per
+    viewed day by `syncWorkoutTimerFromState()`.
+  `resyncAllTimers()` runs on visibilitychange / pageshow / focus. **Never reintroduce a
+  tick-counting timer.**
 - **Service worker** (`sw.js`): network-first for the page (always-fresh online), cache-first
   for assets, offline fallback. Bump `CACHE_VERSION` on every deploy so clients force-update.
 
 ### Editing / verifying conventions
-- **No Node in the typical dev env.** Syntax-check the main `<script>` with JavaScriptCore:
-  extract it and run `osascript -l JavaScript -e 'new Function(src)'`. A parse error makes the
-  whole app fail to load, so always syntax-check after edits.
-- **Verify behavior by serving + driving a browser**, not by eyeballing. The file is ~2.8 MB and
-  has a ~2s artificial load screen — wait before reading `S`.
+- **Syntax-check after every edit.** A parse error blanks the whole app. With Node available:
+  parse each inline `<script>` with `new vm.Script(...)`. Without Node, JavaScriptCore works:
+  `osascript -l JavaScript -e 'new Function(src)'`.
+- **Verify behavior by serving + driving a browser**, not by eyeballing. `node tools/serve.js`
+  serves the folder. The file is ~2.9 MB and has a ~2s artificial load screen — wait before
+  reading `S`.
+- **Test at iPhone 14 Pro Max size (430 × 932).** That is the target device. Sweep all 10 pages
+  and all `.mo` modals for horizontal overflow and console errors.
+- **Drive all 120 combinations.** `splits × focuses × intensities` through the real
+  `buildTodayWorkout` path is cheap and catches most regressions in the engine.
 - **Never hard-code the Anthropic API key** (see §6). It must stay in `localStorage` only.
 
 ---
@@ -86,6 +120,50 @@ This app was built and then hardened over several focused sessions (June 2026):
   (`pf_anthropicKey`) + a **Settings → AI Exercise Guides** field, so the source is safe to
   publish and the key is set per-device.
 
+### September 2026 pass — reported bugs + requested features
+
+A round driven by real gym use. What was found and changed:
+
+- **Timers were the big one.** All three (rest, cardio, workout) counted by decrementing a
+  variable once per `setInterval` tick. iOS suspends timers as soon as a home-screen PWA is
+  backgrounded, so putting the phone down to change music froze the clock — the reported
+  "cardio timers stop keeping track" bug. Rebuilding the Today page also killed any running
+  cardio countdown outright. All three are now wall-clock + persisted (see §2).
+- **Workout timer endings.** Pause/resume plus two distinct endings — 🏁 Finish once every
+  exercise and cardio block is complete, or End early with a count of what is still unlogged —
+  both handing off to the save sheet. Cancelling pauses the clock rather than charging the
+  decision time to the session.
+- **Three-set floor.** `SETS_BY_FOCUS` had accessories at 2 for Tone and Endurance, and Quick
+  subtracted a set from every exercise, so a Quick Tone day prescribed 2×15 on half the list.
+  Now clamped on every path; Quick shortens a session by dropping exercises instead.
+- **Time estimates.** The old figure counted 42s of effort plus the prescribed rest and nothing
+  else. `TIME_MODEL` now covers tempo, set changeover, rest slop, warm-up ramps, walking between
+  machines, loading plates and arrival overhead, and the estimate is shown as a range with its
+  breakdown.
+- **Cardio no longer pads the band.** `FINISHER_CAP` per focus; Power/Full had been getting a
+  46-minute finisher, the exact interference effect its own guidance warns against. Quick skips
+  mid-workout cardio circuits, which had pushed every Tone/Endurance Quick day past 50 min.
+- **Pre-loaded weight** for bars and plate-loaded machines, with an optional "+plates" entry
+  mode, base-aware plate hints, base-clamped suggestions, and loadable warm-up ramps.
+- **Supersets are properly optional** (the toggle now clears them from the workout on screen,
+  and there is a chip on the Today page) and pair on real muscle antagonism instead of fixed
+  template indices — which had been linking a rear-delt fly to a bicep curl.
+- **Missing "quick notes".** 92 EX_INFO entries store their coaching note under `tips` rather
+  than `cues`, which is what every renderer reads — those cards showed an empty Coaching Cue
+  box. Normalised once in `getExInfo`.
+- **Equipment matching.** EXERCISE_DEPS had to match a gym-profile item character for character
+  and that branch returns early, so ten exercises (all kettlebell work, the ab-wheel family,
+  pistol squat) were unreachable from *any* possible gym profile.
+- **Four more `exList` invariant violations** fixed: set-type badges, the strength-program card,
+  both muscle-overlap warnings, and the legacy fallback's own set count.
+- **Tone focus rebuilt** around current evidence on training in a deficit (see §4).
+- **Bottom nav** labels shortened to ≤7 characters with proper flex clipping; ten tabs now fit
+  an iPhone 14 Pro Max without running into each other.
+
+Verification each round: parse-check every inline script; drive all 120 split × focus ×
+intensity combinations through the real render path; sweep 10 pages + 59 modals at 430 × 932 for
+horizontal overflow and console output; and run a full log → finish → save cycle.
+
 > If you're a future Claude Code session: the engine and modules have been heavily verified.
 > Prefer small, surgical changes; re-run the syntax check and a live page sweep after edits;
 > and preserve the `exList` snapshot + cardio/exercise de-dup invariants.
@@ -97,8 +175,23 @@ This app was built and then hardened over several focused sessions (June 2026):
 - **Exercise science** drives `FOCUS_META` (rep ranges, rest, set counts, set types, cardio
   multipliers). Values are grounded in cited literature (NSCA / Schoenfeld / Helms / Prilepin),
   with the reasoning kept in comments next to the tables — e.g. hypertrophy at 6–12 reps with a
-  working load that lands the top set near 1–2 reps-in-reserve, power at 3–5 reps with long
-  rest, "tone" emphasizing higher reps + more cardio for a fat-loss phase.
+  working load that lands the top set near 1–2 reps-in-reserve, and power at 3–5 reps with long
+  rest.
+- **Tone was rebuilt in September 2026** and the old note here ("higher reps + more cardio for a
+  fat-loss phase") no longer describes it. It ran 12–15 reps at 70% with 52 s rest — the classic
+  light-weight/high-rep toning model — which is the wrong prescription precisely when you are
+  cutting. [Schoenfeld et al.'s 2024 Bayesian
+  meta-analysis](https://www.frontiersin.org/journals/sports-and-active-living/articles/10.3389/fspor.2024.1429789/full)
+  on inter-set rest finds rests under 60 s measurably reduce hypertrophy through lost volume
+  load, and [network meta-analysis of exercise under caloric
+  restriction](https://www.frontiersin.org/journals/nutrition/articles/10.3389/fnut.2025.1579024/full)
+  finds lean mass is preserved by keeping the *load* respectable rather than by adding reps. Tone
+  now runs 10–14 reps at ~85% with 75 s rest; the deficit still comes from its 1.6× cardio
+  multiplier (the largest of any focus) and the mid-workout cardio block. `FOCUS_PROGRESSION.tone`
+  moved to floor 10 / ceiling 14 to match. **If you revisit these numbers, keep rest ≥ 60 s.**
+- The other four focuses were re-checked against the same literature in that pass and stand as
+  written: Power (3–5 @ 85–90%, 3–4 min rest), Muscle (6–12 @ 67–85%, 90 s), General (8–12, 75 s),
+  Endurance (15–20, 35 s — short rests are the training goal there, not an oversight).
 - **Nutrition** presets (`MACRO_PRESETS`, diet presets) include macro splits and short science
   notes per diet; adaptive TDEE adjusts targets from logged weight trend.
 - **Running/marathon** uses standard models (e.g. Riegel race prediction, phase-based training
@@ -111,9 +204,12 @@ This app was built and then hardened over several focused sessions (June 2026):
 
 ## 5. Current capabilities
 
-- **Workouts:** auto-generated daily session from focus × intensity × split × recent training;
-  full set logging (work/warm-up/drop/failure/rest-pause), supersets, plate calculator, rest +
-  workout timers, per-exercise swaps/skip, 1RM estimates, PR detection, and history.
+- **Workouts:** auto-generated daily session from focus × intensity × split × recent training,
+  with a **3-work-set minimum on every exercise** and a duration estimate that models transitions,
+  plate loading and realistic rest; full set logging (work/warm-up/drop/failure/rest-pause),
+  **optional** supersets, **pre-loaded weight with an optional "+plates" entry mode**, plate
+  calculator, **wall-clock rest/cardio/workout timers that survive backgrounding**, per-exercise
+  swaps (A→Z with explanations) and skip, 1RM estimates, PR detection, and history.
 - **Strength programs:** 5/3/1-style training-max progression that overrides set/weight scheme.
 - **Templates:** capture a session as a reusable rich template and re-apply it.
 - **Nutrition:** food/macro/water logging, meal plans, recipes, barcode lookup (Open Food
@@ -160,3 +256,17 @@ This app was built and then hardened over several focused sessions (June 2026):
 
 Everything else — the workout engine, logging, nutrition, running, progress, recovery — is
 implemented, tested, and ready.
+
+### One thing only the athlete can do: confirm the base weights
+
+`BASE_WEIGHT_EXACT` / `BASE_WEIGHT_RULES` ship sensible defaults for how much each bar and
+plate-loaded machine weighs empty (Olympic bar 45 lb, leg press sled 160, hack squat 95, Smith
+carriage 20, plate-loaded carriages 25–60). **Sleds and carriages genuinely differ between gyms
+and between manufacturers**, and nothing in the app can measure them. The numbers are a starting
+point, not a claim.
+
+Check the ones you actually use — most machines have the starting weight printed on the frame or
+the sled — and correct them with the ⚖️ chip on the exercise card. Corrections live in
+`S.baseWeights[exerciseName]` and override everything else. Until then, treat logged totals on
+plate-loaded machines as approximate; every derived number (volume, 1RM, PRs) inherits whatever
+the base weight says.

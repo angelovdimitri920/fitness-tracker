@@ -8,6 +8,10 @@ Conventions: everything lives in `pf_workout_tracker.html` (single file). State 
 saved by `saveS()`. Most screens have a `build*`/`render*` entry function that regenerates the DOM.
 Search the file by function name to find a control.
 
+The bottom nav uses short labels so ten tabs fit a phone; the page ids they switch to are the
+longer names used throughout this document: **Gear** → `equipment`, **Run** → `marathon`,
+**Food** → `nutrition`, **Stats** → `progress`.
+
 ---
 
 ## Top-right toolbar (every screen)
@@ -68,24 +72,32 @@ Search the file by function name to find a control.
 | Week strip | `buildWeekStrip()` | Per-day dots; tap to change `vDate` |
 | Intensity selector | `setIntensity(lvl)` | Quick/Standard/Full; rebuilds + clears stale state |
 | Engine (auto-build) | `selectWorkoutForDuration()`, `buildGym()`, `getRenderedExList(k)` | Picks exercises/sets/cardio; snapshots `sess.exList` |
+| Time estimate line | `_renderIntEstLine()`, `TIME_MODEL`, `_exLiftSeconds()`, `_supersetSavingMinutes()` | Range + breakdown (lifting+rest / cardio / setup / superset saving) |
+| 3-set minimum | `MIN_WORK_SETS`, `_focusSetCount()`, `removeExtraSet()` | Hard floor of 3 work sets per exercise, on every path |
 | Set done toggle | `toggleSet(ei,si,btn)` | Marks set done; rest timer + superset handling |
 | Weight/reps inputs | `updateSet(ei,si,field,val)` | Writes set value (weight stored in lbs) |
-| Add set / type picker | `addExtraSet(ei,type)`, `addContinueDrop(ei,si)`, `removeExtraSet(ei,si)` | Add work/drop/failure/rest-pause; drop chains |
+| Add set / type picker | `addExtraSet(ei,type)`, `addContinueDrop(ei,si)`, `removeExtraSet(ei,si)` | Add work/drop/failure/rest-pause; drop chains. Removal refuses below `MIN_WORK_SETS` |
+| Base weight chip (⚖️) | `_baseWeightChip()`, `getBaseWeight()`, `editBaseWeight(ei)` | What the bar/sled weighs empty; tap to correct for your gym |
+| LOGGING: TOTAL / +PLATES | `toggleWeightEntryMode(ei)`, `entryToTotalLbs()`, `_refreshTotalHint()` | Type the total, or only the plates you add (stored value is always the total) |
 | Set-type change | `updateSetType()`, `autoFillSetType()`, `applySmartSetTypes(k)` | Assign/auto-assign advanced set types per focus |
-| Warm-up sets | `getWarmupSets()`, `toggleWarmup(ei,wi,btn)` | Auto warm-up ladder + done toggles |
-| Swap / Skip exercise | `openSwap(idx,name)`, `doSwap()`, `undoSwap()`, `toggleSkipExercise(ei)` | Equipment-valid swap (no dupes); skip excludes from save |
+| Warm-up sets | `getWarmupSets(w,exName)`, `warmupWeightFor()`, `toggleWarmup(ei,wi,btn)` | Warm-up ladder ramps `base + pct × (working − base)`, so every step is loadable |
+| Swap / Skip exercise | `openSwap(idx,name)`, `renderSwapList(q)`, `exerciseBlurb()`, `doSwap()`, `undoSwap()`, `toggleSkipExercise(ei)` | Alternatives A→Z with a one-line explanation + search; skip excludes from save |
 | Quick-fill | `quickFillExercise(ei)` | Pull last session's sets |
 | Superset link/unlink | `openLinkModal(ei)`, `linkSuperset(ei,p)`, `unlinkSuperset(ei)` | Pair + alternate two exercises |
-| Plate hint | `calcPlates()`, `_plateHint()` | Per-set bar loading |
-| Rest timer | `startTimer(s,force)`, `pauseTimer()`, `stopTimer()`, `addTime(d)` | Auto rest countdown + cues |
-| Workout timer | `startWorkoutTimer()`, `pauseWorkoutTimer()`, `resumeWorkoutTimer()`, `endWorkoutTimer()` | Session stopwatch |
-| Cardio blocks | `buildCardioBlock()`, `updateCardioBlock()`, `toggleCardioBlock()`, `toggleCardioSkip()`, `startCardioTimer()`, `openCardioSwap()`, `selectCardioSwap()`; dedup `cardioTypeKey()` | Warm-up/mid/finisher cardio, each with timer + swap; no machine twice/day |
+| 🔗 Supersets on/off chip | `toggleSupersetsToday()`, `toggleAutoSuperset()`, `applySupersetPrefToSession()`, `computeAutoSupersets()` | Off clears them from the workout on screen; pairs come from real muscle antagonism |
+| Plate hint | `calcPlates()`, `plateHintFor(exName,total)`, `isPlateLoaded()` | Per-side loading from the exercise's real base weight, not an assumed 45 lb bar |
+| Rest timer | `startTimer(s,force)`, `pauseTimer()`, `stopTimer()`, `addTime(d)`, `restoreRestTimer()` | Wall-clock deadline in `localStorage['pf_restTimer']`; survives backgrounding + reload |
+| Workout timer | `startWorkoutTimer()`, `pauseWorkoutTimer()`, `resumeWorkoutTimer()`, `endWorkoutTimer()`, `syncWorkoutTimerFromState()`, `isWorkoutFullyComplete(k)` | Persisted per day in `gym.wTimer`; End offers 🏁 Finish (all logged) or End early, both → save sheet |
+| Cardio blocks | `buildCardioBlock()`, `updateCardioBlock()`, `toggleCardioBlock()`, `toggleCardioSkip()`, `openCardioSwap()`, `selectCardioSwap()`; dedup `cardioTypeKey()` | Warm-up/mid/finisher cardio, each with timer + swap; no machine twice/day |
+| Cardio timers | `startCardioTimer()`, `pauseCardioTimer()`, `resumeCardioTimer()`, `stopCardioTimer()`, `restoreCardioTimers()`, `_cardioTickAll()` | State lives in `cardioBlocks[key].timer`; one shared ticker, so a rebuild can't orphan a countdown. Expiry while backgrounded is credited on return |
 | Smart note | `applySmartSetTypes()` (sets note), `dismissSmartNote(k)` | Plain-English plan summary |
-| Split switcher | `buildSwapWorkoutBanner(k)` | Override today's split |
+| Split switcher | `buildSwapWorkoutBanner(k)`, `openSplitSwitcher()`, `SPLIT_INFO` | Splits A→Z with what each trains + what it's best for |
 | Templates | `promptSaveTemplate()`, `confirmSaveTemplate()`, `applyWorkoutTemplate(id)`, `resetToAutoWorkout()`, `_captureRichTemplate(k)` | Save/apply a full session; reset to engine |
 | Save flow | `saveWorkoutPrompt()`, `confirmSave()`, `doSaveWorkout(rating,notes)` | Compute volume/sets/cals/PRs → summary → history (idempotent) |
 | Run mode (run days) | run branch of `doSaveWorkout`, run input handlers | distance/time/pace/HR/RPE/cadence/elevation/splits/injury |
 | Rest-day mode | `buildRestDayRecovery()`, `buildRestDayRecovery`/recovery "Log Done" handlers | Active-recovery/mobility library + targeted stretch suggestions |
+
+| Foreground resync | `resyncAllTimers()` (visibilitychange / pageshow / focus) | Repaints every timer and completes anything that ran out while the app was away |
 
 ## 📋 Plan — `buildPlan()`
 | Control | Function(s) | What it does |
@@ -99,7 +111,7 @@ Search the file by function name to find a control.
 | Deload scheduler | `openDeloadScheduler()`, `getDeloadRecommendation()`, `confirmDeloadSchedule()`, `removeDeloadWeek()`, `isDeloadWeek(k)`, deload banners | Schedule/auto-recommend deloads |
 | Strength-program card | `renderStrengthProgramCard()` | Active program summary |
 
-## 🧰 Equipment — `buildEquipmentPage()`
+## 🧰 Gear (page id `equipment`) — `buildEquipmentPage()`
 | Control | Function(s) | What it does |
 |---|---|---|
 | Gym profiles | `setActiveGym(id)`, `confirmAddGym()`, `confirmRenameGym()`, `deleteActiveGym()` | Multiple gyms; active gym drives availability |
@@ -107,7 +119,7 @@ Search the file by function name to find a control.
 | Custom exercise | `confirmAddCustomExercise()` | Add your own movement |
 | Availability engine | `isExerciseAvailable()`, `getEquipmentSafeExercise()` | Gates generation/substitution |
 
-## 🏃 Marathon — `buildMarathon()`
+## 🏃 Run (page id `marathon`) — `buildMarathon()`
 | Control | Function(s) | What it does |
 |---|---|---|
 | Program + race config | run-program setter, `mWeekNum()`, `mStartDate()`, `getPhase()` | Week/phase derivation |
@@ -128,7 +140,7 @@ Search the file by function name to find a control.
 | Health markers | `renderHealthMarkers()`, `deleteLatestHealth()` | BP / resting HR / labs |
 | Weight history | `renderWeightHistory()` | Editable log |
 
-## 🥗 Nutrition — `buildNutritionPage()`
+## 🥗 Food (page id `nutrition`) — `buildNutritionPage()`
 | Control | Function(s) | What it does |
 |---|---|---|
 | Log/remove food | `addToCart()`, `unifiedAddToCart(Qty)()`, `addRestItemToMeal()`, `removeFood()` | Foods into meals; macro totals |
@@ -150,7 +162,7 @@ Search the file by function name to find a control.
 | Achievements | `buildAchievements()`, `ACHIEVEMENTS[]` | ~35 unlock tests |
 | Upcoming milestones | `buildUpcomingMilestones()` | Next thresholds |
 
-## 📈 Progress — `switchProgTab(tab)` → `buildProgressTab()`
+## 📈 Stats (page id `progress`) — `switchProgTab(tab)` → `buildProgressTab()`
 | Tab | Function(s) | What it does |
 |---|---|---|
 | Activity | `buildActivityTab()`, `buildAllTimeStats()`, `buildWorkoutCalHeatmap()`, `buildWorkoutTypeChart()`, `buildStreakDetails()`, `build8020Split()` | Volume/streak/heatmap/80-20 |

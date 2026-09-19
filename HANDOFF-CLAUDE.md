@@ -20,17 +20,41 @@ you). It points at the two things you'll most likely want to do next: **resume f
   Guides**. Never re-introduce a hard-coded key (GitHub/Anthropic secret-scanning would revoke it).
 - **Not yet deployed for daily phone use** — that's Path B below. Everything else is done.
 
+### Newest work (September 2026)
+
+A pass driven by real gym use. Full detail in `CLAUDE.md` §3; the headline items:
+
+- **Every timer is wall-clock based and persisted.** They used to count by decrementing a
+  variable per `setInterval` tick, which iOS suspends the moment a home-screen PWA is
+  backgrounded — putting the phone down to change music froze the clock. Do not reintroduce a
+  tick-counting timer; see `CLAUDE.md` §2.
+- **A 3-work-set minimum** is enforced on every path, including manual set removal.
+- **Time estimates** model transitions, plate loading, warm-up ramps and realistic rest, and are
+  shown as a range with their breakdown.
+- **Pre-loaded ("starts at") weight** for bars and plate-loaded machines, with an optional
+  "+plates" entry mode.
+- **Supersets are optional** and pair on real muscle antagonism.
+- **The Tone focus was rebuilt** around current evidence on training in a deficit.
+
+**One open item that only you can close:** the base weights for plate-loaded machines are
+educated defaults — sleds and carriages differ between gyms. Check the ones you use (the starting
+weight is usually printed on the frame) and correct them with the ⚖️ chip on the exercise card.
+See `CLAUDE.md` §7.
+
 ---
 
 ## Path A — resume feature development
 
 ### Set up + verify (do this before and after any change)
 1. Edit `pf_workout_tracker.html` directly (no build step).
-2. **Syntax-check** the main script (a parse error blanks the whole app). With no Node, use
-   JavaScriptCore: extract the `<script>` and run `osascript -l JavaScript -e 'new Function(src)'`.
-3. **Verify behavior in a browser**, not by reading: serve the folder
-   (`python3 -m http.server 8753`) and drive it. Wait ~2 s for the load screen before reading `S`.
-   Sweep all 10 pages + the modals and watch the console for errors.
+2. **Syntax-check** the main script (a parse error blanks the whole app). With Node, parse each
+   inline `<script>` with `new vm.Script(...)`. Without Node, JavaScriptCore works:
+   `osascript -l JavaScript -e 'new Function(src)'`.
+3. **Verify behavior in a browser**, not by reading: serve the folder (`node tools/serve.js`)
+   and drive it. Wait ~2 s for the load screen before reading `S`. **Test at 430 × 932 (iPhone 14
+   Pro Max)** — that is the target device. Sweep all 10 pages + all `.mo` modals for console
+   errors and horizontal overflow, and drive all 120 split × focus × intensity combinations
+   through `buildTodayWorkout`.
 4. Keep changes small and surgical; re-run steps 2–3.
 
 ### Guardrails (don't break these — they were hard-won)
@@ -38,6 +62,12 @@ you). It points at the two things you'll most likely want to do next: **resume f
   must read `getRenderedExList(k)` — never re-derive a filtered template list.
 - **Cardio + exercise de-dup**: a machine never repeats across warm-up/mid/finisher (`cardioTypeKey`),
   and a movement never repeats in a day (used-name checks in swap/substitution/intensity-change).
+- **Never reintroduce a tick-counting timer.** All three timer families are wall-clock +
+  persisted because iOS suspends intervals for a backgrounded PWA (`CLAUDE.md` §2).
+- **`MIN_WORK_SETS` = 3 is a hard rule**, not a default: never let any path prescribe or edit an
+  exercise below three work sets.
+- **A set's stored weight is always the TRUE TOTAL** in lbs, including any base/bar weight.
+  `S.weightEntry` only changes what the input displays.
 - **Never commit the Anthropic key** (it lives in `localStorage` only).
 - **Dates**: `dKey()` for local `YYYY-MM-DD`; parse keys with `+'T12:00:00'` (avoids UTC off-by-one).
 - After a deploy, **bump `CACHE_VERSION` in `sw.js`** so clients force-update.
@@ -55,6 +85,9 @@ These are the "could-improve" notes from the README, roughly prioritized. None a
 - **Progress**: per-chart date-range pickers.
 - **Settings**: selective/partial import (merge instead of replace).
 - **Data safety**: finish the NAS (Tailscale) auto-backup wiring so history is protected on-device.
+- **Workout (added Sept 2026)**: a rest-timer that keeps counting on the lock screen via a
+  Notification or Wake Lock; auto-detecting a stalled lift and proposing a deload; a
+  "gym is busy" swap that offers an equipment-different alternative for the same muscle.
 
 ---
 
@@ -65,7 +98,7 @@ phone can reach. Recommended: **Tailscale HTTPS** (works anywhere incl. the gym,
 
 1. **Tailscale on the Mac + iPhone**, same account; in the admin console enable **MagicDNS** and
    **HTTPS Certificates**.
-2. **Serve the folder** on the Mac: `python3 -m http.server 8751` (from this folder). For
+2. **Serve the folder**: `node tools/serve.js 8751` (or `python3 -m http.server 8751`). For
    hands-off, make it a `launchd` LaunchAgent so it starts on login.
 3. **Expose over HTTPS**: `/Applications/Tailscale.app/Contents/MacOS/Tailscale serve --bg 8751`
    → `https://<your-mac>.<tailnet>.ts.net/pf_workout_tracker.html`.
