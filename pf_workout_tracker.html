@@ -1975,7 +1975,8 @@ canvas{width:100%!important;display:block}
 </div>
 </div></div>
 <div class="mo" id="swapModal"><div class="md"><div class="mh"></div><button class="mc" onclick="closeModal('swapModal')">✕</button><div class="mt">🔄 SWAP EXERCISE</div><div style="font-size:12px;color:var(--mu);margin-bottom:8px" id="swapHint"></div>
-<input id="swapFilter" type="search" class="ex-note-inp" placeholder="Search alternatives…" oninput="renderSwapList(this.value)" style="width:100%;padding:9px 11px;font-size:13px;margin-bottom:10px">
+<input id="swapFilter" type="search" class="ex-note-inp" placeholder="Search alternatives…" oninput="renderSwapList(this.value)" style="width:100%;padding:9px 11px;font-size:13px;margin-bottom:8px">
+<button id="swapBusyBtn" onclick="toggleSwapBusyFilter()" title="Someone's on the machine? Show only alternatives that use different equipment." style="width:100%;padding:7px 11px;margin-bottom:10px;border-radius:8px;border:1px solid var(--b2);background:var(--s3);color:var(--mu);font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.5px;cursor:pointer">🚧 Machine busy?</button>
 <div id="swapList"></div></div></div>
 
 <div class="mo" id="intervalTimerModal"><div class="md"><div class="mh"></div><button class="mc" onclick="ivtReset(true);closeModal('intervalTimerModal')">✕</button><div class="mt">⏱️ INTERVAL TIMER</div>
@@ -4164,6 +4165,10 @@ function getProgression(exName, targetReps, targetSets, weightMult){
       res.weight=base;
       if(res.badge==='est') res.msg='starts at '+toDisplayWeight(base)+' '+getWeightUnit();
     }
+    // Snap to something that can actually be loaded. Plain 5 lb rounding only works
+    // while the base weight happens to be a multiple of 5; once you correct a sled to
+    // its real weight it stops being true.
+    if(res&&res.weight>0) res.weight=snapToLoadable(exName,res.weight);
   }catch(e){}
   return res;
 }
@@ -4594,6 +4599,9 @@ if(!S.profile)S.profile={name:'',heightIn:72,goalWeight:185,age:null};
 // which exercises they log as "+plates" rather than as a total.
 if(!S.baseWeights)S.baseWeights={};
 if(!S.weightEntry)S.weightEntry={};
+// Deloads applied (or stall warnings dismissed) per exercise, so a stall isn't re-flagged
+// every session once you've dealt with it.
+if(!S.deloads)S.deloads={};
 if(!S.planView)S.planView='week';
 if(S.planOffset===undefined)S.planOffset=0;
 if(!S.weekFocus||S.weekFocus==='auto')S.weekFocus='general';
@@ -5952,8 +5960,15 @@ if(_addedMode){
 // exercise's real base weight, so a leg press sled or a Smith bar gets a correct
 // per-side breakdown instead of the old hard-coded 45 lb Olympic bar.
 if(S.prefs&&S.prefs.plateDisplay&&!noWeight&&isPlateLoaded(ex.n)&&set.weight&&parseFloat(set.weight)>_exBase){
-  var _phint=plateHintFor(ex.n,parseFloat(set.weight)||0);
+  var _pw=parseFloat(set.weight)||0;
+  var _phint=plateHintFor(ex.n,_pw);
   if(_phint) sH+='<div style="grid-column:3/-1;padding:0 2px 3px;font-family:\'DM Mono\',monospace;font-size:9px;color:#94a3b8;letter-spacing:.3px">🏋️ '+_phint+' /side</div>';
+  else {
+    // Saying nothing here just looked like the hint was broken. Name the problem and
+    // the two weights either side that you CAN make.
+    var _dn=snapToLoadable(ex.n,_pw,'down'), _up=snapToLoadable(ex.n,_pw,'up');
+    sH+='<div style="grid-column:3/-1;padding:0 2px 3px;font-family:\'DM Mono\',monospace;font-size:9px;color:var(--or);letter-spacing:.3px">🏋️ '+toDisplayWeight(_pw)+' can\'t be made with standard plates — try '+toDisplayWeight(_dn)+' or '+toDisplayWeight(_up)+'</div>';
+  }
 }
 // Remove row for user-added sets beyond template count (skip ds  --  they have their own remove)
 if(s>=ex.sets&&!set.done&&setType!=='ds'){
@@ -6004,6 +6019,7 @@ html+='<div id="exCard_'+ei+'" class="exrow '+(isSwapped?'swapped':'')+'" data-e
 '<div class="exname">'+ex.n+(isSwapped?' <span class="badge bp" style="margin-left:5px">SWAPPED</span>':'')+badgeHtml+'</div>'+(getStrengthNote(ex.n)?'<div style="font-size:10px;color:#f97316;padding:2px 0 0;line-height:1.4">⚠️ '+getStrengthNote(ex.n)+'</div>':'')+
 '<div class="extgt">'+ex.t+' · '+ex.sets+'×'+ex.reps+' · Rest '+ex.rest+'s</div>'+
 _baseWeightChip(ei,ex)+
+_stallBanner(ei,ex.n)+
 suggLine+
 _lastSessLine+'</div></div><div style="display:flex;gap:6px"><button class="ex-info-btn" onclick="openExInfo(\''+ex.n.replace(/'/g,"\\'")+'\')" title="Exercise info">ℹ️</button><button class="ex-info-btn" onclick="openExChart(\''+ex.n.replace(/'/g,"\\'")+'\')" title="Progress chart" style="background:rgba(245,196,0,.1);border-color:rgba(245,196,0,.25);color:var(--ye)">📈</button><button class="swpbtn" onclick="openSwap('+ei+',\''+ex.n.replace(/'/g,"\\'")+'\')">🔄</button>'+
 '<button onclick="openLinkModal('+ei+')" style="background:none;border:none;cursor:pointer;font-size:16px;padding:2px 4px;line-height:1">&#x1F517;</button>'+
@@ -6837,6 +6853,186 @@ function exerciseBlurb(name, fallbackTarget){
 // effectively random when you are scanning forty options on a phone) with a one-line
 // explanation of what each movement is, plus a search box because some muscle groups
 // have a hundred alternatives.
+
+// ═══════════════════════════════════════════════════════════════════
+// STALL DETECTION + DELOAD
+// ═══════════════════════════════════════════════════════════════════
+// Double progression only moves the weight when you hit the rep ceiling. If you stop
+// hitting it, nothing in the app said so — the same number just kept reappearing week
+// after week. These read your own history and call it.
+//
+// A lift is STALLED when, across the last `STALL_SESSIONS` sessions containing it,
+// the best estimated 1RM never improved on the oldest of them. That is deliberately
+// e1RM rather than raw weight, so grinding out an extra rep at the same load still
+// counts as progress and does not trip the warning.
+var STALL_SESSIONS=3;          // consecutive non-improving sessions before it's a stall
+var DELOAD_PCT=0.90;           // a deload week runs at 90% of the stalled load
+var STALL_MIN_GAP_DAYS=90;     // ignore sessions older than this (a layoff isn't a stall)
+
+// The work sets this exercise was actually logged with, newest session first.
+function getExSessionHistory(exName, limit){
+  var out=[];
+  var cutoff=dKey(new Date(Date.now()-STALL_MIN_GAP_DAYS*864e5));
+  for(var i=S.history.length-1;i>=0&&out.length<(limit||8);i--){
+    var sess=S.history[i];
+    if(sess.type!=='gym'||!sess.exercises) continue;
+    if(sess.date<cutoff) break;
+    for(var j=0;j<sess.exercises.length;j++){
+      var ex=sess.exercises[j];
+      if(ex.name!==exName||!ex.sets) continue;
+      var work=ex.sets.filter(function(s){return s.done&&(s.type||'wk')!=='wu'&&parseFloat(s.weight)>0&&parseInt(s.reps)>0;});
+      if(!work.length) continue;
+      var bestE1=0, topW=0;
+      work.forEach(function(s){
+        var w=parseFloat(s.weight)||0, r=parseInt(s.reps)||0;
+        var e=(typeof est1RM==='function')?est1RM(w,r):w;
+        if(e>bestE1) bestE1=e;
+        if(w>topW) topW=w;
+      });
+      out.push({date:sess.date, e1rm:Math.round(bestE1), topWeight:topW, sets:work.length,
+                allCompleted:!!ex.allCompleted});
+      break;
+    }
+  }
+  return out;
+}
+// null when the lift is progressing (or there isn't enough history to say).
+function detectStall(exName){
+  try{
+    if(!exName) return null;
+    // A lift driven by a strength program follows the program's own progression.
+    if(typeof getActiveProgramFor==='function'&&getActiveProgramFor(exName)) return null;
+    var h=getExSessionHistory(exName, STALL_SESSIONS);
+    if(h.length<STALL_SESSIONS) return null;
+    // h[0] is newest. Stalled if nothing since the oldest of the window beat it.
+    var oldest=h[h.length-1];
+    var improved=h.slice(0,h.length-1).some(function(s){ return s.e1rm>oldest.e1rm; });
+    if(improved) return null;
+    var k=dKey(vDate);
+    var already=(S.deloads&&S.deloads[exName]);
+    // Don't re-nag about a deload that was applied within this stall window.
+    if(already&&already.date>=h[h.length-1].date) return null;
+    return {
+      exercise: exName,
+      sessions: h.length,
+      topWeight: h[0].topWeight,
+      e1rm: h[0].e1rm,
+      since: h[h.length-1].date,
+      suggestedWeight: snapToLoadable(exName, h[0].topWeight*DELOAD_PCT, 'down')
+    };
+  }catch(e){ return null; }
+}
+// Drop today's prescribed weights for this exercise to the deload load. Reps stay where
+// they are: the point is to come back at the same rep target with a load you can beat.
+function applyDeload(ei){
+  var k=dKey(vDate);
+  var exs=getRenderedExList(k)||[];
+  var ex=exs[ei]; if(!ex) return;
+  var st=detectStall(ex.n);
+  if(!st){ showToast('No stall detected on this lift'); return; }
+  var unit=getWeightUnit();
+  showConfirm(
+    'Deload '+ex.n+' to '+toDisplayWeight(st.suggestedWeight)+' '+unit+' for today? '
+    +'(down from '+toDisplayWeight(st.topWeight)+' — '+st.sessions+' sessions without progress). '
+    +'Same reps, lighter bar: build back up from there.',
+    function(){
+      var exD=S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.exercises[ei];
+      if(!exD){ showToast('Nothing to change'); return; }
+      (exD.sets||[]).forEach(function(s){
+        if(s.done) return;                       // never rewrite a logged set
+        if((s.type||'wk')==='wu') return;        // warm-ups regenerate from the working weight
+        s.weight=String(st.suggestedWeight);
+        // auto:false is load-bearing — an auto-flagged weight is treated as a stale
+        // suggestion and regenerated on the next render, which would silently undo the
+        // deload. This is a deliberate choice, so it sticks like a typed value.
+        s.auto=false;
+      });
+      if(!S.deloads) S.deloads={};
+      S.deloads[ex.n]={date:k, from:st.topWeight, to:st.suggestedWeight};
+      saveS();
+      buildTodayWorkout();
+      showToast('📉 Deloaded to '+toDisplayWeight(st.suggestedWeight)+' '+unit);
+    });
+}
+// Dismiss the warning for this lift without deloading — sometimes a plateau is just a
+// bad couple of weeks and you want to push again.
+function dismissStall(ei){
+  var k=dKey(vDate);
+  var exs=getRenderedExList(k)||[];
+  var ex=exs[ei]; if(!ex) return;
+  if(!S.deloads) S.deloads={};
+  S.deloads[ex.n]={date:k, dismissed:true};
+  saveS();
+  buildTodayWorkout();
+  showToast('Noted — pushing on with '+ex.n);
+}
+// The banner that goes on a stalled exercise's card.
+function _stallBanner(ei, exName){
+  var st=detectStall(exName);
+  if(!st) return '';
+  var unit=getWeightUnit();
+  return '<div style="margin-top:6px;padding:7px 9px;border-radius:8px;background:rgba(249,115,22,.08);border:1px solid rgba(249,115,22,.28)">'
+    +'<div style="font-size:10px;color:var(--or);font-family:\'DM Mono\',monospace;letter-spacing:.3px;line-height:1.5">'
+    +'📉 STALLED — '+st.sessions+' sessions at '+toDisplayWeight(st.topWeight)+' '+unit+' with no gain in estimated 1RM.'
+    +'</div>'
+    +'<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">'
+    +'<button onclick="applyDeload('+ei+')" style="font-size:10px;padding:4px 10px;border-radius:7px;border:1px solid rgba(249,115,22,.45);background:rgba(249,115,22,.14);color:var(--or);cursor:pointer">Deload to '+toDisplayWeight(st.suggestedWeight)+' '+unit+'</button>'
+    +'<button onclick="dismissStall('+ei+')" style="font-size:10px;padding:4px 10px;border-radius:7px;border:1px solid var(--b2);background:var(--s3);color:var(--mu);cursor:pointer">Push on</button>'
+    +'<button onclick="openStallInfo()" style="font-size:10px;padding:4px 8px;border-radius:7px;border:none;background:none;color:#64748b;cursor:pointer;text-decoration:underline">Why?</button>'
+    +'</div></div>';
+}
+function openStallInfo(){
+  var t=el('exInfoModalTitle'), c=el('exInfoModalContent');
+  if(t) t.textContent='📉 WHY A DELOAD?';
+  if(c) c.innerHTML=
+    '<div style="font-size:12px;color:#ccc;line-height:1.7">'
+    +'<p>A lift is flagged as stalled when your best estimated 1RM on it has not improved across '
+    +STALL_SESSIONS+' sessions in a row. Estimated 1RM is used rather than the weight on the bar, '
+    +'so adding a rep at the same load still counts as progress and will not trip this.</p>'
+    +'<p style="margin-top:10px">Grinding the same weight against the same wall mostly accumulates fatigue. '
+    +'Dropping to about '+Math.round(DELOAD_PCT*100)+'% for a session or two lets that fatigue clear while you keep '
+    +'the movement pattern, and you usually come back through the old number rather than at it.</p>'
+    +'<p style="margin-top:10px">The suggested weight is snapped to something you can actually load on that '
+    +'equipment. Reps stay where they are — the point is to hit the same rep target with a load you can beat.</p>'
+    +'<p style="margin-top:10px;color:var(--mu)">Not every plateau needs a deload. A bad week of sleep or food '
+    +'looks the same from the outside. <strong>Push on</strong> dismisses this for the lift.</p>'
+    +'</div>';
+  openModal('exInfoModal');
+}
+
+// What equipment does this movement actually occupy? Used by the "machine is busy"
+// filter, which needs alternatives that don't queue you for the same station.
+// Falls back to the name when there is no explicit dependency entry.
+var _exEquipCache={};
+function exerciseEquipmentKeys(exName){
+  if(_exEquipCache[exName]) return _exEquipCache[exName];
+  var keys={};
+  var deps=(typeof EXERCISE_DEPS!=='undefined')&&EXERCISE_DEPS[exName];
+  if(deps&&deps.length){
+    deps.forEach(function(d){ _equipVariants(d).forEach(function(v){ if(v) keys[v]=1; }); });
+  }
+  // Name-derived station, so two movements on the same machine collide even when their
+  // dependency lists differ (or are missing).
+  var n=String(exName||'').toLowerCase();
+  [['smith machine','smith machine'],['leg press','leg press'],['hack squat','hack squat'],
+   ['lat pull','lat pulldown'],['pull-down','lat pulldown'],['pulldown','lat pulldown'],
+   ['cable','cable'],['crossover','cable'],['pec deck','pec deck'],['pec fly','pec deck'],
+   ['leg extension','leg extension'],['leg curl','leg curl'],['calf','calf station'],
+   ['hip thrust','hip thrust'],['abductor','hip abductor'],['adductor','hip abductor'],
+   ['dumbbell','dumbbells'],['barbell','barbell'],['ez bar','ez bar'],['ez-bar','ez bar'],
+   ['kettlebell','kettlebells'],['trx','trx'],['band','bands'],['machine','machine'],
+   ['bench press','bench'],['squat rack','rack'],['power rack','rack'],['rowing','row station'],
+   ['seated row','row station'],['chest press','chest press'],['shoulder press','shoulder press']
+  ].forEach(function(p){ if(n.indexOf(p[0])>=0) keys[p[1]]=1; });
+  _exEquipCache[exName]=keys;
+  return keys;
+}
+// True when two exercises would put you at the same piece of equipment.
+function sharesEquipment(a,b){
+  var ka=exerciseEquipmentKeys(a), kb=exerciseEquipmentKeys(b);
+  // "machine" alone is too generic to count as a collision on its own.
+  return Object.keys(ka).some(function(k){ return k!=='machine' && kb[k]; });
+}
 function openSwap(idx,name){
   var g=getMG(name);
   if(!g){showToast('No alternatives found');return;}
@@ -6847,21 +7043,43 @@ function openSwap(idx,name){
   var list=(ELIB[g]||[]).filter(function(e){
     return e.n!==name && !_usedExNames[e.n] && isExerciseAvailable(e.n,gym.equipment) && isExerciseUserEnabled(e.n);
   }).sort(function(a,b){ return a.n.localeCompare(b.n,undefined,{sensitivity:'base'}); });
-  el('swapHint').textContent='Targeting: '+g.toUpperCase()+' · '+list.length+' alternatives · A→Z';
-  el('swapList')._list=list;
-  el('swapList')._idx=idx;
+  var listEl=el('swapList');
+  listEl._list=list;
+  listEl._idx=idx;
+  listEl._current=name;
+  listEl._busy=false;
   renderSwapList('');
   var sf=el('swapFilter'); if(sf){ sf.value=''; }
   openModal('swapModal');
 }
-// Renders (or re-renders, on search) the alternatives list.
+// Toggle: only show alternatives that use DIFFERENT equipment, for when the machine
+// you wanted is occupied.
+function toggleSwapBusyFilter(){
+  var listEl=el('swapList'); if(!listEl) return;
+  listEl._busy=!listEl._busy;
+  var q=(el('swapFilter')||{}).value||'';
+  renderSwapList(q);
+}
+// Renders (or re-renders, on search / busy toggle) the alternatives list.
 function renderSwapList(q){
   var listEl=el('swapList'); if(!listEl) return;
-  var list=listEl._list||[], idx=listEl._idx;
+  var list=listEl._list||[], idx=listEl._idx, current=listEl._current, busy=!!listEl._busy;
   q=String(q||'').trim().toLowerCase();
-  var shown=q?list.filter(function(e){
+  var shown=list;
+  if(busy&&current) shown=shown.filter(function(e){ return !sharesEquipment(current,e.n); });
+  if(q) shown=shown.filter(function(e){
     return e.n.toLowerCase().indexOf(q)>=0 || (e.t||'').toLowerCase().indexOf(q)>=0;
-  }):list;
+  });
+  var g=getMG(current)||'';
+  var hint=el('swapHint');
+  if(hint) hint.textContent='Targeting: '+g.toUpperCase()+' · '+shown.length+(busy?' on other equipment':' alternatives')+' · A→Z';
+  var busyBtn=el('swapBusyBtn');
+  if(busyBtn){
+    busyBtn.textContent=busy?'🚧 Different equipment only':'🚧 Machine busy?';
+    busyBtn.style.borderColor=busy?'rgba(249,115,22,.5)':'var(--b2)';
+    busyBtn.style.background=busy?'rgba(249,115,22,.12)':'var(--s3)';
+    busyBtn.style.color=busy?'var(--or)':'var(--mu)';
+  }
   var html=shown.map(function(e){
     var li=list.indexOf(e);
     var blurb=exerciseBlurb(e.n,e.t);
@@ -6872,7 +7090,11 @@ function renderSwapList(q){
       +'<div class="starget">'+escapeHtml(blurb)+baseTag+'</div>'
       +'</div>';
   }).join('');
-  if(!shown.length) html='<div style="padding:16px;text-align:center;font-size:12px;color:var(--mu)">Nothing matches “'+escapeHtml(q)+'”.</div>';
+  if(!shown.length){
+    html='<div style="padding:16px;text-align:center;font-size:12px;color:var(--mu)">'
+      +(busy?'No alternatives on different equipment for this muscle.':'Nothing matches “'+escapeHtml(q)+'”.')
+      +'</div>';
+  }
   html+='<div class="sopt" style="background:var(--bg)" onclick="undoSwap('+idx+')"><div class="sname" style="color:var(--mu)">↩️ Reset to Original</div></div>';
   listEl.innerHTML=html;
 }
@@ -12603,6 +12825,69 @@ function editBaseWeight(ei){
 }
 // The plate breakdown per side for a given TOTAL, using this exercise's real base
 // weight rather than assuming a 45 lb bar.
+
+// ── LOADABLE WEIGHTS ────────────────────────────────────────────────────────
+// A suggestion you cannot actually set up is not a suggestion. Rounding to the
+// nearest 5 lb is only safe while the equipment's own starting weight happens to be a
+// multiple of 5 — the moment you correct a sled to, say, 162 lb (and you should, they
+// differ between gyms), every 5 lb suggestion would need 1.25 lb a side.
+//
+// For anything plate-loaded the real constraint is total = base + 2 × (a stack of
+// standard plates). These snap a target to the nearest weight that satisfies it.
+
+// Every per-side load standard plates can make, ascending. Cached; only PLATE_SIZES
+// changes it.
+var _perSideLoadsCache=null;
+function _perSideLoads(){
+  if(_perSideLoadsCache) return _perSideLoadsCache;
+  var set={0:true};
+  // Up to 6 of each plate per side covers far past anything this app will suggest.
+  PLATE_SIZES.forEach(function(p){
+    Object.keys(set).forEach(function(have){
+      for(var n=1;n<=6;n++){
+        var v=Math.round((parseFloat(have)+p.w*n)*100)/100;
+        if(v<=500) set[v]=true;
+      }
+    });
+  });
+  _perSideLoadsCache=Object.keys(set).map(parseFloat).sort(function(a,b){return a-b;});
+  return _perSideLoadsCache;
+}
+// Nearest total weight this exercise can actually be loaded to. `dir` decides which
+// way to go when the target falls between two loadable weights: 'up', 'down', or
+// nearest when omitted.
+function snapToLoadable(exName, targetLbs, dir){
+  if(!(targetLbs>0)) return targetLbs;
+  var base=getBaseWeight(exName);
+  if(!(base>0)){
+    // No base weight: dumbbells and pin stacks both move in whole increments, so keep
+    // the established 5 lb rounding rather than guessing a stack's step size.
+    var snapped=Math.round(targetLbs/5)*5;
+    if(dir==='up'&&snapped<targetLbs) snapped+=5;
+    if(dir==='down'&&snapped>targetLbs) snapped-=5;
+    return Math.max(5,snapped);
+  }
+  if(targetLbs<=base) return base;
+  var want=(targetLbs-base)/2;
+  var loads=_perSideLoads();
+  var i=0; while(i<loads.length&&loads[i]<want-1e-9) i++;
+  var hi=i<loads.length?loads[i]:loads[loads.length-1];
+  var lo=i>0?loads[i-1]:0;
+  var pick;
+  if(dir==='up') pick=hi;
+  else if(dir==='down') pick=lo;
+  else pick=(Math.abs(hi-want)<Math.abs(want-lo))?hi:lo;
+  return Math.round((base+pick*2)*100)/100;
+}
+// Can this exact total be set up on this equipment?
+function isLoadableWeight(exName, totalLbs){
+  var base=getBaseWeight(exName);
+  if(!(base>0)) return true;
+  if(totalLbs<base) return false;
+  if(Math.abs(totalLbs-base)<0.01) return true;
+  return Math.abs(snapToLoadable(exName,totalLbs)-totalLbs)<0.01;
+}
+
 function plateHintFor(exName,totalLbs){
   var base=getBaseWeight(exName);
   if(base<=0) return null;
