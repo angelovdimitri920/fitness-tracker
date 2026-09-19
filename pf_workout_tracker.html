@@ -53,8 +53,14 @@ body{background:var(--bg);color:var(--tx);font-family:'DM Sans',sans-serif;font-
 .ta{display:flex;gap:6px}
 .ib{background:var(--s3);border:1px solid var(--b2);color:var(--tx);width:34px;height:34px;border-radius:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px}
 .bnav{position:fixed;bottom:0;left:0;right:0;background:#0d0d0d;border-top:1px solid var(--b1);display:flex;z-index:200;height:60px;padding-bottom:env(safe-area-inset-bottom)}
-.nb{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:none;border:none;color:var(--mu);cursor:pointer;font-family:DM Mono,monospace;font-size:8px;letter-spacing:.5px;text-transform:uppercase;padding:6px 0}
-.nb .ni{font-size:16px}
+/* 10 tabs across a phone leaves ~43px each on an iPhone 14 Pro Max (430pt). The label
+   must be clipped to its own button, never allowed to spill into the neighbour — hence
+   min-width:0 (flex items default to min-width:auto and refuse to shrink), nowrap and
+   ellipsis. Labels themselves are kept to ≤7 characters (see the <nav> markup). */
+.nb{flex:1 1 0;min-width:0;max-width:100%;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:none;border:none;color:var(--mu);cursor:pointer;font-family:DM Mono,monospace;font-size:8px;letter-spacing:.2px;text-transform:uppercase;padding:6px 1px}
+.nb .nl{display:block;width:100%;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.1}
+.nb .ni{font-size:16px;line-height:1}
+@media (max-width:360px){.nb{font-size:7px;letter-spacing:0}.nb .ni{font-size:15px}}
 .nb.active{color:var(--ye)}
 .nb.active .ni{filter:drop-shadow(0 0 5px rgba(245,196,0,.5))}
 .page{display:none;padding:16px 13px 20px;max-width:900px;margin:0 auto;width:100%}
@@ -1540,17 +1546,20 @@ canvas{width:100%!important;display:block}
 
 </div><!-- end page-goals -->
 
+<!-- Tab labels are deliberately short (≤7 chars). Ten tabs on a 430pt phone give each
+     button ~43px; longer words ran into their neighbours. The full page name lives in
+     aria-label/title so it is still announced and discoverable. -->
 <nav class="bnav">
-<button class="nb active" onclick="switchPage('home',this)"><span class="ni">🏠</span>Home</button>
-<button class="nb" onclick="switchPage('today',this)"><span class="ni">🏋️</span>Today</button>
-<button class="nb" onclick="switchPage('plan',this)"><span class="ni">📋</span>Plan</button>
-<button class="nb" onclick="switchPage('equipment',this)"><span class="ni">🧰</span>Equipment</button>
-<button class="nb" onclick="switchPage('marathon',this)"><span class="ni">🏃</span>Marathon</button>
-<button class="nb" onclick="switchPage('body',this)"><span class="ni">⚖️</span>Body</button>
-<button class="nb" onclick="switchPage('nutrition',this)"><span class="ni">🥗</span>Nutrition</button>
-<button class="nb" onclick="switchPage('goals',this)"><span class="ni">🏆</span>Goals</button>
-<button class="nb" onclick="switchPage('progress',this)"><span class="ni">📈</span>Progress</button>
-<button class="nb" onclick="switchPage('history',this)"><span class="ni">🗂️</span>History</button>
+<button class="nb active" onclick="switchPage('home',this)" aria-label="Home" title="Home"><span class="ni">🏠</span><span class="nl">Home</span></button>
+<button class="nb" onclick="switchPage('today',this)" aria-label="Today" title="Today"><span class="ni">🏋️</span><span class="nl">Today</span></button>
+<button class="nb" onclick="switchPage('plan',this)" aria-label="Plan" title="Plan"><span class="ni">📋</span><span class="nl">Plan</span></button>
+<button class="nb" onclick="switchPage('equipment',this)" aria-label="Equipment" title="Equipment"><span class="ni">🧰</span><span class="nl">Gear</span></button>
+<button class="nb" onclick="switchPage('marathon',this)" aria-label="Running and marathon" title="Running &amp; marathon"><span class="ni">🏃</span><span class="nl">Run</span></button>
+<button class="nb" onclick="switchPage('body',this)" aria-label="Body" title="Body"><span class="ni">⚖️</span><span class="nl">Body</span></button>
+<button class="nb" onclick="switchPage('nutrition',this)" aria-label="Nutrition" title="Nutrition"><span class="ni">🥗</span><span class="nl">Food</span></button>
+<button class="nb" onclick="switchPage('goals',this)" aria-label="Goals" title="Goals"><span class="ni">🏆</span><span class="nl">Goals</span></button>
+<button class="nb" onclick="switchPage('progress',this)" aria-label="Progress" title="Progress"><span class="ni">📈</span><span class="nl">Stats</span></button>
+<button class="nb" onclick="switchPage('history',this)" aria-label="History" title="History"><span class="ni">🗂️</span><span class="nl">History</span></button>
 </nav>
 </div>
 <div id="toast"></div>
@@ -4784,8 +4793,11 @@ function showToast(msg){var t=el('toast');t.textContent=msg;t.classList.add('sho
 
 // In-app confirm dialog (replaces native confirm() which is blocked in some browsers)
 var _confirmCallback = null;
-function showConfirm(msg, onYes){
+var _confirmCancelCallback = null;
+// onNo is optional — run when the user dismisses the dialog (Cancel or ✕).
+function showConfirm(msg, onYes, onNo){
   _confirmCallback = onYes;
+  _confirmCancelCallback = onNo || null;
   var el2 = el('confirmModalMsg');
   if(el2) el2.textContent = msg;
   openModal('confirmModal');
@@ -4807,11 +4819,13 @@ function textPromptSubmit(){
 }
 function confirmYes(){
   closeModal('confirmModal');
+  _confirmCancelCallback = null;
   if(_confirmCallback){ _confirmCallback(); _confirmCallback=null; }
 }
 function confirmNo(){
   closeModal('confirmModal');
   _confirmCallback = null;
+  if(_confirmCancelCallback){ var _cb=_confirmCancelCallback; _confirmCancelCallback=null; _cb(); }
 }
 function openModal(id){var m=el(id);if(!m){console.warn('openModal: element not found:',id);return;}m.classList.add('show');}
 function closeModal(id){var m=el(id);if(!m){console.warn('closeModal: element not found:',id);return;}m.classList.remove('show');if(id==='dayModal'){buildPlanCalendar();buildWeekStrip();buildTodayWorkout();}}
@@ -4822,7 +4836,7 @@ window.addEventListener('load',function(){setTimeout(function(){el('loading').cl
 try{ var _mNb=document.querySelector('.nb[onclick*=marathon]'); if(_mNb) _mNb.style.display=''; }catch(e){}
 // Catalogues are now defined — restore any persisted custom equipment/exercises into them
 try{rehydrateCustomCatalogues();}catch(e){console.warn('rehydrate (load) failed:',e);}
-var _fns=[updateStreak,buildWeekStrip,updateDateDisplay,buildTodayWorkout,buildPlan,buildMarathon,updateProgress,renderHistory,buildBodyPage,buildNutritionPage,renderStrengthModal,initWorkoutTimer,buildGoalsPage,buildHomePage,checkReminders,applyA11y];_fns.forEach(function(fn){try{fn();}catch(e){console.warn('Startup fn failed:',fn.name,e.message);}});
+var _fns=[updateStreak,buildWeekStrip,updateDateDisplay,buildTodayWorkout,buildPlan,buildMarathon,updateProgress,renderHistory,buildBodyPage,buildNutritionPage,renderStrengthModal,initWorkoutTimer,restoreRestTimer,buildGoalsPage,buildHomePage,checkReminders,applyA11y];_fns.forEach(function(fn){try{fn();}catch(e){console.warn('Startup fn failed:',fn.name,e.message);}});
 // Midnight rollover: a PWA left open overnight kept showing yesterday's dashboard and
 // workout. When the app regains focus on a new calendar day, jump to today and refresh.
 var _lastSeenDayKey=dKey(new Date());
@@ -5125,7 +5139,11 @@ if(_saveBtnEl){
     _saveBtnEl.style.color='';
   }
 }
-el('saveBtn').style.display='inline-flex';renderTimerBar();showTodayNotes();if(cMode==='gym'&&isG)buildGym(k,dow);else if(cMode==='run'&&isR)buildRun(k,dow);var _eaw=el('extraActivitiesWrap');if(_eaw){if(isG||isR)_eaw.innerHTML=buildExtraActivitiesCard(k);else _eaw.innerHTML='';}updateStats();checkVolAlert(k,dow);}
+el('saveBtn').style.display='inline-flex';
+// Load the VIEWED day's workout clock (it lives in that day's session), so paging
+// between days never shows another day's elapsed time.
+try{syncWorkoutTimerFromState();}catch(e){console.warn('syncWorkoutTimerFromState failed:',e);}
+renderTimerBar();showTodayNotes();if(cMode==='gym'&&isG)buildGym(k,dow);else if(cMode==='run'&&isR)buildRun(k,dow);var _eaw=el('extraActivitiesWrap');if(_eaw){if(isG||isR)_eaw.innerHTML=buildExtraActivitiesCard(k);else _eaw.innerHTML='';}updateStats();checkVolAlert(k,dow);}
 function switchMode(m){cMode=m;document.querySelectorAll('.mtab').forEach(function(t){t.classList.toggle('active',t.dataset.mode===m);});buildTodayWorkout();}
 var _bgPass2=false;
 
@@ -5778,6 +5796,9 @@ tpl.cardio.forEach(function(c,ci){
 sess._cardioBySlot=_cardioBySlot;
 
 el('wContent').innerHTML=_gymSavedBanner+html;
+// Re-attach any cardio countdown that is still running (they live in state, so they
+// survive this rebuild, a reload, and the app being backgrounded).
+try{restoreCardioTimers();}catch(e){console.warn('restoreCardioTimers failed:',e);}
 // Second pass: re-render with correct set types in state (types now correct)
 if(!_bgPass2){_bgPass2=true;try{buildGym(k,dow);}catch(e){console.warn('buildGym second pass failed:',e);}_bgPass2=false;}
 // Sync any remaining badge differences
@@ -6034,23 +6055,86 @@ function setIntensity(lvl){
   buildTodayWorkout();
   showToast('Intensity: '+lvl.toUpperCase());
 }
+// ── Rest timer (between sets) ───────────────────────────────────────────────
+// Wall-clock + persisted, for the same reason as the cardio timers: a counter that
+// decremented once per tick froze whenever iOS suspended the page (phone locked, user
+// switched to their music). `_restEndAt` is an absolute deadline, so the remaining time
+// is always recomputed from Date.now() and is right after any interruption; it is
+// mirrored to localStorage so it also survives a reload or the PWA being evicted.
+var _restEndAt=null;      // epoch ms while running
+var _restLeftMs=null;     // remaining ms while paused
+var _restTotal=0;         // seconds the timer was started with
+var _RESTK='pf_restTimer';
+function _saveRestTimer(){
+  try{
+    if(_restEndAt||_restLeftMs) localStorage.setItem(_RESTK,JSON.stringify({e:_restEndAt,l:_restLeftMs,t:_restTotal}));
+    else localStorage.removeItem(_RESTK);
+  }catch(e){}
+}
+function _restRemainMs(){
+  if(_restEndAt) return Math.max(0,_restEndAt-Date.now());
+  return Math.max(0,_restLeftMs||0);
+}
 function startTimer(secs,force){
   // If auto-timer is off, only start if explicitly forced (user taps timer buttons)
   if(!force&&S.prefs&&S.prefs.autoTimer===false) return;
-  if(timerInt)clearInterval(timerInt);timerSecs=secs;el('timerWrap').classList.add('active');
+  if(timerInt)clearInterval(timerInt);
+  _restTotal=secs;
+  _restEndAt=Date.now()+secs*1000;
+  _restLeftMs=null;
+  _saveRestTimer();
+  el('timerWrap').classList.add('active');
+  timerSecs=secs;
   updateTimerDisp();
-  timerInt=setInterval(function(){timerSecs--;updateTimerDisp();
-    if(timerSecs>0&&timerSecs<=3) pfCue('count');
-    if(timerSecs<=0){clearInterval(timerInt);timerInt=null;
+  var _lastCue=-1;
+  timerInt=setInterval(function(){
+    var left=_restRemainMs();
+    timerSecs=Math.ceil(left/1000);
+    updateTimerDisp();
+    if(timerSecs>0&&timerSecs<=3&&timerSecs!==_lastCue){_lastCue=timerSecs;pfCue('count');}
+    if(left<=0){
+      clearInterval(timerInt);timerInt=null;
+      _restEndAt=null;_restLeftMs=null;_saveRestTimer();
       el('timerCnt').textContent='GO!';showToast('⏱️ Rest done - next set!');pfCue('go');
       setTimeout(function(){el('timerWrap').classList.remove('active');},2500);
     }
-  },1000);
+  },250);
 }
 function updateTimerDisp(){var m=Math.floor(timerSecs/60),s=timerSecs%60;el('timerCnt').textContent=(m>0?m+':':'')+String(s).padStart(m>0?2:0,'0');}
-function pauseTimer(){if(timerInt){clearInterval(timerInt);timerInt=null;}else if(timerSecs>0){startTimer(timerSecs,true);}}
-function stopTimer(){if(timerInt){clearInterval(timerInt);timerInt=null;}el('timerWrap').classList.remove('active');}
-function addTime(d){timerSecs=Math.max(5,timerSecs+d);updateTimerDisp();}
+function pauseTimer(){
+  if(timerInt){
+    _restLeftMs=_restRemainMs();_restEndAt=null;
+    clearInterval(timerInt);timerInt=null;
+    _saveRestTimer();
+  } else if(_restLeftMs>0){
+    startTimer(Math.ceil(_restLeftMs/1000),true);
+  }
+}
+function stopTimer(){
+  if(timerInt){clearInterval(timerInt);timerInt=null;}
+  _restEndAt=null;_restLeftMs=null;_saveRestTimer();
+  el('timerWrap').classList.remove('active');
+}
+function addTime(d){
+  if(_restEndAt) _restEndAt=Math.max(Date.now()+5000,_restEndAt+d*1000);
+  else if(_restLeftMs!=null) _restLeftMs=Math.max(5000,_restLeftMs+d*1000);
+  _restTotal=Math.max(5,_restTotal+d);
+  timerSecs=Math.ceil(_restRemainMs()/1000);
+  _saveRestTimer();
+  updateTimerDisp();
+}
+// Restore a rest countdown left running when the app was closed or evicted.
+function restoreRestTimer(){
+  var raw=null;
+  try{raw=localStorage.getItem(_RESTK);}catch(e){}
+  if(!raw) return;
+  var d=null; try{d=JSON.parse(raw);}catch(e){}
+  if(!d) return;
+  _restTotal=d.t||0;
+  if(d.e&&d.e-Date.now()>0){ _restEndAt=null; _restLeftMs=null; startTimer(Math.ceil((d.e-Date.now())/1000),true); }
+  else if(d.l>0){ _restLeftMs=d.l; _restEndAt=null; timerSecs=Math.ceil(d.l/1000); el('timerWrap').classList.add('active'); updateTimerDisp(); }
+  else { try{localStorage.removeItem(_RESTK);}catch(e){} }
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // AUDIO + HAPTICS — shared by rest timer, interval timer, breathwork
@@ -6617,6 +6701,9 @@ var progressions=[];var fprogSum=FOCUS_PROGRESSION[S.weekFocus||'general']||FOCU
 // Store run summary data for post-save screen
 window._lastSummary={type:'run',distance:parseFloat(r.distance)||0,duration:parseFloat(r.duration)||0,pace:r.pace||'',hr:r.hr||'',calories:parseFloat(r.calories)||0,rpe:r.rpe||'',cadence:r.cadence||'',elevation:parseFloat(r.elevation)||0,notes:notes||r.notes||'',status:r.status||'completed',phase:phase.name,week:wk,rating:rating||0};}
 if(saved){
+  // The session is in history now — stop the workout clock so it can't keep running
+  // (or be resumed) against a workout that is already finished.
+  try{ if(_wTimerActive) _stopWorkoutClock(k); }catch(e){console.warn('stop workout clock:',e);}
   // Sync save-modal notes back to day notes store
   if(notes&&notes.length){
     if(!S.workoutNotes)S.workoutNotes={};
@@ -14216,11 +14303,62 @@ unit:getWeightUnit()
 // ═══════════════════════════════════════════════════════════════════
 // WORKOUT TIMER
 // ═══════════════════════════════════════════════════════════════════
+// Wall-clock and PERSISTED to the session (S.sessions[k].gym.wTimer). The elapsed
+// time is always Date.now() − startedAt + banked pause time, so it keeps counting
+// while the phone is locked or the user is in another app, and it is restored intact
+// after a reload or the PWA being evicted. The timer belongs to a DAY, so navigating
+// to another date shows that date's timer rather than leaking today's.
+//
+//   wTimer = {startedAt: epoch-ms|null, accumMs: banked ms, running: bool, active: bool}
+//
+// Three ways to end, per the intended flow:
+//   • Pause / Resume  — bathroom, water, waiting for a machine.
+//   • Finish early    — stop now and save what has been logged.
+//   • Finish workout  — offered once every exercise is complete.
 var _wTimerInterval=null, _wTimerStart=null, _wTimerPaused=false, _wTimerElapsed=0, _wTimerActive=false;
 
+function _wTimerStateFor(k,create){
+  if(!S.sessions[k]||!S.sessions[k].gym) return null;
+  var g=S.sessions[k].gym;
+  if(!g.wTimer&&create) g.wTimer={startedAt:null,accumMs:0,running:false,active:false};
+  return g.wTimer||null;
+}
+function _wTimerSave(){
+  var k=dKey(vDate);
+  var t=_wTimerStateFor(k,true);
+  if(!t) return;
+  t.active=_wTimerActive;
+  t.running=_wTimerActive&&!_wTimerPaused;
+  t.accumMs=_wTimerElapsed;
+  t.startedAt=(_wTimerActive&&!_wTimerPaused)?_wTimerStart:null;
+  saveS();
+}
+// Load the viewed day's timer into the in-memory vars. Called on startup and whenever
+// the Today view is (re)built, so switching days never shows another day's clock.
+function syncWorkoutTimerFromState(){
+  var k=dKey(vDate);
+  var t=_wTimerStateFor(k,false);
+  if(_wTimerInterval){clearInterval(_wTimerInterval);_wTimerInterval=null;}
+  if(!t||!t.active){
+    _wTimerActive=false;_wTimerPaused=false;_wTimerElapsed=0;_wTimerStart=null;
+    return;
+  }
+  _wTimerActive=true;
+  if(t.running&&t.startedAt){
+    _wTimerPaused=false;
+    _wTimerStart=t.startedAt;
+    _wTimerElapsed=Date.now()-t.startedAt;
+    _wTimerInterval=setInterval(tickWorkoutTimer,1000);
+  } else {
+    _wTimerPaused=true;
+    _wTimerElapsed=t.accumMs||0;
+    _wTimerStart=Date.now()-_wTimerElapsed;
+  }
+}
+
 function initWorkoutTimer(){
-  _wTimerActive=false; _wTimerPaused=false; _wTimerElapsed=0;
   _weekRunCards=[]; _runCards=[];
+  syncWorkoutTimerFromState();
   renderTimerBar();
 }
 
@@ -14232,12 +14370,46 @@ function renderTimerBar(){
   bar.style.display='flex';
   if(!_wTimerActive){
     btns.innerHTML='<button class="wt-btn wt-start" onclick="startWorkoutTimer()">▶ Start</button>';
-  } else if(_wTimerPaused){
-    btns.innerHTML='<button class="wt-btn wt-resume" onclick="resumeWorkoutTimer()">▶ Resume</button><button class="wt-btn wt-end" onclick="endWorkoutTimer()">■ End</button>';
   } else {
-    btns.innerHTML='<button class="wt-btn wt-pause" onclick="pauseWorkoutTimer()">⏸ Pause</button><button class="wt-btn wt-end" onclick="endWorkoutTimer()">■ End</button>';
+    // Once every exercise is logged the End button becomes the "you're done" action.
+    var allDone=false;
+    try{ allDone=isWorkoutFullyComplete(k); }catch(e){}
+    var endLbl=allDone?'🏁 Finish':'■ End';
+    btns.innerHTML=(_wTimerPaused
+        ?'<button class="wt-btn wt-resume" onclick="resumeWorkoutTimer()">▶ Resume</button>'
+        :'<button class="wt-btn wt-pause" onclick="pauseWorkoutTimer()">⏸ Pause</button>')
+      +'<button class="wt-btn wt-end" onclick="endWorkoutTimer()">'+endLbl+'</button>';
   }
+  var sub=el('wTimerSub');
+  if(sub) sub.textContent=!_wTimerActive?'Workout time':(_wTimerPaused?'Paused':'In progress...');
+  var disp=el('wTimerDisplay');
+  if(disp) disp.classList.toggle('wtimer-paused',!!(_wTimerActive&&_wTimerPaused));
   updateTimerBarDisplay();
+}
+
+// True when every non-skipped exercise has all its work sets ticked and every
+// non-skipped cardio block is done.
+function isWorkoutFullyComplete(k){
+  k=k||dKey(vDate);
+  var sess=S.sessions[k]&&S.sessions[k].gym;
+  if(!sess) return false;
+  var exs=(typeof getRenderedExList==='function')?(getRenderedExList(k)||[]):[];
+  if(!exs.length) return false;
+  for(var i=0;i<exs.length;i++){
+    var exD=sess.exercises&&sess.exercises[i];
+    if(exD&&exD.skipped) continue;
+    var work=((exD&&exD.sets)||[]).filter(function(s){return (s.type||'wk')!=='wu';});
+    if(!work.length) return false;
+    if(work.some(function(s){return !s.done;})) return false;
+  }
+  var cb=sess.cardioBlocks||{};
+  var keys=Object.keys(cb);
+  for(var j=0;j<keys.length;j++){
+    var b=cb[keys[j]];
+    if(!b||b.skipped) continue;
+    if(!b.done) return false;
+  }
+  return true;
 }
 
 function startWorkoutTimer(){
@@ -14245,42 +14417,84 @@ function startWorkoutTimer(){
   _wTimerStart=Date.now()-_wTimerElapsed;
   if(_wTimerInterval) clearInterval(_wTimerInterval);
   _wTimerInterval=setInterval(tickWorkoutTimer,1000);
-  var sub=el('wTimerSub'); if(sub) sub.textContent='In progress...';
+  var k=dKey(vDate);
+  if(S.sessions[k]&&S.sessions[k].gym&&!S.sessions[k].gym.startTime) S.sessions[k].gym.startTime=Date.now();
+  _wTimerSave();
   renderTimerBar();
   showToast('⏱️ Workout started!');
 }
 
 function pauseWorkoutTimer(){
+  if(!_wTimerActive||_wTimerPaused) return;
   _wTimerPaused=true;
   _wTimerElapsed=Date.now()-_wTimerStart;
   clearInterval(_wTimerInterval); _wTimerInterval=null;
-  var disp=el('wTimerDisplay'); if(disp) disp.classList.add('wtimer-paused');
-  var sub=el('wTimerSub'); if(sub) sub.textContent='Paused';
+  _wTimerSave();
   renderTimerBar();
+  showToast('⏸ Paused — clock stopped');
 }
 
 function resumeWorkoutTimer(){
+  if(!_wTimerActive||!_wTimerPaused) return;
   _wTimerPaused=false;
   _wTimerStart=Date.now()-_wTimerElapsed;
   if(_wTimerInterval) clearInterval(_wTimerInterval);
   _wTimerInterval=setInterval(tickWorkoutTimer,1000);
-  var disp=el('wTimerDisplay'); if(disp) disp.classList.remove('wtimer-paused');
-  var sub=el('wTimerSub'); if(sub) sub.textContent='In progress...';
+  _wTimerSave();
   renderTimerBar();
 }
 
+// Stop the clock. If the workout is finished it goes straight to the save sheet; if
+// it is not, it says what is still outstanding and offers to save it early anyway.
 function endWorkoutTimer(){
-  if(_wTimerInterval){clearInterval(_wTimerInterval);_wTimerInterval=null;}
-  _wTimerPaused=false; _wTimerActive=false;
-  var finalMs=_wTimerElapsed||0;
-  var mins=Math.round(finalMs/60000);
+  if(!_wTimerActive) return;
   var k=dKey(vDate);
-  if(S.sessions[k]&&S.sessions[k].gym) S.sessions[k].gym.startTime=Date.now()-(finalMs);
-  _wTimerElapsed=0;
-  var disp=el('wTimerDisplay'); if(disp){disp.textContent='0:00:00';disp.classList.remove('wtimer-paused');}
+  if(!_wTimerPaused&&_wTimerStart) _wTimerElapsed=Date.now()-_wTimerStart;
+  var mins=Math.round((_wTimerElapsed||0)/60000);
+  var complete=false; try{complete=isWorkoutFullyComplete(k);}catch(e){}
+  var remaining=0;
+  try{
+    var exs=getRenderedExList(k)||[];
+    var sess=S.sessions[k]&&S.sessions[k].gym;
+    exs.forEach(function(_,i){
+      var exD=sess&&sess.exercises&&sess.exercises[i];
+      if(exD&&exD.skipped) return;
+      var work=((exD&&exD.sets)||[]).filter(function(s){return (s.type||'wk')!=='wu';});
+      if(!work.length||work.some(function(s){return !s.done;})) remaining++;
+    });
+  }catch(e){}
+  var msg=complete
+    ? 'Finish the workout? '+mins+' min on the clock — all exercises are logged. Save it to your history now?'
+    : 'End early at '+mins+' min? '+remaining+' exercise'+(remaining===1?'':'s')+' still have unlogged sets. Save what you have done so far?';
+  showConfirm(msg,function(){
+    _stopWorkoutClock(k);
+    showToast(complete?('🏁 Workout complete — '+mins+' min'):('■ Ended early — '+mins+' min'));
+    try{ saveWorkoutPrompt(); }catch(e){ console.warn('saveWorkoutPrompt failed:',e); }
+  },function(){
+    // "Cancel" leaves the workout running but pauses the clock, so the time spent
+    // deciding is not charged to the session.
+    if(!_wTimerPaused) pauseWorkoutTimer();
+  });
+}
+
+// Stop and clear the clock without prompting (used by endWorkoutTimer and by a save).
+function _stopWorkoutClock(k){
+  k=k||dKey(vDate);
+  if(_wTimerInterval){clearInterval(_wTimerInterval);_wTimerInterval=null;}
+  if(!_wTimerPaused&&_wTimerStart) _wTimerElapsed=Date.now()-_wTimerStart;
+  var finalMs=_wTimerElapsed||0;
+  _wTimerPaused=false; _wTimerActive=false;
+  if(S.sessions[k]&&S.sessions[k].gym){
+    S.sessions[k].gym.startTime=Date.now()-finalMs;
+    S.sessions[k].gym.wTimer={startedAt:null,accumMs:finalMs,running:false,active:false};
+    saveS();
+  }
+  var disp=el('wTimerDisplay');
+  if(disp){disp.textContent=_fmtWTimer(finalMs);disp.classList.remove('wtimer-paused');}
   var sub=el('wTimerSub'); if(sub) sub.textContent='Workout time';
+  // Keep the elapsed value around so the save sheet can show the real duration.
+  _wTimerElapsed=finalMs;
   renderTimerBar();
-  showToast('✅ Workout ended  --  '+mins+' min');
 }
 
 function tickWorkoutTimer(){
@@ -14288,12 +14502,16 @@ function tickWorkoutTimer(){
   updateTimerBarDisplay();
 }
 
-function updateTimerBarDisplay(){
-  var disp=el('wTimerDisplay'); if(!disp) return;
-  var ms=_wTimerActive?(_wTimerPaused?_wTimerElapsed:Date.now()-_wTimerStart):0;
+function _fmtWTimer(ms){
   var s=Math.floor(ms/1000), m=Math.floor(s/60), h=Math.floor(m/60);
   s=s%60; m=m%60;
-  disp.textContent=h+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+  return h+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+}
+
+function updateTimerBarDisplay(){
+  var disp=el('wTimerDisplay'); if(!disp) return;
+  var ms=_wTimerActive?(_wTimerPaused?_wTimerElapsed:Date.now()-_wTimerStart):(_wTimerElapsed||0);
+  disp.textContent=_fmtWTimer(ms);
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -26229,126 +26447,200 @@ function toggleCardioSkip(type, idx, btn){
   showToast(sess.cardioBlocks[key].skipped?'⊘ Cardio skipped':'↩ Cardio restored');
 }
 
+// Coming back to the foreground: every timer is wall-clock based, so all that is
+// needed is a repaint — plus completing anything that ran out while the app was away.
+// (pagehide/pageshow matters on iOS, where a home-screen PWA is often frozen rather
+// than hidden, and bfcache restores skip visibilitychange entirely.)
+function resyncAllTimers(){
+  try{ restoreCardioTimers(); }catch(e){}
+  try{ syncWorkoutTimerFromState(); renderTimerBar(); }catch(e){}
+  try{
+    if(timerInt||_restLeftMs>0){
+      timerSecs=Math.ceil(_restRemainMs()/1000);
+      if(timerSecs<=0&&timerInt){ stopTimer(); } else { updateTimerDisp(); }
+    }
+  }catch(e){}
+}
+document.addEventListener('visibilitychange',function(){ if(!document.hidden) resyncAllTimers(); });
+window.addEventListener('pageshow',function(){ resyncAllTimers(); });
+window.addEventListener('focus',function(){ resyncAllTimers(); });
+
 // ── Cardio block countdown timer ─────────────────────────────
-var _cardioTimers={}; // {type-idx: intervalId}
-// Stop every running cardio countdown. Called on any view rebuild so intervals
-// don't keep ticking against detached DOM nodes (leak) or complete against a
-// different day after the user navigates away.
+// WALL-CLOCK, PERSISTED. A phone locks, the user switches to their music app, iOS
+// suspends the page — a setInterval that decremented a counter simply stopped, so the
+// old timers "paused" whenever the app was put down. These store an ABSOLUTE deadline
+// in the session state instead, so elapsed time is always Date.now() arithmetic and is
+// correct after backgrounding, a reload, or the PWA being evicted and relaunched.
+//
+// Timer state lives at S.sessions[k].gym.cardioBlocks['<type>-<idx>'].timer:
+//   {total: seconds, endAt: epoch-ms (running), leftMs: ms (paused), running: bool,
+//    startedAt: epoch-ms, day: 'YYYY-MM-DD'}
+// A single shared ticker repaints every visible block, so rebuilding the Today page
+// can never orphan or kill a running countdown.
+var _cardioTickInt=null;
+
+function _cardioTimerKey(type,idx){ return type+'-'+idx; }
+function _cardioTimerState(type,idx,create){
+  var k=dKey(vDate);
+  if(!S.sessions[k]||!S.sessions[k].gym) return null;
+  var sess=S.sessions[k].gym;
+  if(!sess.cardioBlocks) sess.cardioBlocks={};
+  var key=_cardioTimerKey(type,idx);
+  if(!sess.cardioBlocks[key]){
+    if(!create) return null;
+    sess.cardioBlocks[key]={duration:'',calories:'',metric:'',notes:'',done:false};
+  }
+  var b=sess.cardioBlocks[key];
+  if(!b.timer&&create) b.timer={total:0,endAt:null,leftMs:null,running:false,startedAt:null,day:k};
+  return b.timer||null;
+}
+// Remaining milliseconds for a timer state, from the wall clock.
+function _cardioRemainMs(t){
+  if(!t) return 0;
+  if(t.running) return Math.max(0,(t.endAt||0)-Date.now());
+  return Math.max(0,t.leftMs||0);
+}
+function _cardioIsActive(t){ return !!(t && (t.running || (t.leftMs>0 && t.startedAt))); }
+
+// Stop the shared repaint loop. Called before the Today view is rebuilt; the countdowns
+// themselves keep running because they live in state, not in this interval.
 function clearAllCardioTimers(){
-  Object.keys(_cardioTimers).forEach(function(kk){clearInterval(_cardioTimers[kk]);delete _cardioTimers[kk];});
+  if(_cardioTickInt){ clearInterval(_cardioTickInt); _cardioTickInt=null; }
+}
+function _ensureCardioTicker(){
+  if(_cardioTickInt) return;
+  _cardioTickInt=setInterval(_cardioTickAll,500);
+}
+// Repaint every rendered cardio timer from state, and complete any that ran out
+// (including while the app was in the background).
+function _cardioTickAll(){
+  var k=dKey(vDate);
+  var sess=S.sessions[k]&&S.sessions[k].gym;
+  if(!sess||!sess.cardioBlocks){ clearAllCardioTimers(); return; }
+  var anyActive=false;
+  Object.keys(sess.cardioBlocks).forEach(function(key){
+    var b=sess.cardioBlocks[key], t=b&&b.timer;
+    if(!_cardioIsActive(t)) return;
+    var parts=key.split('-'), type=parts[0], idx=parts[1];
+    var left=_cardioRemainMs(t);
+    var disp=document.getElementById('cardio-timer-'+key+'-disp');
+    if(disp) disp.textContent=fmtCardioTime(Math.ceil(left/1000));
+    if(t.running && left<=0){ _completeCardioTimer(type,parseInt(idx,10)); }
+    else anyActive=true;
+  });
+  if(!anyActive) clearAllCardioTimers();
+}
+// Paint one block's timer box + Start/Pause button to match its state.
+function _renderCardioTimerUI(type,idx){
+  var key=_cardioTimerKey(type,idx);
+  var t=_cardioTimerState(type,idx,false);
+  var box=document.getElementById('cardio-timer-'+key);
+  var disp=document.getElementById('cardio-timer-'+key+'-disp');
+  var btn=document.getElementById('cardio-start-'+key);
+  var dur=btn?(parseFloat(btn.getAttribute('data-dur'))||20):20;
+  if(!_cardioIsActive(t)){
+    if(box) box.style.display='none';
+    if(btn){ btn.textContent='▶ Start'; btn.onclick=function(){ startCardioTimer(type,idx,dur); }; }
+    return;
+  }
+  if(box) box.style.display='block';
+  if(disp) disp.textContent=fmtCardioTime(Math.ceil(_cardioRemainMs(t)/1000));
+  if(btn){
+    if(t.running){ btn.textContent='⏸ Pause'; btn.onclick=function(){ pauseCardioTimer(type,idx,dur); }; }
+    else { btn.textContent='▶ Resume'; btn.onclick=function(){ resumeCardioTimer(type,idx,dur); }; }
+  }
+  if(t.running) _ensureCardioTicker();
+}
+// Re-attach every cardio block on screen to its persisted timer. Called after the
+// Today page is rebuilt and whenever the app comes back to the foreground.
+function restoreCardioTimers(){
+  var k=dKey(vDate);
+  var sess=S.sessions[k]&&S.sessions[k].gym;
+  if(!sess||!sess.cardioBlocks) return;
+  Object.keys(sess.cardioBlocks).forEach(function(key){
+    var t=sess.cardioBlocks[key]&&sess.cardioBlocks[key].timer;
+    if(!_cardioIsActive(t)) return;
+    var parts=key.split('-');
+    var type=parts[0], idx=parseInt(parts[1],10);
+    // Ran out while the app was closed/backgrounded → credit it now.
+    if(t.running && _cardioRemainMs(t)<=0){ _completeCardioTimer(type,idx,true); return; }
+    _renderCardioTimerUI(type,idx);
+  });
 }
 function startCardioTimer(type, idx, durationMins){
-  var fireK=dKey(vDate); // day this timer belongs to (captured, not read at fire time)
-  var timerId='cardio-timer-'+type+'-'+idx;
-  var dispId=timerId+'-disp';
-  var startBtnId='cardio-start-'+type+'-'+idx;
-  var timerEl=document.getElementById(timerId);
-  var startBtn=document.getElementById(startBtnId);
-  // Stop any existing timer for this block
-  var timerKey=type+'-'+idx;
-  if(_cardioTimers[timerKey]){clearInterval(_cardioTimers[timerKey]);delete _cardioTimers[timerKey];}
-  if(!timerEl)return;
+  var t=_cardioTimerState(type,idx,true);
+  if(!t) return;
   var totalSecs=Math.round((durationMins||20)*60);
-  var secsLeft=totalSecs;
-  timerEl.style.display='block';
-  if(startBtn){startBtn.textContent='⏸ Pause';startBtn.onclick=function(){pauseCardioTimer(type,idx,durationMins);};}
-  var fmt=fmtCardioTime; // use shared global helper
-  var dispEl=document.getElementById(dispId);
-  if(dispEl)dispEl.textContent=fmt(secsLeft);
-  _cardioTimers[timerKey]=setInterval(function(){
-    secsLeft--;
-    if(dispEl)dispEl.textContent=fmt(Math.max(0,secsLeft));
-    if(secsLeft<=0){
-      clearInterval(_cardioTimers[timerKey]);delete _cardioTimers[timerKey];
-      if(timerEl)timerEl.style.display='none';
-      if(startBtn){startBtn.textContent='▶ Start';startBtn.onclick=function(){startCardioTimer(type,idx,durationMins);};}
-      // Auto-fill duration and mark done
-      updateCardioBlock(type,idx,'duration',String(durationMins));
-      var k=fireK;
-      if(S.sessions[k]&&S.sessions[k].gym){
-        var sess2=S.sessions[k].gym;
-        if(!sess2.cardioBlocks) sess2.cardioBlocks={};
-        var key2=type+'-'+idx;
-        if(!sess2.cardioBlocks[key2])sess2.cardioBlocks[key2]={duration:'',calories:'',metric:'',notes:'',done:false};
-        sess2.cardioBlocks[key2].done=true;
-        saveS(); updateStats();
-      }
-      showToast('🏃 Cardio complete!');
-    }
-  },1000);
+  t.total=totalSecs;
+  t.startedAt=Date.now();
+  t.endAt=Date.now()+totalSecs*1000;
+  t.leftMs=null;
+  t.running=true;
+  t.day=dKey(vDate);
+  saveS();
+  _renderCardioTimerUI(type,idx);
+  _ensureCardioTicker();
 }
-function pauseCardioTimer(type, idx, durationMins){
-  var timerKey=type+'-'+idx;
-  var startBtnId='cardio-start-'+type+'-'+idx;
-  var startBtn=document.getElementById(startBtnId);
-  if(_cardioTimers[timerKey]){
-    clearInterval(_cardioTimers[timerKey]);delete _cardioTimers[timerKey];
-    if(startBtn){startBtn.textContent='▶ Resume';startBtn.onclick=function(){resumeCardioTimer(type,idx,durationMins);};}
+function pauseCardioTimer(type, idx){
+  var t=_cardioTimerState(type,idx,false);
+  if(!t||!t.running) return;
+  t.leftMs=_cardioRemainMs(t);
+  t.running=false;
+  t.endAt=null;
+  saveS();
+  _renderCardioTimerUI(type,idx);
+}
+function resumeCardioTimer(type, idx){
+  var t=_cardioTimerState(type,idx,false);
+  if(!t||t.running) return;
+  var left=Math.max(1000,t.leftMs||0);
+  t.endAt=Date.now()+left;
+  t.leftMs=null;
+  t.running=true;
+  saveS();
+  _renderCardioTimerUI(type,idx);
+  _ensureCardioTicker();
+}
+// Timer reached zero: log the full planned duration and tick the block done.
+function _completeCardioTimer(type, idx, silent){
+  var k=dKey(vDate);
+  var t=_cardioTimerState(type,idx,false);
+  if(!t) return;
+  var mins=Math.max(1,Math.round((t.total||0)/60));
+  t.running=false; t.endAt=null; t.leftMs=0; t.startedAt=null;
+  updateCardioBlock(type,idx,'duration',String(mins));
+  var sess=S.sessions[k]&&S.sessions[k].gym;
+  if(sess){
+    var b=sess.cardioBlocks[_cardioTimerKey(type,idx)];
+    if(b) b.done=true;
+    saveS();
+    try{updateStats();}catch(e){}
   }
+  var durInp=document.querySelector('#cardio-block-'+type+'-'+idx+' input[type=number]');
+  if(durInp) durInp.value=mins;
+  var doneBtn=document.querySelector('#cardio-block-'+type+'-'+idx+' .sdone');
+  if(doneBtn) doneBtn.classList.add('chk');
+  _renderCardioTimerUI(type,idx);
+  if(!silent) pfCue('go');
+  showToast('🏃 Cardio complete — '+mins+' min logged');
 }
-function resumeCardioTimer(type, idx, durationMins){
-  var fireK=dKey(vDate); // day this timer belongs to (captured, not read at fire time)
-  // Re-read current display and continue from there
-  var dispId='cardio-timer-'+type+'-'+idx+'-disp';
-  var dispEl=document.getElementById(dispId);
-  var timerKey=type+'-'+idx;
-  var startBtnId='cardio-start-'+type+'-'+idx;
-  var startBtn=document.getElementById(startBtnId);
-  var timerId='cardio-timer-'+type+'-'+idx;
-  var timerEl=document.getElementById(timerId);
-  if(!dispEl)return;
-  var parts=dispEl.textContent.split(':');
-  var secsLeft=(parseInt(parts[0])||0)*60+(parseInt(parts[1])||0);
-  if(startBtn){startBtn.textContent='⏸ Pause';startBtn.onclick=function(){pauseCardioTimer(type,idx,durationMins);};}
-  var fmt=fmtCardioTime; // use shared global helper
-  _cardioTimers[timerKey]=setInterval(function(){
-    secsLeft--;
-    if(dispEl)dispEl.textContent=fmt(Math.max(0,secsLeft));
-    if(secsLeft<=0){
-      clearInterval(_cardioTimers[timerKey]);delete _cardioTimers[timerKey];
-      if(timerEl)timerEl.style.display='none';
-      if(startBtn){startBtn.textContent='▶ Start';startBtn.onclick=function(){startCardioTimer(type,idx,durationMins);};}
-      updateCardioBlock(type,idx,'duration',String(durationMins));
-      var k=fireK;
-      if(S.sessions[k]&&S.sessions[k].gym){
-        var sess2=S.sessions[k].gym;
-        if(!sess2.cardioBlocks)sess2.cardioBlocks={};
-        var key2=type+'-'+idx;
-        if(!sess2.cardioBlocks[key2])sess2.cardioBlocks[key2]={duration:'',calories:'',metric:'',notes:'',done:false};
-        sess2.cardioBlocks[key2].done=true;
-        saveS();updateStats();
-      }
-      showToast('🏃 Cardio complete!');
-    }
-  },1000);
-}
+// Stop early: credit the minutes actually done.
 function stopCardioTimer(type, idx){
-  var timerKey=type+'-'+idx;
-  if(_cardioTimers[timerKey]){clearInterval(_cardioTimers[timerKey]);delete _cardioTimers[timerKey];}
-  var timerId='cardio-timer-'+type+'-'+idx;
-  var startBtnId='cardio-start-'+type+'-'+idx;
-  var timerEl=document.getElementById(timerId);
-  var startBtn=document.getElementById(startBtnId);
-  if(timerEl)timerEl.style.display='none';
-  if(startBtn){
-    var dm=parseFloat(startBtn.getAttribute('data-dur'))||20;
-    // Record the partial time actually done (planned minus what's left on the countdown)
-    // so stopping a block early still credits the real minutes toward stats/calories.
-    var dispEl=document.getElementById(timerId+'-disp');
-    if(dispEl){
-      var parts=dispEl.textContent.split(':');
-      var secsLeft2=(parseInt(parts[0])||0)*60+(parseInt(parts[1])||0);
-      var elapsedMin=Math.round((dm*60-secsLeft2)/60);
-      if(elapsedMin>0&&elapsedMin<dm){
-        updateCardioBlock(type,idx,'duration',String(elapsedMin));
-        var durInp=document.querySelector('#cardio-block-'+type+'-'+idx+' input[type=number]');
-        if(durInp)durInp.value=elapsedMin;
-        showToast('⏹ Stopped — '+elapsedMin+' min logged');
-      }
-    }
-    startBtn.textContent='▶ Start';
-    startBtn.onclick=function(){startCardioTimer(type,idx,dm);};
+  var t=_cardioTimerState(type,idx,false);
+  if(!t) return;
+  var leftMs=_cardioRemainMs(t);
+  var doneMin=Math.round(((t.total||0)*1000-leftMs)/60000);
+  t.running=false; t.endAt=null; t.leftMs=0; t.startedAt=null;
+  if(doneMin>0){
+    updateCardioBlock(type,idx,'duration',String(doneMin));
+    var durInp=document.querySelector('#cardio-block-'+type+'-'+idx+' input[type=number]');
+    if(durInp) durInp.value=doneMin;
+    showToast('⏹ Stopped — '+doneMin+' min logged');
+  } else {
+    showToast('⏹ Timer stopped');
   }
+  saveS();
+  _renderCardioTimerUI(type,idx);
 }
 
 // ═══════════════════════════════════════════════════════════════

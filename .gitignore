@@ -12,3 +12,6 @@ config.local.js
 # Local-only Anthropic key (preserved for pasting into Settings; never commit)
 ANTHROPIC_KEY_LOCAL.txt
 ANTHROPIC_KEY_LOCAL_README.txt
+
+# Local dev tooling (not part of the shipped app)
+.claude/
