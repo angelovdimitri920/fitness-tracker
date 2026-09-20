@@ -90,6 +90,11 @@ persisted to `localStorage`. No backend, no accounts, no analytics.
     viewed day by `syncWorkoutTimerFromState()`.
   `resyncAllTimers()` runs on visibilitychange / pageshow / focus. **Never reintroduce a
   tick-counting timer.**
+  - **Staleness guards.** Because these survive everything, they also survive things they
+    should not — the app left open over a weekend, or a backup restored mid-session. A clock
+    still `running` from more than `TIMER_STALE_MS` (12 h) ago is treated as abandoned and
+    cleared; an expired countdown is only credited if it expired within
+    `CARDIO_CREDIT_WINDOW_MS` (2 h), so nothing implausible is ever written to history.
 - **Service worker** (`sw.js`): network-first for the page (always-fresh online), cache-first
   for assets, offline fallback. Bump `CACHE_VERSION` on every deploy so clients force-update.
 
