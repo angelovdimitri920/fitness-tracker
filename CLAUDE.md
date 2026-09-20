@@ -280,6 +280,16 @@ test that they degrade without breaking anything.
 3. **Set the AI key once** (optional) via Settings, if you want exercise guides.
 4. **Back up periodically** — Settings → Export (or the NAS auto-backup). Browsers can evict
    local storage; a backup protects your history.
+   - `exportData()` tries the **native share sheet first** (on iOS that means Save to Files /
+     Mail / AirDrop), then an `<a download>` click, then the clipboard. That order matters: an
+     anchor download is unreliable in an iOS standalone PWA and **fails silently** — there is no
+     error to catch, so it cannot be detected, only avoided by trying share first.
+   - **`importFromText()` ("Paste Backup") is the escape hatch** when a file never made it off
+     the old device. Same restore path as `importData`, just parsed from pasted text.
+   - **On iOS a home-screen PWA has its own storage container, separate from Safari at the same
+     URL.** Opening the URL in Safari will NOT show an installed app's data. This is why
+     migrating between installs has to go through an export, and why deleting a home-screen
+     icon can take its history with it.
 5. **On each deploy**, bump `CACHE_VERSION` in `sw.js` so the phone force-updates.
 
 Everything else — the workout engine, logging, nutrition, running, progress, recovery — is

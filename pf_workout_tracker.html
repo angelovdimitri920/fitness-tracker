@@ -1694,6 +1694,7 @@ canvas{width:100%!important;display:block}
 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
   <button class="btn btn-g bsm" style="flex:1" onclick="exportData()">&#128228; Export Backup</button>
   <button class="btn bsm" style="flex:1;background:rgba(99,102,241,.15);border-color:rgba(99,102,241,.4);color:#a5b4fc" onclick="importData()">&#128229; Import Backup</button>
+  <button class="btn bsm" style="flex:1;background:rgba(148,163,184,.12);border-color:var(--b2);color:#94a3b8" onclick="importFromText()">&#128203; Paste Backup</button>
 </div>
 <div style="font-size:10px;color:var(--mu);font-family:DM Mono,monospace;margin-bottom:10px">Export = download full backup JSON. Import = restore from backup file.</div>
 
@@ -11453,17 +11454,102 @@ rebuildSched();saveS();closeModal('setupModal');
 buildWeekStrip();buildTodayWorkout();buildPlan();buildMarathon();updateProgress();buildBodyPage();
 showToast('Settings saved!');
 }
+// Exporting is the one operation that must never quietly fail — it is the only way data
+// leaves the device, and on iOS a home-screen PWA has its OWN storage container, separate
+// from Safari at the same URL. So this is the sole route out of an installed app.
+//
+// An <a download> click is unreliable in iOS standalone mode (it can open the blob in a
+// dead context, or do nothing at all, with no error to catch). So: try the native share
+// sheet first — which on iOS gives Save to Files, AirDrop, Mail — then fall back to the
+// download, then to clipboard, and only then admit defeat. The clipboard route matters:
+// pasting the JSON into Notes and mailing it to yourself is an ugly but genuine escape
+// hatch when everything else is blocked.
 function exportData(){
+  var json;
   try{
     var backup=Object.assign({},S,{_version:4,_exportDate:new Date().toISOString(),_appName:'PF Fitness Tracker'});
-    var blob=new Blob([JSON.stringify(backup,null,2)],{type:'application/json'});
-    var a=document.createElement('a');
-    a.href=URL.createObjectURL(blob);
-    a.download='pf_backup_'+dKey(new Date())+'.json';
-    document.body.appendChild(a);a.click();document.body.removeChild(a);
+    json=JSON.stringify(backup,null,2);
+  }catch(e){ showToast('Export failed: '+(e.message||'could not read your data')); return; }
+
+  var name='pf_backup_'+dKey(new Date())+'.json';
+  var blob=new Blob([json],{type:'application/json'});
+  function markSaved(msg){
     try{localStorage.setItem('pf_lastBackup',dKey(new Date()));}catch(e){}
-    showToast('Backup saved  --  keep this file safe!');
-  }catch(e){showToast('Export failed: '+(e.message||'unknown error'));}
+    showToast(msg);
+    try{var b=el('backupReminderBanner'); if(b) b.style.display='none';}catch(e){}
+  }
+  function viaDownload(){
+    try{
+      var a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=name;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function(){try{URL.revokeObjectURL(a.href);}catch(e){}},2000);
+      markSaved('Backup saved  --  keep this file safe!');
+      return true;
+    }catch(e){ return false; }
+  }
+  function viaClipboard(){
+    var done=function(){ markSaved('Backup copied to clipboard  --  paste it somewhere safe!'); };
+    try{
+      if(navigator.clipboard&&navigator.clipboard.writeText){
+        navigator.clipboard.writeText(json).then(done).catch(function(){ if(!_copyViaTextarea(json)) showToast('Could not export  --  try from Safari rather than the home-screen app'); else done(); });
+        return true;
+      }
+    }catch(e){}
+    if(_copyViaTextarea(json)){ done(); return true; }
+    return false;
+  }
+  // 1) Native share sheet with the actual file (best on iOS: Save to Files / Mail / AirDrop).
+  try{
+    var file=new File([blob],name,{type:'application/json'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})&&navigator.share){
+      navigator.share({files:[file],title:'PF Fitness backup'})
+        .then(function(){ markSaved('Backup shared  --  keep that file safe!'); })
+        .catch(function(err){
+          // Cancelling the sheet is not a failure; don't fall through and spam the user.
+          if(err&&err.name==='AbortError') return;
+          if(!viaDownload()) viaClipboard();
+        });
+      return;
+    }
+  }catch(e){}
+  // 2) Ordinary download. 3) Clipboard.
+  if(!viaDownload()&&!viaClipboard()) showToast('Could not export  --  try from Safari rather than the home-screen app');
+}
+// execCommand('copy') via a temporary textarea — the last-resort copy that still works
+// where the async clipboard API is blocked.
+function _copyViaTextarea(txt){
+  try{
+    var ta=document.createElement('textarea');
+    ta.value=txt; ta.style.position='fixed'; ta.style.top='0'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    ta.setSelectionRange(0,txt.length);
+    var ok=document.execCommand('copy');
+    document.body.removeChild(ta);
+    return !!ok;
+  }catch(e){ return false; }
+}
+// Paste a backup straight in, for when the file never made it off the old device but the
+// JSON is on the clipboard. Same restore path as importData once parsed.
+function importFromText(){
+  showTextPrompt('Paste backup JSON','Paste the contents of a pf_backup .json file',function(txt){
+    var data;
+    try{ data=JSON.parse(txt); }catch(e){ showToast('That is not valid backup JSON'); return; }
+    if(!data||typeof data!=='object'||(!data.sessions&&!data.weights&&!data.setup)){
+      showToast('That does not look like a PF backup'); return;
+    }
+    var when=data._exportDate?data._exportDate.slice(0,10):'unknown date';
+    showConfirm('Restore backup from '+when+'? This will replace all current data.',function(){
+      delete data._version; delete data._exportDate; delete data._appName;
+      try{localStorage.setItem(SK,JSON.stringify(data));}catch(se){showToast('Storage error  --  backup may be too large'); return;}
+      S=loadS()||initS();
+      try{migrateState();}catch(e){console.warn('post-restore migrateState:',e);}
+      ['buildWeekStrip','updateDateDisplay','buildTodayWorkout','buildPlan','buildMarathon','updateProgress','renderHistory','buildBodyPage','buildNutritionPage','buildGoalsPage','buildHomePage','updateStreak']
+        .forEach(function(fn){ try{ if(typeof window[fn]==='function') window[fn](); }catch(e){console.warn('post-restore '+fn+':',e);} });
+      showToast('Backup restored');
+    });
+  });
 }
 
 // ── CSV export + printable report ───────────────────────────────────
