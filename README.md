@@ -24,8 +24,10 @@ periodizes** your training instead of just recording it, it **models your specif
 equipment**, and it cross-references lifting + running + nutrition + recovery in one place — with
 no ads, no account, no paywall, and every number derived from your own logged data.
 
-It's organized into **ten pages** (bottom navigation) plus **three always-available tools** in the
-top-right toolbar (Strength Profile, Plate Calculator, Settings). Each is documented below: what it
+It's organized into **ten pages** (bottom navigation — Home, Today, Plan, Gear, Run, Body, Food,
+Goals, Stats, History; the short labels keep all ten readable side by side on a phone) plus
+**three always-available tools** in the top-right toolbar (Strength Profile, Plate Calculator,
+Settings). Each is documented below: what it
 does, where it goes beyond typical apps, and whether it's feature-complete or has room to grow.
 
 ### 🏠 Home — daily command center
@@ -55,28 +57,74 @@ appropriate session, then gives you a deep logging surface.
 - **Week strip** — the current week with per-day dots (gym/run/rest + completion); tap any day.
 - **Auto-generated workout** — from your focus × intensity × the day's split × what you trained in
   the last 48 h, the engine selects exercises, set/rep targets, rest, set types, and cardio.
-- **Intensity selector** — Quick / Standard / Full rescale exercise count, sets, and cardio to a
-  target time band (~30–45 / 60–90 / 90–120 min).
+- **Intensity selector** — Quick / Standard / Full rescale exercise count and cardio to a target
+  time band (30–45 / 60–90 / 90–120 min). The estimate is a **range**, and it models the session
+  as actually lived: per-rep tempo, set changeover, the rest between sets (with realistic slop),
+  the warm-up ramp, walking between machines and loading plates, and a fixed arrival overhead.
+  It shows its own breakdown (lifting+rest / cardio / setup / superset saving). Time spent with
+  the timer **paused** is deliberately not modelled — that is what pause is for.
+- **Three-set minimum (house rule)** — every exercise gets at least 3 work sets, whatever the
+  focus, intensity, weight or rep count. More is fine; fewer is refused, including when you try
+  to remove a set by hand. Quick shortens a session by dropping exercises, never by cutting an
+  exercise to 2 sets.
 - **Set logging** — per-set weight + reps with done toggles, supporting **work, warm-up, drop,
   failure, and rest-pause** set types. Warm-up sets auto-suggest from your working weight; advanced
   set types are auto-assigned per focus and editable.
 - **Add/remove sets & "Continue Drop"** — extend any exercise or build multi-stage drop chains.
-- **Supersets** — link two exercises; the app alternates them, equalizes their set counts, and
+- **Supersets (optional)** — off-able from the 🔗 chip on the Today page or from Settings, and
+  turning them off clears them from the workout on screen. When on, pairs are chosen from the
+  actual muscle groups of the exercises picked (true antagonists first; non-competing pairs only
+  on metabolic focuses; never on Power). The app alternates them, equalizes their set counts, and
   visually groups the cards.
 - **Per-exercise swap** — replace any exercise with an equipment-valid alternative for the same
-  muscle (never one already in today's workout).
+  muscle (never one already in today's workout). Alternatives are listed **A→Z with a one-line
+  explanation of each** — movement pattern, primary muscles, modality, whether it is one side at
+  a time, and its starting weight — plus a search box.
 - **Skip** — drop an exercise for today without losing it from the template (excluded from
   volume / completion / PRs).
-- **Plate calculator** — per-set bar-loading visual (which plates per side) for barbell lifts.
-- **Rest timer + workout timer** — auto-starting rest countdown with audio cues, plus a
-  pause/resume session timer (both leak-free).
+- **Pre-loaded ("starts at") weight** — bars and plate-loaded machines already weigh something
+  before the first plate: an Olympic bar 45 lb, a leg press sled ~160, a Smith carriage ~20. Each
+  exercise carries a base weight (editable per exercise via the ⚖️ chip, since sleds differ
+  between gyms), and you can switch any of them to **"+plates" entry** — type only what you load
+  and the base is added for you, with a live "= 340 lbs total (160 base + 180 added)" readout.
+  What gets stored is always the true total, so 1RM, volume and PR maths are unaffected. Suggested
+  weights never fall below the base, and warm-up ramps run base + pct × (working − base) so every
+  warm-up is actually loadable.
+- **Plate calculator** — per-set bar-loading visual (which plates per side), driven by the
+  exercise's real base weight rather than assuming a 45 lb bar.
+- **Stall detection + deload** — a lift whose best estimated 1RM hasn't improved across three
+  sessions gets flagged on its card, with a one-tap deload to ~90% (snapped to a weight you can
+  actually load, reps unchanged) or "Push on" to dismiss. Estimated 1RM rather than bar weight,
+  so squeezing out an extra rep at the same load counts as progress and won't trip it. Lifts run
+  by a strength program are left to the program.
+- **Loadable weights** — every suggested weight is snapped to something the equipment can
+  actually be set to (base + plates), and if you type a weight that can't be made the plate hint
+  says so and names the loadable weights either side.
+- **Per-set RPE** (optional, Settings) — a 6–10 effort rating on completed work sets (RPE = 10 −
+  reps left in the tank). It also sharpens the stall warning: a flat lift at RPE 9 reads
+  differently from a flat lift at RPE 7.
+- **"Machine busy?"** — a toggle in the swap picker that filters alternatives to ones on
+  *different* equipment, for when someone's camped on the station you wanted.
+- **Rest timer + workout timer** — both **wall-clock based and persisted**, so they keep counting
+  while the phone is locked or you are in another app, and survive a reload. The workout timer
+  pauses/resumes and offers two endings: **🏁 Finish** once every exercise and cardio block is
+  complete, or **End early** with a count of what is still unlogged — both hand off to the save
+  sheet. Cancelling that dialog pauses the clock rather than charging the decision time.
+- **Screen stays awake + timer alerts** — the screen is held on while the workout clock or any
+  countdown runs (released as soon as everything is paused or done), and a rest/cardio timer that
+  finishes while you're in another app sends a notification. Both are optional and both degrade
+  cleanly; on iPhone the notification needs the app on your Home Screen.
 - **Cardio blocks** — warm-up, optional mid-workout, and finisher cardio, each with its own
   machine, duration, target, swap, skip, and timer; **a machine never repeats within a day.**
+  Cardio timers are wall-clock based and live in the session, so putting the phone down to change
+  music no longer stops the clock; one that runs out while you are away is credited on return.
 - **Live stats bar** — running sets, volume, minutes, calories, completion %, and PRs.
 - **Est. 1RM + progressive-overload alerts** — per-set 1RM estimate and a nudge when you're ready
   to add weight.
 - **Smart note** — a plain-English summary of the day's plan and any advanced sets.
-- **Split switcher** — override the day's split on the fly.
+- **Split switcher** — override the day's split on the fly. Splits are listed **A→Z with what
+  each one trains and what it is best for**; recency and muscle overlap still drive the
+  ✓ Recommended badge without reshuffling the list between visits.
 - **Rich templates** — save a session (exercises, sets, weights, supersets, intensity) as a
   reusable template and re-apply it; "Auto workout" resets back to the engine.
 - **Save → summary → history** — saving computes volume/sets/calories/completion/PRs, shows a
@@ -312,6 +360,8 @@ none are blockers to daily use.
 | `HANDOFF-CLAUDE.md` | Pick-up handoff: current status, how to resume features, how to deploy to a phone. |
 | `CLAUDE.md` | Architecture, work/research done, conventions for future changes. |
 | `docs/CONTROLS.md` | Per-control reference: every control → the function that powers it. |
+| `index.html` | Redirect so the app installs from a bare URL (GitHub Pages entry point). |
+| `tools/serve.js` | Zero-dependency local static server for development (`node tools/serve.js`). |
 
 The five **app** files (`pf_workout_tracker.html`, `sw.js`, `manifest.json`, and the two icons)
 must be served **together from the same folder** for the PWA (offline + install) to work; the
@@ -321,13 +371,19 @@ Markdown docs are reference-only.
 
 ## Run it locally (quick check)
 
-From this folder, on any machine with Python:
+From this folder, with Node:
+
+```bash
+node tools/serve.js 8753
+```
+
+Or with Python, if you prefer:
 
 ```bash
 python3 -m http.server 8751
 ```
 
-Then open `http://localhost:8751/pf_workout_tracker.html`. Your data persists in that browser's
+Then open `http://localhost:8753/pf_workout_tracker.html` (or `:8751` for the Python one). Your data persists in that browser's
 local storage (it's keyed to the origin/URL, so always use the same address).
 
 ---
