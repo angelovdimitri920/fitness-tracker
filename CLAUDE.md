@@ -52,6 +52,22 @@ persisted to `localStorage`. No backend, no accounts, no analytics.
     shows (`entryToTotalLbs` / `totalToEntryLbs`).
   - `computeAutoSupersets` / `SUPERSET_ANTAGONISTS` — pairs come from the chosen exercises'
     actual muscle groups, never from fixed template indices.
+  - `snapToLoadable` / `isLoadableWeight` / `_perSideLoads` — every suggested weight is snapped
+    to `base + 2 × (a stack of standard plates)`. Plain 5 lb rounding is only safe while a base
+    weight happens to be a multiple of 5, which stops being true the moment the user corrects a
+    sled to its real weight.
+  - `detectStall` / `applyDeload` / `_stallBanner` — a lift is stalled when its best **e1RM**
+    (not bar weight, so an extra rep still counts as progress) hasn't improved over
+    `STALL_SESSIONS`. `S.deloads[exName]` records an applied deload or a dismissal so it isn't
+    re-flagged. **`applyDeload` writes `auto:false` deliberately** — an auto-flagged weight is
+    treated as a stale suggestion and regenerated on the next render, silently undoing it.
+  - `exerciseEquipmentKeys` / `sharesEquipment` — backs the "machine busy?" swap filter.
+  - `RPE_SCALE` / `setSetRPE` / `lastRPEFor` — optional per-set RPE (`S.prefs.trackRPE`), also
+    used to sharpen the stall message.
+  - `refreshWakeLock` / `notifyTimerDone` — screen wake lock while a timer runs, and a
+    notification when one finishes in the background. Both best-effort; a refusal must never
+    affect the timers themselves. Notifications go via `registration.showNotification` so they
+    still arrive once the page is backgrounded (`sw.js` handles `notificationclick`).
   - `selectWorkoutForDuration()` — picks the exercise count + cardio durations to fit the
     intensity's time band, de-prioritizing muscles trained in the last 48h (`getRecentMuscles`).
   - `buildGym()` — renders the day; snapshots the chosen list onto `sess.exList`.
@@ -160,9 +176,16 @@ A round driven by real gym use. What was found and changed:
 - **Bottom nav** labels shortened to ≤7 characters with proper flex clipping; ten tabs now fit
   an iPhone 14 Pro Max without running into each other.
 
+A second round then added the backlog items: loadable-weight snapping, stall detection with a
+one-tap deload, the "machine busy?" swap filter, screen wake lock + timer notifications, and
+optional per-set RPE.
+
 Verification each round: parse-check every inline script; drive all 120 split × focus ×
-intensity combinations through the real render path; sweep 10 pages + 59 modals at 430 × 932 for
-horizontal overflow and console output; and run a full log → finish → save cycle.
+intensity combinations through the real render path (also asserting every suggested weight is
+loadable); sweep 10 pages + 59 modals at 430 × 932 for horizontal overflow and console output;
+and run a full log → finish → save cycle. **Wake lock and notifications can only be fully
+confirmed on the real device** — an embedded preview pane denies both, which is itself a useful
+test that they degrade without breaking anything.
 
 > If you're a future Claude Code session: the engine and modules have been heavily verified.
 > Prefer small, surgical changes; re-run the syntax check and a live page sweep after edits;

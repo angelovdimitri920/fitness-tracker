@@ -78,14 +78,17 @@ longer names used throughout this document: **Gear** → `equipment`, **Run** �
 | Weight/reps inputs | `updateSet(ei,si,field,val)` | Writes set value (weight stored in lbs) |
 | Add set / type picker | `addExtraSet(ei,type)`, `addContinueDrop(ei,si)`, `removeExtraSet(ei,si)` | Add work/drop/failure/rest-pause; drop chains. Removal refuses below `MIN_WORK_SETS` |
 | Base weight chip (⚖️) | `_baseWeightChip()`, `getBaseWeight()`, `editBaseWeight(ei)` | What the bar/sled weighs empty; tap to correct for your gym |
+| Stall banner + deload | `detectStall()`, `applyDeload(ei)`, `dismissStall(ei)`, `openStallInfo()` | Flags a lift with no e1RM gain in 3 sessions; one-tap deload to a loadable ~90% |
+| Per-set RPE | `setSetRPE(ei,si,v)`, `RPE_SCALE`, `lastRPEFor()`, `sessionAvgRPE()` | Optional 6–10 effort rating on completed work sets (`S.prefs.trackRPE`) |
 | LOGGING: TOTAL / +PLATES | `toggleWeightEntryMode(ei)`, `entryToTotalLbs()`, `_refreshTotalHint()` | Type the total, or only the plates you add (stored value is always the total) |
 | Set-type change | `updateSetType()`, `autoFillSetType()`, `applySmartSetTypes(k)` | Assign/auto-assign advanced set types per focus |
 | Warm-up sets | `getWarmupSets(w,exName)`, `warmupWeightFor()`, `toggleWarmup(ei,wi,btn)` | Warm-up ladder ramps `base + pct × (working − base)`, so every step is loadable |
 | Swap / Skip exercise | `openSwap(idx,name)`, `renderSwapList(q)`, `exerciseBlurb()`, `doSwap()`, `undoSwap()`, `toggleSkipExercise(ei)` | Alternatives A→Z with a one-line explanation + search; skip excludes from save |
+| 🚧 Machine busy? | `toggleSwapBusyFilter()`, `sharesEquipment()`, `exerciseEquipmentKeys()` | Filters alternatives to ones on different equipment |
 | Quick-fill | `quickFillExercise(ei)` | Pull last session's sets |
 | Superset link/unlink | `openLinkModal(ei)`, `linkSuperset(ei,p)`, `unlinkSuperset(ei)` | Pair + alternate two exercises |
 | 🔗 Supersets on/off chip | `toggleSupersetsToday()`, `toggleAutoSuperset()`, `applySupersetPrefToSession()`, `computeAutoSupersets()` | Off clears them from the workout on screen; pairs come from real muscle antagonism |
-| Plate hint | `calcPlates()`, `plateHintFor(exName,total)`, `isPlateLoaded()` | Per-side loading from the exercise's real base weight, not an assumed 45 lb bar |
+| Plate hint | `calcPlates()`, `plateHintFor(exName,total)`, `isPlateLoaded()`, `snapToLoadable()` | Per-side loading from the exercise's real base weight; names the nearest loadable weights when a target can't be made |
 | Rest timer | `startTimer(s,force)`, `pauseTimer()`, `stopTimer()`, `addTime(d)`, `restoreRestTimer()` | Wall-clock deadline in `localStorage['pf_restTimer']`; survives backgrounding + reload |
 | Workout timer | `startWorkoutTimer()`, `pauseWorkoutTimer()`, `resumeWorkoutTimer()`, `endWorkoutTimer()`, `syncWorkoutTimerFromState()`, `isWorkoutFullyComplete(k)` | Persisted per day in `gym.wTimer`; End offers 🏁 Finish (all logged) or End early, both → save sheet |
 | Cardio blocks | `buildCardioBlock()`, `updateCardioBlock()`, `toggleCardioBlock()`, `toggleCardioSkip()`, `openCardioSwap()`, `selectCardioSwap()`; dedup `cardioTypeKey()` | Warm-up/mid/finisher cardio, each with timer + swap; no machine twice/day |
@@ -98,6 +101,8 @@ longer names used throughout this document: **Gear** → `equipment`, **Run** �
 | Rest-day mode | `buildRestDayRecovery()`, `buildRestDayRecovery`/recovery "Log Done" handlers | Active-recovery/mobility library + targeted stretch suggestions |
 
 | Foreground resync | `resyncAllTimers()` (visibilitychange / pageshow / focus) | Repaints every timer and completes anything that ran out while the app was away |
+| Keep screen awake | `refreshWakeLock()`, `wakeLockWanted()`, `toggleKeepAwake()` | Holds a screen wake lock while any timer runs; best-effort |
+| Timer alerts | `notifyTimerDone()`, `requestTimerNotifications()`, `toggleTimerNotify()`; `notificationclick` in `sw.js` | Notifies when a timer finishes in the background only |
 
 ## 📋 Plan — `buildPlan()`
 | Control | Function(s) | What it does |

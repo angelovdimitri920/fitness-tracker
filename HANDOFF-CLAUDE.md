@@ -35,6 +35,9 @@ A pass driven by real gym use. Full detail in `CLAUDE.md` §3; the headline item
   "+plates" entry mode.
 - **Supersets are optional** and pair on real muscle antagonism.
 - **The Tone focus was rebuilt** around current evidence on training in a deficit.
+- **Backlog items built:** screen wake lock + notifications for finished timers, stall detection
+  with a one-tap deload, a "machine busy?" swap filter, loadable-weight snapping, and optional
+  per-set RPE.
 
 **One open item that only you can close:** the base weights for plate-loaded machines are
 educated defaults — sleds and carriages differ between gyms. Check the ones you use (the starting
@@ -74,8 +77,8 @@ See `CLAUDE.md` §7.
 
 ### Suggested next features (backlog)
 These are the "could-improve" notes from the README, roughly prioritized. None are blockers.
-- **Workout**: optional per-set RPE; a global warm-up-ramp auto-fill across compounds; inline
-  editing of a past session's sets in History (currently delete + re-log).
+- **Workout**: a global warm-up-ramp auto-fill across compounds; inline editing of a past
+  session's sets in History (currently delete + re-log).
 - **Body/Nutrition**: progress photos; a weight-vs-calorie-intake overlay; a larger seeded food DB
   or a second food API to complement Open Food Facts.
 - **Running**: **GPX import** (the one real gap vs Strava/Garmin — brings in route/HR without making
@@ -85,9 +88,9 @@ These are the "could-improve" notes from the README, roughly prioritized. None a
 - **Progress**: per-chart date-range pickers.
 - **Settings**: selective/partial import (merge instead of replace).
 - **Data safety**: finish the NAS (Tailscale) auto-backup wiring so history is protected on-device.
-- **Workout (added Sept 2026)**: a rest-timer that keeps counting on the lock screen via a
-  Notification or Wake Lock; auto-detecting a stalled lift and proposing a deload; a
-  "gym is busy" swap that offers an equipment-different alternative for the same muscle.
+*(Built since: lock-screen wake lock + timer notifications, stall detection with a one-tap
+deload, the "machine busy?" swap filter, loadable-weight snapping, and optional per-set RPE.
+Per-set RPE above is therefore done too.)*
 
 ---
 

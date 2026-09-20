@@ -92,11 +92,28 @@ appropriate session, then gives you a deep logging surface.
   warm-up is actually loadable.
 - **Plate calculator** — per-set bar-loading visual (which plates per side), driven by the
   exercise's real base weight rather than assuming a 45 lb bar.
+- **Stall detection + deload** — a lift whose best estimated 1RM hasn't improved across three
+  sessions gets flagged on its card, with a one-tap deload to ~90% (snapped to a weight you can
+  actually load, reps unchanged) or "Push on" to dismiss. Estimated 1RM rather than bar weight,
+  so squeezing out an extra rep at the same load counts as progress and won't trip it. Lifts run
+  by a strength program are left to the program.
+- **Loadable weights** — every suggested weight is snapped to something the equipment can
+  actually be set to (base + plates), and if you type a weight that can't be made the plate hint
+  says so and names the loadable weights either side.
+- **Per-set RPE** (optional, Settings) — a 6–10 effort rating on completed work sets (RPE = 10 −
+  reps left in the tank). It also sharpens the stall warning: a flat lift at RPE 9 reads
+  differently from a flat lift at RPE 7.
+- **"Machine busy?"** — a toggle in the swap picker that filters alternatives to ones on
+  *different* equipment, for when someone's camped on the station you wanted.
 - **Rest timer + workout timer** — both **wall-clock based and persisted**, so they keep counting
   while the phone is locked or you are in another app, and survive a reload. The workout timer
   pauses/resumes and offers two endings: **🏁 Finish** once every exercise and cardio block is
   complete, or **End early** with a count of what is still unlogged — both hand off to the save
   sheet. Cancelling that dialog pauses the clock rather than charging the decision time.
+- **Screen stays awake + timer alerts** — the screen is held on while the workout clock or any
+  countdown runs (released as soon as everything is paused or done), and a rest/cardio timer that
+  finishes while you're in another app sends a notification. Both are optional and both degrade
+  cleanly; on iPhone the notification needs the app on your Home Screen.
 - **Cardio blocks** — warm-up, optional mid-workout, and finisher cardio, each with its own
   machine, duration, target, swap, skip, and timer; **a machine never repeats within a day.**
   Cardio timers are wall-clock based and live in the session, so putting the phone down to change
