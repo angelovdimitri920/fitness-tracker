@@ -15513,6 +15513,16 @@ function syncWorkoutTimerFromState(){
     _wTimerActive=false;_wTimerPaused=false;_wTimerElapsed=0;_wTimerStart=null;
     return;
   }
+  // A workout does not run for half a day. A clock still 'running' from that long ago
+  // was abandoned (app left open, or a backup taken mid-session and restored later);
+  // resurrecting it would tick forward from a days-old start and then save a session
+  // hundreds of minutes long.
+  if(t.running&&t.startedAt&&(Date.now()-t.startedAt)>TIMER_STALE_MS){
+    t.active=false; t.running=false; t.startedAt=null; t.accumMs=0;
+    try{saveS();}catch(e){}
+    _wTimerActive=false;_wTimerPaused=false;_wTimerElapsed=0;_wTimerStart=null;
+    return;
+  }
   _wTimerActive=true;
   if(t.running&&t.startedAt){
     _wTimerPaused=false;
@@ -27676,6 +27686,20 @@ window.addEventListener('focus',function(){ resyncAllTimers(); });
 // A single shared ticker repaints every visible block, so rebuilding the Today page
 // can never orphan or kill a running countdown.
 var _cardioTickInt=null;
+// How long a timer may sit 'running' before it is treated as abandoned rather than
+// resumed. Neither a workout nor a cardio block legitimately runs for half a day.
+var TIMER_STALE_MS=12*3600*1000;
+// A countdown that expired while you were away is credited — but only if it expired
+// recently enough to be believable. Past this, clear it without logging anything.
+var CARDIO_CREDIT_WINDOW_MS=2*3600*1000;
+// Drop a stale countdown without touching the block's logged duration or done flag.
+function _clearStaleCardioTimer(type,idx){
+  var t=_cardioTimerState(type,idx,false);
+  if(!t) return;
+  t.running=false; t.endAt=null; t.leftMs=0; t.startedAt=null;
+  try{saveS();}catch(e){}
+  try{_renderCardioTimerUI(type,idx);}catch(e){}
+}
 
 function _cardioTimerKey(type,idx){ return type+'-'+idx; }
 function _cardioTimerState(type,idx,create){
@@ -27760,8 +27784,16 @@ function restoreCardioTimers(){
     if(!_cardioIsActive(t)) return;
     var parts=key.split('-');
     var type=parts[0], idx=parseInt(parts[1],10);
-    // Ran out while the app was closed/backgrounded → credit it now.
-    if(t.running && _cardioRemainMs(t)<=0){ _completeCardioTimer(type,idx,true); return; }
+    // Ran out while the app was closed/backgrounded. Credit it only if that happened
+    // RECENTLY — a timer that expired days ago (app left open over a weekend, or a
+    // backup restored mid-workout) must not silently log cardio that never happened.
+    if(t.running && _cardioRemainMs(t)<=0){
+      var overdueMs=Date.now()-(t.endAt||0);
+      if(overdueMs>CARDIO_CREDIT_WINDOW_MS){ _clearStaleCardioTimer(type,idx); return; }
+      _completeCardioTimer(type,idx,true); return;
+    }
+    // Still 'running' but started implausibly long ago — same reasoning.
+    if(t.running && t.startedAt && (Date.now()-t.startedAt)>TIMER_STALE_MS){ _clearStaleCardioTimer(type,idx); return; }
     _renderCardioTimerUI(type,idx);
   });
 }
