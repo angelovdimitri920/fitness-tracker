@@ -1804,6 +1804,33 @@ canvas{width:100%!important;display:block}
 </div>
 <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--b2)">
   <div style="flex:1">
+    <div style="font-size:13px;color:#fff;font-weight:600;margin-bottom:3px">Track RPE</div>
+    <div style="font-size:11px;color:var(--mu);line-height:1.5">Adds a 6&ndash;10 effort rating to each completed work set (RPE = 10 &minus; reps left in the tank). Off by default &mdash; only worth the extra taps if you&rsquo;ll use it. When on, it sharpens the stall warning: a flat lift at RPE 9 means something different from a flat lift at RPE 7.</div>
+  </div>
+  <div id="trackRPEToggle" onclick="toggleTrackRPE()" style="cursor:pointer;width:56px;height:30px;border-radius:15px;background:var(--gr);position:relative;transition:background .2s;flex-shrink:0">
+    <div style="position:absolute;right:3px;top:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:all .2s;box-shadow:0 1px 4px rgba(0,0,0,.3)"></div>
+  </div>
+</div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--b2)">
+  <div style="flex:1">
+    <div style="font-size:13px;color:#fff;font-weight:600;margin-bottom:3px">Keep screen awake</div>
+    <div style="font-size:11px;color:var(--mu);line-height:1.5">Holds the screen on while the workout clock or any countdown is running, so your phone doesn't lock between sets. Released the moment everything is paused or finished.</div>
+  </div>
+  <div id="keepAwakeToggle" onclick="toggleKeepAwake()" style="cursor:pointer;width:56px;height:30px;border-radius:15px;background:var(--gr);position:relative;transition:background .2s;flex-shrink:0">
+    <div style="position:absolute;right:3px;top:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:all .2s;box-shadow:0 1px 4px rgba(0,0,0,.3)"></div>
+  </div>
+</div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--b2)">
+  <div style="flex:1">
+    <div style="font-size:13px;color:#fff;font-weight:600;margin-bottom:3px">Alert when a timer finishes</div>
+    <div style="font-size:11px;color:var(--mu);line-height:1.5">Sends a notification when a rest or cardio timer runs out <em>while you're in another app</em> &mdash; the timer itself keeps correct time either way. On iPhone this needs the app added to your Home Screen; in a normal Safari tab the permission can't be granted.</div>
+  </div>
+  <div id="timerNotifyToggle" onclick="toggleTimerNotify()" style="cursor:pointer;width:56px;height:30px;border-radius:15px;background:var(--gr);position:relative;transition:background .2s;flex-shrink:0">
+    <div style="position:absolute;right:3px;top:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:all .2s;box-shadow:0 1px 4px rgba(0,0,0,.3)"></div>
+  </div>
+</div>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--b2)">
+  <div style="flex:1">
     <div style="font-size:13px;color:#fff;font-weight:600;margin-bottom:3px">Smart workout note</div>
     <div style="font-size:11px;color:var(--mu);line-height:1.5">Shows the blue info banner explaining today's advanced set types. Turn off if you already know what Drop Sets and Rest-Pause mean.</div>
   </div>
@@ -5855,6 +5882,7 @@ if(_lsData&&_lsData.sets&&_lsData.sets.length){
 }
 // The weight column header follows the entry mode, so a "+plates" card reads
 // consistently from the header down rather than mixing totals and added weight.
+var _rpeOn=!!(S.prefs&&S.prefs.trackRPE);
 var _cardAddedMode=(!noWeight&&getBaseWeight(ex.n)>0&&getWeightEntryMode(ex.n)==='added');
 var _cardBase=_cardAddedMode?getBaseWeight(ex.n):0;
 var sH='<div class="sgrid" style="grid-template-columns:20px 50px 1fr 1fr 55px 28px"><div class="sh">#</div><div class="sh">TYPE</div><div class="sh">'+(_cardAddedMode?'+'+getWeightUnit().toUpperCase():getWeightUnit().toUpperCase())+'</div><div class="sh">REPS</div><div class="sh">PREV</div><div class="sh">✓</div>';
@@ -5947,6 +5975,21 @@ if(set.done && !noWeight && (setType==='wk'||setType==='ds'||setType==='fl'||set
   if(_inlineORM>0){
     sH+='<div style="grid-column:3/-1;padding:1px 2px 3px;font-family:\'DM Mono\',monospace;font-size:9px;color:#6366f1;letter-spacing:.5px">Est 1RM: '+toDisplayWeight(_inlineORM)+' '+getWeightUnit()+'</div>';
   }
+}
+// Per-set RPE (Settings → "Track RPE"). Off by default: the set row is dense
+// already, and RPE is only worth logging if you'll actually use it. It appears on
+// COMPLETED work sets only — rating effort you haven't done yet is meaningless.
+if(_rpeOn && set.done && !noWeight && (setType==='wk'||setType==='ds'||setType==='fl'||setType==='rp')){
+  sH+='<div style="grid-column:1/-1;padding:1px 4px 4px;display:flex;align-items:center;gap:5px;flex-wrap:wrap">'
+    +'<span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mu);letter-spacing:.5px">RPE</span>'
+    +RPE_SCALE.map(function(v){
+        var on=(parseFloat(set.rpe)===v);
+        return '<button onclick="setSetRPE('+ei+','+s+','+v+')" title="'+_safeAttr(RPE_MEANING[v]||'')+'" style="min-width:26px;padding:2px 5px;border-radius:6px;font-family:\'DM Mono\',monospace;font-size:9px;cursor:pointer;'
+          +(on?'border:1px solid '+_rpeColor(v)+';background:'+_rpeColor(v)+'22;color:'+_rpeColor(v)
+              :'border:1px solid var(--b2);background:var(--s3);color:#64748b')+'">'+v+'</button>';
+      }).join('')
+    +(set.rpe?'<span style="font-size:9px;color:'+_rpeColor(parseFloat(set.rpe))+';margin-left:2px">'+escapeHtml(RPE_MEANING[parseFloat(set.rpe)]||'')+'</span>':'')
+    +'</div>';
 }
 // "+plates" mode: show the total the typed number resolves to, so the real load is
 // never in doubt.
@@ -6371,6 +6414,91 @@ function setIntensity(lvl){
   buildTodayWorkout();
   showToast('Intensity: '+lvl.toUpperCase());
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// SCREEN WAKE LOCK + TIMER NOTIFICATIONS
+// ═══════════════════════════════════════════════════════════════════
+// The timers are wall-clock based, so they stay CORRECT while the phone is locked.
+// These two make them NOTICEABLE as well: the screen stays on while a workout is
+// running, and if you do leave the app, a finished rest or cardio timer taps you on
+// the shoulder instead of waiting silently until you look.
+//
+// Both are best-effort and both degrade cleanly. On iOS, Web Notifications only work
+// for a PWA that has been added to the Home Screen (16.4+); in Safari's normal tab
+// the permission request simply never resolves to "granted" and nothing breaks.
+
+// ── Wake Lock ───────────────────────────────────────────────────────────────
+var _wakeLock=null;
+function wakeLockSupported(){ return typeof navigator!=='undefined' && 'wakeLock' in navigator; }
+function wakeLockWanted(){
+  if(!(S.prefs&&S.prefs.keepAwake!==false)) return false;
+  // Hold it while the workout clock runs, or while any countdown is live.
+  if(typeof _wTimerActive!=='undefined' && _wTimerActive && !_wTimerPaused) return true;
+  if(typeof timerInt!=='undefined' && timerInt) return true;
+  try{
+    var sess=S.sessions[dKey(vDate)]&&S.sessions[dKey(vDate)].gym;
+    var cb=sess&&sess.cardioBlocks;
+    if(cb&&Object.keys(cb).some(function(key){ return cb[key].timer&&cb[key].timer.running; })) return true;
+  }catch(e){}
+  return false;
+}
+async function refreshWakeLock(){
+  if(!wakeLockSupported()) return;
+  try{
+    if(wakeLockWanted()){
+      if(_wakeLock&&!_wakeLock.released) return;
+      _wakeLock=await navigator.wakeLock.request('screen');
+      _wakeLock.addEventListener('release',function(){ _wakeLock=null; });
+    } else if(_wakeLock){
+      var wl=_wakeLock; _wakeLock=null;
+      await wl.release();
+    }
+  }catch(e){
+    // Denied, or the document isn't visible. Never fatal — the timers are unaffected.
+    _wakeLock=null;
+  }
+}
+
+// ── Notifications ───────────────────────────────────────────────────────────
+function notifySupported(){ return typeof Notification!=='undefined'; }
+function notifyEnabled(){
+  return notifySupported() && (S.prefs&&S.prefs.timerNotify!==false) && Notification.permission==='granted';
+}
+// Ask once, from a user gesture (starting a timer), and explain first.
+function requestTimerNotifications(silent){
+  if(!notifySupported()){ if(!silent) showToast('This browser can\'t show notifications'); return; }
+  if(Notification.permission==='granted'){ if(!silent) showToast('🔔 Timer alerts are already on'); return; }
+  if(Notification.permission==='denied'){
+    if(!silent) showToast('Notifications are blocked — enable them in your browser settings');
+    return;
+  }
+  try{
+    Notification.requestPermission().then(function(p){
+      if(!silent) showToast(p==='granted'?'🔔 Timer alerts on':'Timer alerts stay off');
+      try{_applyToggle('timerNotifyToggle',notifyEnabled());}catch(e){}
+    });
+  }catch(e){}
+}
+// Fire a notification for a finished timer. Only when the app is actually in the
+// background — an alert for something you are looking at is just noise.
+function notifyTimerDone(title, body){
+  if(!notifyEnabled()) return;
+  if(!document.hidden) return;
+  var opts={body:body, tag:'pf-timer', renotify:true, icon:'./icon-192.png', badge:'./icon-192.png', silent:false};
+  try{
+    // Via the service worker when possible: it is the reliable path once the page is
+    // backgrounded, and it lets a tap bring the app back.
+    if(navigator.serviceWorker&&navigator.serviceWorker.ready){
+      navigator.serviceWorker.ready.then(function(reg){
+        if(reg&&reg.showNotification) reg.showNotification(title,opts);
+        else new Notification(title,opts);
+      }).catch(function(){ try{ new Notification(title,opts); }catch(e){} });
+    } else {
+      new Notification(title,opts);
+    }
+  }catch(e){}
+}
+
 // ── Rest timer (between sets) ───────────────────────────────────────────────
 // Wall-clock + persisted, for the same reason as the cardio timers: a counter that
 // decremented once per tick froze whenever iOS suspended the page (phone locked, user
@@ -6399,6 +6527,7 @@ function startTimer(secs,force){
   _restEndAt=Date.now()+secs*1000;
   _restLeftMs=null;
   _saveRestTimer();
+  refreshWakeLock();
   el('timerWrap').classList.add('active');
   timerSecs=secs;
   updateTimerDisp();
@@ -6412,6 +6541,8 @@ function startTimer(secs,force){
       clearInterval(timerInt);timerInt=null;
       _restEndAt=null;_restLeftMs=null;_saveRestTimer();
       el('timerCnt').textContent='GO!';showToast('⏱️ Rest done - next set!');pfCue('go');
+      notifyTimerDone('Rest done','Next set is up.');
+      refreshWakeLock();
       setTimeout(function(){el('timerWrap').classList.remove('active');},2500);
     }
   },250);
@@ -6429,6 +6560,7 @@ function pauseTimer(){
 function stopTimer(){
   if(timerInt){clearInterval(timerInt);timerInt=null;}
   _restEndAt=null;_restLeftMs=null;_saveRestTimer();
+  refreshWakeLock();
   el('timerWrap').classList.remove('active');
 }
 function addTime(d){
@@ -6854,6 +6986,52 @@ function exerciseBlurb(name, fallbackTarget){
 // explanation of what each movement is, plus a search box because some muscle groups
 // have a hundred alternatives.
 
+// ── RPE (rate of perceived exertion) ────────────────────────────────────────
+// The standard resistance-training anchor: RPE = 10 − reps left in the tank. It is
+// the cheapest signal you can log about whether a weight is actually right, and it
+// is what turns a stall warning from "the number hasn't moved" into "the number
+// hasn't moved and you're grinding".
+var RPE_SCALE=[6,7,8,9,10];
+var RPE_MEANING={6:'4+ left',7:'3 left',8:'2 left',9:'1 left',10:'nothing left'};
+function _rpeColor(v){ return v>=10?'var(--re)':v>=9?'var(--or)':v>=8?'var(--ye)':'var(--gr)'; }
+function setSetRPE(ei,si,val){
+  var k=dKey(vDate);
+  var exD=S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.exercises[ei];
+  if(!exD||!exD.sets||!exD.sets[si]) return;
+  // Tapping the current value clears it — no way to un-rate otherwise.
+  exD.sets[si].rpe=(parseFloat(exD.sets[si].rpe)===val)?'':String(val);
+  saveS();
+  buildTodayWorkout();
+}
+// Mean RPE across the work sets of a saved session, or null when none were rated.
+function sessionAvgRPE(entry){
+  if(!entry||!entry.exercises) return null;
+  var vals=[];
+  entry.exercises.forEach(function(ex){
+    (ex.sets||[]).forEach(function(s){ var v=parseFloat(s.rpe); if(v>0) vals.push(v); });
+  });
+  if(!vals.length) return null;
+  return Math.round(vals.reduce(function(a,b){return a+b;},0)/vals.length*10)/10;
+}
+// The RPE logged on the heaviest work set of the most recent session of a lift.
+function lastRPEFor(exName){
+  for(var i=S.history.length-1;i>=0;i--){
+    var sess=S.history[i];
+    if(sess.type!=='gym'||!sess.exercises) continue;
+    for(var j=0;j<sess.exercises.length;j++){
+      var ex=sess.exercises[j];
+      if(ex.name!==exName||!ex.sets) continue;
+      var best=null, bestW=-1;
+      ex.sets.forEach(function(s){
+        var w=parseFloat(s.weight)||0, r=parseFloat(s.rpe);
+        if(s.done&&(s.type||'wk')!=='wu'&&r>0&&w>bestW){ bestW=w; best=r; }
+      });
+      if(best!=null) return best;
+    }
+  }
+  return null;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // STALL DETECTION + DELOAD
 // ═══════════════════════════════════════════════════════════════════
@@ -6918,7 +7096,8 @@ function detectStall(exName){
       topWeight: h[0].topWeight,
       e1rm: h[0].e1rm,
       since: h[h.length-1].date,
-      suggestedWeight: snapToLoadable(exName, h[0].topWeight*DELOAD_PCT, 'down')
+      suggestedWeight: snapToLoadable(exName, h[0].topWeight*DELOAD_PCT, 'down'),
+      lastRPE: (typeof lastRPEFor==='function')?lastRPEFor(exName):null
     };
   }catch(e){ return null; }
 }
@@ -6974,6 +7153,7 @@ function _stallBanner(ei, exName){
   return '<div style="margin-top:6px;padding:7px 9px;border-radius:8px;background:rgba(249,115,22,.08);border:1px solid rgba(249,115,22,.28)">'
     +'<div style="font-size:10px;color:var(--or);font-family:\'DM Mono\',monospace;letter-spacing:.3px;line-height:1.5">'
     +'📉 STALLED — '+st.sessions+' sessions at '+toDisplayWeight(st.topWeight)+' '+unit+' with no gain in estimated 1RM.'
+    +(st.lastRPE?(' Last top set went at RPE '+st.lastRPE+(st.lastRPE>=9?' — you\'re grinding it.':' — there may still be room.')):'')
     +'</div>'
     +'<div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">'
     +'<button onclick="applyDeload('+ei+')" style="font-size:10px;padding:4px 10px;border-radius:7px;border:1px solid rgba(249,115,22,.45);background:rgba(249,115,22,.14);color:var(--or);cursor:pointer">Deload to '+toDisplayWeight(st.suggestedWeight)+' '+unit+'</button>'
@@ -7340,7 +7520,7 @@ function getRenderedExList(k){
 function doSaveWorkout(rating,notes){var k=dKey(vDate),dtype=getDayType(k),sess=S.sessions[k];if(!sess){showToast('Nothing to save');return;}var saved=false;if(cMode==='gym'&&(dtype==='gym'||dtype==='both')){var tplKey=getEffTpl(k),gym=sess.gym,tpl=WTPL[tplKey],it=gym.intensity||'standard',exs=getRenderedExList(k);var vol=0,sc=0,mins=0,exLogs=[];
 // Snapshot S.pbs BEFORE the exLogs loop overwrites it  --  needed for accurate PR detection below
 var _pbsSnapshot={};Object.keys(S.pbs).forEach(function(k2){_pbsSnapshot[k2]=S.pbs[k2].vol;});
-exs.forEach(function(ex,ei){var actual=ex,exD=gym.exercises[ei]||{sets:[]},setLogs=[];if(exD.skipped)return;var _nS=Math.max(ex.sets||0,(exD.sets||[]).length);for(var s=0;s<_nS;s++){var set=exD.sets[s]||{};if(set.done&&(set.type||'wk')!=='wu'){sc++;vol+=(parseFloat(set.weight)||0)*(parseFloat(set.reps)||0);}setLogs.push({weight:set.weight||'',reps:set.reps||'',done:!!set.done,type:set.type||'wk'});}// allDoneEx: all WORK sets done (warmup sets are informational, not required for progression)
+exs.forEach(function(ex,ei){var actual=ex,exD=gym.exercises[ei]||{sets:[]},setLogs=[];if(exD.skipped)return;var _nS=Math.max(ex.sets||0,(exD.sets||[]).length);for(var s=0;s<_nS;s++){var set=exD.sets[s]||{};if(set.done&&(set.type||'wk')!=='wu'){sc++;vol+=(parseFloat(set.weight)||0)*(parseFloat(set.reps)||0);}setLogs.push({weight:set.weight||'',reps:set.reps||'',done:!!set.done,type:set.type||'wk',rpe:set.rpe||''});}// allDoneEx: all WORK sets done (warmup sets are informational, not required for progression)
 var wkLogs=setLogs.filter(function(s){return s.done&&(s.type||'wk')==='wk';});var allWorkSets=setLogs.filter(function(s){return (s.type||'wk')==='wk';});var allDoneEx=(allWorkSets.length>0&&allWorkSets.length===wkLogs.length);
 // Ceiling hit: ≥75% of completed work sets must reach the focus ceiling rep count.
 // This allows one off-set (e.g. 3/4 sets at ceiling) without blocking progression.
@@ -11019,6 +11199,9 @@ _applyToggle('autoRotateToggle',_pr.autoRotateSplits===true);
 _applyToggle('autoSupersetToggle',_pr.autoSuperset!==false);
 _applyToggle('warmupToggle',_pr.showWarmups!==false);
 _applyToggle('autoTimerToggle',_pr.autoTimer!==false);
+_applyToggle('trackRPEToggle',!!_pr.trackRPE);
+_applyToggle('keepAwakeToggle',_pr.keepAwake!==false);
+_applyToggle('timerNotifyToggle',(_pr.timerNotify!==false)&&(typeof Notification==='undefined'||Notification.permission==='granted'));
 _applyToggle('smartNoteToggle',_pr.smartNote!==false);
 _applyToggle('runModeToggle',_pr.runMode!==false);
 _applyToggle('netCarbsToggle',!!_pr.netCarbs);
@@ -11159,6 +11342,36 @@ function toggleWarmupSets(){
   S.prefs.showWarmups=!(S.prefs.showWarmups!==false);
   _applyToggle('warmupToggle',S.prefs.showWarmups);
   saveS();
+}
+// Wake Lock is best-effort: if the browser refuses it, the timers are unaffected — this
+// only records the preference and re-evaluates.
+function toggleTrackRPE(){
+  if(!S.prefs) S.prefs={};
+  S.prefs.trackRPE=!S.prefs.trackRPE;
+  _applyToggle('trackRPEToggle',S.prefs.trackRPE);
+  saveS();
+  buildTodayWorkout();
+  showToast(S.prefs.trackRPE?'📊 RPE tracking on':'RPE tracking off');
+}
+function toggleKeepAwake(){
+  if(!S.prefs) S.prefs={};
+  S.prefs.keepAwake=!(S.prefs.keepAwake!==false);
+  _applyToggle('keepAwakeToggle',S.prefs.keepAwake);
+  saveS();
+  refreshWakeLock();
+  if(S.prefs.keepAwake&&!wakeLockSupported()) showToast('This browser can\'t hold the screen awake');
+  else showToast(S.prefs.keepAwake?'☀️ Screen stays on during workouts':'Screen can sleep again');
+}
+// Turning this on asks the browser for permission, which can only happen from a tap —
+// hence doing it here rather than at load.
+function toggleTimerNotify(){
+  if(!S.prefs) S.prefs={};
+  var turningOn=!(S.prefs.timerNotify!==false);
+  S.prefs.timerNotify=turningOn;
+  saveS();
+  if(turningOn) requestTimerNotifications(false);
+  else showToast('Timer alerts off');
+  _applyToggle('timerNotifyToggle',S.prefs.timerNotify&&(typeof Notification==='undefined'||Notification.permission!=='denied'));
 }
 function toggleAutoTimer(){
   S.prefs.autoTimer=!(S.prefs.autoTimer!==false);
@@ -15378,6 +15591,8 @@ function startWorkoutTimer(){
   if(S.sessions[k]&&S.sessions[k].gym&&!S.sessions[k].gym.startTime) S.sessions[k].gym.startTime=Date.now();
   _wTimerSave();
   renderTimerBar();
+  refreshWakeLock();
+  requestTimerNotifications(true);
   showToast('⏱️ Workout started!');
 }
 
@@ -15388,6 +15603,7 @@ function pauseWorkoutTimer(){
   clearInterval(_wTimerInterval); _wTimerInterval=null;
   _wTimerSave();
   renderTimerBar();
+  refreshWakeLock();
   showToast('⏸ Paused — clock stopped');
 }
 
@@ -15399,6 +15615,7 @@ function resumeWorkoutTimer(){
   _wTimerInterval=setInterval(tickWorkoutTimer,1000);
   _wTimerSave();
   renderTimerBar();
+  refreshWakeLock();
 }
 
 // Stop the clock. If the workout is finished it goes straight to the save sheet; if
@@ -27432,6 +27649,7 @@ function toggleCardioSkip(type, idx, btn){
 // (pagehide/pageshow matters on iOS, where a home-screen PWA is often frozen rather
 // than hidden, and bfcache restores skip visibilitychange entirely.)
 function resyncAllTimers(){
+  try{ refreshWakeLock(); }catch(e){}
   try{ restoreCardioTimers(); }catch(e){}
   try{ syncWorkoutTimerFromState(); renderTimerBar(); }catch(e){}
   try{
@@ -27560,6 +27778,7 @@ function startCardioTimer(type, idx, durationMins){
   saveS();
   _renderCardioTimerUI(type,idx);
   _ensureCardioTicker();
+  refreshWakeLock();
 }
 function pauseCardioTimer(type, idx){
   var t=_cardioTimerState(type,idx,false);
@@ -27602,6 +27821,8 @@ function _completeCardioTimer(type, idx, silent){
   if(doneBtn) doneBtn.classList.add('chk');
   _renderCardioTimerUI(type,idx);
   if(!silent) pfCue('go');
+  notifyTimerDone('Cardio complete', mins+' min logged. Back to the weights.');
+  refreshWakeLock();
   showToast('🏃 Cardio complete — '+mins+' min logged');
 }
 // Stop early: credit the minutes actually done.

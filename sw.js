@@ -16,7 +16,7 @@
    the new worker and shows a "new version ready — Reload" banner.
    ------------------------------------------------------------------ */
 
-const CACHE_VERSION = 'pf-cache-v5';        // <-- bump this string on each deploy
+const CACHE_VERSION = 'pf-cache-v6';        // <-- bump this string on each deploy
 const APP_SHELL = './pf_workout_tracker.html';
 const PRECACHE_URLS = [
   './pf_workout_tracker.html',
@@ -117,5 +117,25 @@ self.addEventListener('fetch', (event) => {
         return res;
       })
     )
+  );
+});
+
+/* ------------------------------------------------------------------
+   Timer notifications.
+
+   The page fires these via registration.showNotification() when a rest
+   or cardio timer runs out while the app is in the background. Tapping
+   one should bring the app back rather than opening a second copy, so
+   focus an existing window when there is one.
+   ------------------------------------------------------------------ */
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
+      for (const w of wins) {
+        if ('focus' in w) return w.focus();
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(APP_SHELL);
+    })
   );
 });
