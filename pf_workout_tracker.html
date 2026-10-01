@@ -4325,7 +4325,7 @@ var allCompleted = lastSession.allCompleted; // all sets done at target
 // DOUBLE PROGRESSION: increase weight only when ceiling reps are hit on all sets
 var fprog=exerciseProgressionRule(exName);
 var weightStep=fprog.weightStep||5;
-if(lastSession.focus&&lastSession.focus!==(S.weekFocus||'general')){
+if(lastSession.focus&&lastSession.focus!==getWorkoutFocus()){
   var adjusted=snapToLoadable(exName,Math.min(lastW,est1RM(lastW,lastR)/(1+(targetReps+2)/30)),'down');
   return {weight:adjusted,reps:targetReps,sets:targetSets,badge:'prev',msg:'goal changed; reassess with 2 reps in reserve'};
 }
@@ -4343,6 +4343,7 @@ if(allCompleted && lastW > 0){
   if(ceilingHit){
     // Ceiling achieved - increase weight by flat step (no focus multiplier - user is at actual working weight)
     var _newW=snapToLoadable(exName,lastW+weightStep,'up');
+    if(_newW<=lastW)return {weight:_newW,reps:Math.max(fprog.floor,Math.min(fprog.ceil,lastSession.minReps||lastR)),sets:targetSets,badge:'prev',msg:'equipment limit reached; hold load or choose another exercise'};
     return {weight:_newW, reps:fprog.floor, sets:lastS, badge:'prog',
             msg:'+'+toDisplayWeight(_newW-lastW)+' '+getWeightUnit()+' (ceiling hit!)'};
   } else {
@@ -6427,6 +6428,9 @@ function toggleWarmup(ei,wi,btn){
 function updateRun(field,val){
   var k=dKey(vDate);if(!S.sessions[k].run)S.sessions[k].run={};
   S.sessions[k].run[field]=val;var r=S.sessions[k].run;
+  if(field==='calories')r.caloriesManual=val!=='';
+  if(field==='distance'||field==='duration'){
+  r.pace='';var paceInput=el('runPaceInp');if(paceInput)paceInput.value='';
   // Auto-calculate pace
   if(r.distance&&r.duration){
     var pm=parseFloat(r.duration)/parseFloat(r.distance);
@@ -6435,8 +6439,9 @@ function updateRun(field,val){
       var pi=el('runPaceInp');if(pi)pi.value=r.pace;
     }
   }
+  }
   // Auto-calculate calories (skip if user manually typed calories)
-  if(field!=='calories'&&r.distance&&r.duration){
+  if(!r.caloriesManual&&r.distance&&r.duration){
     var dist=parseFloat(r.distance)||0,dur=parseFloat(r.duration)||0;
     if(dist>0&&dur>0){
       var bwKgR=((S.weights&&S.weights.length)?S.weights[S.weights.length-1].w:200)/2.205;
@@ -6457,11 +6462,11 @@ function updateRun(field,val){
       }
       if(estCals>0){
         r.calories=estCals;
-        var ci=el('runCalInp');if(ci&&!ci._manuallySet)ci.value=estCals;
+        var ci=el('runCalInp');if(ci)ci.value=estCals;
       }
     }
   }
-  if(field==='calories'){var ci2=el('runCalInp');if(ci2)ci2._manuallySet=true;}
+  if(field==='calories'){var ci2=el('runCalInp');if(ci2)ci2._manuallySet=r.caloriesManual;}
   saveS();updateStats();
 }
 function setIntensity(lvl){
@@ -7389,6 +7394,19 @@ function undoSwap(idx){
   delete S.swaps[k+':'+idx];g.exercises[idx]={sets:[]};saveS();closeModal('swapModal');buildTodayWorkout();showToast('Reset exercise');
 }
 function checkVolAlert(k,dow){var alertEl=el('volAlert');if(!alertEl||cMode!=='gym')return;var tplKey=getEffTpl(k),focus=(WTPL[tplKey]||{}).focus;var lastSame=S.history.filter(function(h){return h.type==='gym'&&h.focus===focus&&h.split===tplKey;}).slice(-1)[0];if(!lastSame){alertEl.innerHTML='';return;}var gymSess=S.sessions[k]&&S.sessions[k].gym,curr=gymSess?Object.values(gymSess.exercises||{}).reduce(function(a,ex){return a+(ex.sets||[]).filter(function(s){return s.done;}).reduce(function(b,s){return b+(parseFloat(s.weight)||0)*(parseFloat(s.reps)||0);},0);},0):0;if(!curr){alertEl.innerHTML='';return;}var diff=curr-(lastSame.volume||0);var _wuVA=getWeightUnit(),_diffD2=toDisplayWeight(Math.abs(diff));if(diff>0)alertEl.innerHTML='<div class="alert alert-up">📈 Up '+toDisplayWeight(Math.round(diff))+' '+_wuVA+' vs last '+focus+'!</div>';else if(diff<-50)alertEl.innerHTML='<div class="alert alert-dn">📉 Volume down '+Math.round(_diffD2)+' '+_wuVA+' vs last session.</div>';else alertEl.innerHTML='';}
+// One completed-cardio contract for Today, save previews and persisted history.
+function completedCardioBlocks(gym){
+  return Object.values(gym.cardioBlocks||{}).concat(Object.values(gym.cardio||{}))
+    .filter(function(c){return c&&c.done&&!c.skipped;}).map(function(c){
+      var raw=c.duration==null||c.duration===''?c.defaultDur:c.duration;
+      var duration=Number(raw)||0;
+      return Object.assign({},c,{duration:isFinite(duration)?Math.max(0,duration):0});
+    });
+}
+function completedCardioCalories(c,bwKg){
+  if(c.calories!=null&&c.calories!==''&&isFinite(Number(c.calories))&&Number(c.calories)>=0)return Number(c.calories);
+  return Math.round((CARDIO_MET[c.name]||5.5)*bwKg*(c.duration/60));
+}
 function updateStats(){
   var k=dKey(vDate),sess=S.sessions[k]||{},sets=0,vol=0,mins=0,cals=0;
   var liftingCals=0, cardioCals=0;
@@ -7426,21 +7444,9 @@ function updateStats(){
 
     // Cardio calories: read from cardioBlocks (warmup/mid/finisher) which is the live state
     // Also include the legacy sess.gym.cardio if present (older sessions)
-    var _cardioSources=Object.values(sess.gym.cardioBlocks||{});
-    // Also read legacy cardio object if present
-    Object.values(sess.gym.cardio||{}).forEach(function(c){ _cardioSources.push(c); });
-    _cardioSources.forEach(function(c){
-      // Only count cardio calories when the block is marked DONE.
-      // Typing a duration alone does not count  --  user must tap the done circle.
-      if(!c.done) return;
-      var dur=parseFloat(c.duration)||parseFloat(c.defaultDur)||0;
-      mins+=dur;
-      if(dur>0){
-        var met=CARDIO_MET[c.name]||5.5;
-        cardioCals+=Math.round(met*bwKg*(dur/60));
-      } else if(parseFloat(c.calories)>0){
-        cardioCals+=parseFloat(c.calories)||0;
-      }
+    completedCardioBlocks(sess.gym).forEach(function(c){
+      mins+=c.duration;
+      cardioCals+=completedCardioCalories(c,bwKg);
     });
   }
 
@@ -7617,8 +7623,7 @@ var _historyWithToday=S.history;S.history=S.history.filter(function(h){return !(
 var _pbsSnapshot={};Object.keys(S.pbs).forEach(function(k2){_pbsSnapshot[k2]=S.pbs[k2].vol;});
 exs.forEach(function(ex,ei){var actual=ex,exD=gym.exercises[ei]||{sets:[]},setLogs=[];if(exD.skipped)return;var _nS=Math.max(ex.sets||0,(exD.sets||[]).length);for(var s=0;s<_nS;s++){var set=exD.sets[s]||{};if(set.done&&(set.type||'wk')!=='wu'){sc++;vol+=(parseFloat(set.weight)||0)*(parseFloat(set.reps)||0);}setLogs.push({weight:set.weight||'',reps:set.reps||'',done:!!set.done,type:set.type||'wk',rpe:set.rpe||''});}// allDoneEx: all WORK sets done (warmup sets are informational, not required for progression)
 var workSummary=summarizeWorkSets(setLogs,gym.trainingFocus||S.weekFocus,actual.n)||{allCompleted:false,ceilingHit:false,weight:0};
-exLogs.push({name:actual.n,target:actual.t,sets:setLogs,allCompleted:workSummary.allCompleted,ceilingHit:workSummary.ceilingHit,weight:workSummary.weight});setLogs.forEach(function(s,si){if(isStrengthRecordSet(s,actual.n)){var pbKey=actual.n+'_'+si,nv=(parseFloat(s.weight)||0)*(parseFloat(s.reps)||0);if(!S.pbs[pbKey]||nv>S.pbs[pbKey].vol)S.pbs[pbKey]={exercise:actual.n,weight:s.weight,reps:s.reps,vol:nv,date:k};}});});var cLogs=[];Object.values(gym.cardioBlocks||{}).forEach(function(c){if(c.done||(parseFloat(c.duration)>0)){mins+=parseFloat(c.duration)||0;cLogs.push(Object.assign({},c));}});// Legacy gym.cardio: include in cLogs for history display but do NOT re-sum mins
-Object.values(gym.cardio||{}).forEach(function(c){cLogs.push(Object.assign({},c));});var durMins=0;
+exLogs.push({name:actual.n,target:actual.t,sets:setLogs,allCompleted:workSummary.allCompleted,ceilingHit:workSummary.ceilingHit,weight:workSummary.weight});setLogs.forEach(function(s,si){if(isStrengthRecordSet(s,actual.n)){var pbKey=actual.n+'_'+si,nv=(parseFloat(s.weight)||0)*(parseFloat(s.reps)||0);if(!S.pbs[pbKey]||nv>S.pbs[pbKey].vol)S.pbs[pbKey]={exercise:actual.n,weight:s.weight,reps:s.reps,vol:nv,date:k};}});});var cLogs=completedCardioBlocks(gym);mins=cLogs.reduce(function(total,c){return total+c.duration;},0);var durMins=0;
 if(_wTimerElapsed>0) durMins=Math.round(_wTimerElapsed/60000);
 else if(S.sessions[k].gym.startTime) durMins=Math.round((Date.now()-S.sessions[k].gym.startTime)/60000);
 // Use getWorkoutCalsBurned()  --  matches live Cals counter and save prompt exactly
@@ -25319,6 +25324,7 @@ function getWorkoutCalsBurned(){
   var liftingCals = 0;
   Object.entries(sess.gym.exercises||{}).forEach(function(entry){
     var ei=parseInt(entry[0]), exD=entry[1];
+    if(exD.skipped)return;
     var exName=(S.swaps[k+':'+ei]&&S.swaps[k+':'+ei].n)||(exs[ei]&&exs[ei].n)||'';
     var exType = getExType(exName);
     var met = (exType==='compound'||exType==='plate_machine') ? 5.0 :
@@ -25332,18 +25338,7 @@ function getWorkoutCalsBurned(){
 
   // Cardio calories: read cardioBlocks (live storage), same done-gate as updateStats
   var cardioCals = 0;
-  var cardioSources = Object.values(sess.gym.cardioBlocks||{});
-  Object.values(sess.gym.cardio||{}).forEach(function(c){ cardioSources.push(c); });
-  cardioSources.forEach(function(c){
-    if(!c.done) return; // only count completed cardio
-    var dur = parseFloat(c.duration) || parseFloat(c.defaultDur) || 0;
-    if(dur > 0){
-      var met = CARDIO_MET[c.name] || 5.5;
-      cardioCals += Math.round(met * bwKg * (dur/60));
-    } else if(parseFloat(c.calories) > 0){
-      cardioCals += parseFloat(c.calories);
-    }
-  });
+  completedCardioBlocks(sess.gym).forEach(function(c){cardioCals+=completedCardioCalories(c,bwKg);});
 
   return Math.round(liftingCals + cardioCals);
 }

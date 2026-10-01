@@ -227,6 +227,86 @@ let server, browser;
       doSaveWorkout(3,'focus switch');check(S.history[0].trainingFocus==='tone','wrong saved focus');
       vDate=new Date('2026-10-02T12:00:00');buildTodayWorkout();check(getWorkoutFocus()==='power','new day did not adopt default');
     });
+    test('completed cardio totals agree between Today and saved history', () => {
+      reset();buildTodayWorkout();const k=dKey(vDate),g=S.sessions[k].gym;
+      g.cardioBlocks={'warmup-0':{name:'Treadmill (Incline Walk)',duration:'',defaultDur:12,done:true},'mid-0':{name:'Bike',duration:'20',done:false},'finisher-0':{name:'Bike',duration:'8',done:true,skipped:true}};
+      g.cardio={0:{name:'Bike',duration:'7',done:true}};
+      updateStats();check(Number(el('st-cardio').textContent)===19,'live minutes include unperformed cardio');
+      doSaveWorkout(3,'cardio regression');check(S.history[0].cardioMins===19,'saved minutes differ');
+      check(S.history[0].cardio.length===2&&S.history[0].cardio.every(c=>Number(c.duration)>0),'bad saved cardio records');
+    });
+    test('manual cardio calories and skipped lifting agree across live and saved totals', () => {
+      reset();buildTodayWorkout();const k=dKey(vDate),g=S.sessions[k].gym;
+      g.exercises[0].sets[0]=set(100,10);g.exercises[0].skipped=true;
+      g.cardioBlocks={0:{name:'Bike',duration:'10',calories:'123',done:true}};g.cardio={};
+      updateStats();check(Number(el('st-cal').textContent)===123,'manual calories ignored live');
+      check(getWorkoutCalsBurned()===123,'save calorie preview disagrees');
+      doSaveWorkout(3,'');check(S.history[0].calories===123&&S.history[0].sets===0,'saved skipped work counted');
+    });
+    test('run edits preserve manual calories and clear stale pace', () => {
+      reset();const k=dKey(vDate);S.dayConfig[k]={type:'run'};cMode='run';buildTodayWorkout();
+      updateRun('distance','3');updateRun('duration','30');updateRun('calories','250');
+      buildTodayWorkout();updateRun('distance','4');check(Number(S.sessions[k].run.calories)===250,'manual calorie value overwritten');
+      updateRun('pace','7:45');updateRun('hr','140');check(S.sessions[k].run.pace==='7:45','manual pace overwritten by heart rate');
+      updateRun('distance','');check(S.sessions[k].run.pace==='','stale pace after clearing distance');
+      updateRun('distance','3');doSaveWorkout(4,'run');
+      check(S.history.length===1&&S.history[0].pace==='10:00'&&S.history[0].calories===250,'run save incorrect');
+      updateRun('duration','33');doSaveWorkout(4,'corrected');check(S.history.length===1&&S.history[0].pace==='11:00','duplicate/stale run correction');
+      selHistId=S.history[0].id;deleteHist();check(S.history.length===0,'run history deletion failed');
+    });
+    test('equipment cap holds earned reps instead of promising a zero-load increase', () => {
+      reset();S.weekFocus='muscle';const name='Dumbbell Shoulder Press';
+      S.history=[history('2026-09-29',[set(75,12),set(75,12),set(75,12)],name)];
+      const p=getProgression(name,9,3,1);check(p.weight===75&&p.reps===12&&p.badge==='prev',JSON.stringify(p));
+    });
+    test('body weight and measurements support metric entry and same-day correction', () => {
+      reset();S.profile.weightUnit='kg';buildBodyPage();const today=dKey(new Date());
+      el('wInput').value='90';el('bfInput').value='20';logWeight();
+      el('wInput').value='91';logWeight();check(S.weights.filter(w=>w.date===today).length===1,'duplicate daily weight');
+      check(Math.abs(S.weights.find(w=>w.date===today).w-fromDisplayWeight(91))<0.01,'kg conversion');
+      el('mWaist').value='90';logMeasurements();check(Math.abs(S.measurements[0].waist-90/2.54)<0.02,'cm conversion');
+      deleteWeight(today);confirmYes();check(!S.weights.some(w=>w.date===today),'body-weight deletion');
+    });
+    test('food cart and water logging persist and remove entries', () => {
+      reset();const today=dKey(new Date());_nutCart=[];
+      addToCart({n:'Test meal',cal:300,pro:25,carb:35,fat:7},'lunch');commitCart();
+      check(S.nutLog[today].lunch.length===1&&S.nutLog[today].lunch[0].cal===300&&!_nutCart.length,'food log');
+      removeFood(today,'lunch',0);check(!S.nutLog[today].lunch.length,'food removal');
+      _bevPickerMl=500;_bevPickerType='water';confirmBeverage();check(S.nutLog[today].water===500,'water log');
+      removeWaterEntry(today,0);check(S.nutLog[today].water===0,'water removal');
+      check(JSON.parse(localStorage.getItem(SK)).nutLog[today].water===0,'water not persisted');
+    });
+    test('recovery, check-in, goals and supplement toggles persist', () => {
+      reset();const k=dKey(new Date());setRecovery(k,'energy',4);check(S.recovery[k].energy===4,'recovery');
+      ciMood=4;ciSleep='good';el('checkinWeight').value='210';saveCheckin();check(S.checkins.length===1&&S.checkins[0].mood===4,'check-in');
+      el('goalEditBench').value='245';el('goalEditGymFreq').value='4';saveGoalEdits();check(S.goals.bench===245&&S.goals.gymPerWeek===4,'goals');
+      toggleSuppToday('creatine');check(isSuppTakenToday('creatine'),'supplement not marked');
+      toggleSuppToday('creatine');check(!isSuppTakenToday('creatine'),'supplement not cleared');
+    });
+    test('rich workout template retains exercise identity and prefilled loads', () => {
+      reset();buildTodayWorkout();const k=dKey(vDate),g=S.sessions[k].gym;
+      g.exercises[0].sets[0]=set(100,9);const cap=_captureRichTemplate(k);
+      S.workoutTemplates=[{id:1,name:'Regression',v:2,...cap}];
+      vDate=new Date('2026-10-02T12:00:00');S.dayConfig[dKey(vDate)]={type:'gym',split:'upper'};
+      applyWorkoutTemplate(1);const restored=S.sessions[dKey(vDate)].gym;
+      check(restored.exList[0].n===cap.exercises[0].n,'template exercise changed');
+      check(String(restored.exercises[0].sets[0].weight)==='100'&&!restored.exercises[0].sets[0].done,'load or completion changed');
+    });
+    test('failed storage write does not announce a saved workout', () => {
+      reset();buildTodayWorkout();saveS();const stored=localStorage.getItem(SK),k=dKey(vDate);
+      S.sessions[k].gym.exercises[0].sets[0]=set(100,8);
+      const original=Storage.prototype.setItem,summary=showWorkoutSummary;let announced=0;
+      try{
+        Storage.prototype.setItem=function(key,value){if(key===SK)throw new DOMException('Test quota','QuotaExceededError');return original.call(this,key,value);};
+        showWorkoutSummary=()=>{announced++;};doSaveWorkout(3,'quota test');
+        check(announced===0,'false success summary');check(localStorage.getItem(SK)===stored,'failed write changed persisted state');
+      }finally{Storage.prototype.setItem=original;showWorkoutSummary=summary;}
+    });
+    test('gym-specific history does not transfer another machine stack load', () => {
+      reset();const name='Chest Press Machine';
+      S.history=[{...history('2026-09-28',[set(80,10)],name),gymId:S.activeGymId},{...history('2026-09-30',[set(180,10)],name),gymId:'other-gym'}];
+      check(getLastExSession(name).weight===80,'other gym prescribed the load');
+    });
     reset(); saveS();
     return results;
   });
@@ -251,15 +331,21 @@ let server, browser;
   await page.evaluate(()=>{document.querySelector('#wContent details').open=true;document.querySelector('#wContent details').scrollIntoView();});
   await page.screenshot({path:path.join(output,'guidance.png')});
   // Persist a real save, reload, then restore via the actual JSON-file import UI.
-  const savedState=await page.evaluate(()=>JSON.stringify(S));
+  const savedState=await page.evaluate(()=>{
+    const k=dKey(vDate);S.sessions[k].gym.exercises[0].sets[0]={weight:'100',reps:'8',type:'wk',done:true};
+    doSaveWorkout(3,'backup regression');
+    S.nutLog[k]={lunch:[{n:'Backup meal',cal:300,pro:25,carb:35,fat:7}],water:500};
+    saveS();return JSON.stringify(S);
+  });
   await page.reload();await page.waitForTimeout(2300);
   results.push({name:'reload retains selected goal',pass:await page.evaluate(()=>S.weekFocus==='tone')});
+  await page.evaluate(()=>{S.history=[];S.nutLog={};saveS();});
   const chooserPromise=page.waitForEvent('filechooser');await page.evaluate(()=>importData());
   const chooser=await chooserPromise;await chooser.setFiles({name:'test-backup.json',mimeType:'application/json',buffer:Buffer.from(savedState)});
   await page.waitForSelector('#confirmModal.show');
   await page.locator('#confirmModal button').filter({hasText:/confirm|yes|restore/i}).last().click();
   await page.waitForTimeout(200);
-  results.push({name:'backup restored through real file picker',pass:await page.evaluate(()=>S.weekFocus==='tone'&&Array.isArray(S.history))});
+  results.push({name:'backup restored through real file picker',pass:await page.evaluate(()=>S.weekFocus==='tone'&&S.history.length===1&&S.history[0].notes==='backup regression'&&S.history[0].exercises[0].sets[0].weight==='100'&&Object.values(S.nutLog)[0].lunch[0].n==='Backup meal')});
   await page.evaluate(()=>navigator.serviceWorker.ready);
   await page.context().setOffline(true);await page.reload();
   await page.waitForFunction(()=>typeof S!=='undefined'&&S.weekFocus==='tone');

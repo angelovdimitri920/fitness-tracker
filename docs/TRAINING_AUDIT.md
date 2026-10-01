@@ -66,7 +66,26 @@ Windows uses installed Microsoft Edge by default. Set `BROWSER_CHANNEL=chromium`
 
 The suite parses every inline script, tests 432 generated combinations (six focuses × eight splits × three session lengths × three equipment configurations), checks focus-specific progression/cardio and started-session preservation, exercises save corrections, timers, units, records, backup import through the file picker, and reload. It also checks ten page widths and 59 modal shells at 430 × 932. Modal width checks do not prove every populated modal workflow. Results and screenshots are written to ignored `.verification/` files.
 
-Latest completed verification: **106 checks passed; zero failures and zero browser errors**, including an offline service-worker reload and three development-server access checks. `git diff --check` passed. A phone-size screenshot was visually reviewed.
+Latest completed verification: **116 checks passed; zero failures and zero browser errors**, including an offline service-worker reload and three development-server access checks. `git diff --check` passed. A phone-size screenshot was visually reviewed. The final pass also used a clean `npm ci --ignore-scripts` installation of the locked dependencies (zero reported dependency vulnerabilities).
+
+## Final pre-merge review
+
+A further review added ten regression/workflow checks and a nonempty workout/nutrition backup round trip. It reproduced and corrected four additional tracking defects:
+
+- Completed cardio, including legacy entries, now uses the same duration/completion rules in Today, save previews and history. Skipped or merely typed unfinished cardio is excluded; a checked-off block can use its planned duration when actual time is blank.
+- Manually entered cardio calories take precedence over estimates. Skipped lifting no longer contributes to the save-preview calorie calculation.
+- Editing distance, time or heart rate preserves manually entered running calories. Clearing distance or time clears an otherwise stale pace.
+- Reaching the maximum configured equipment load now holds earned reps instead of announcing a zero-pound increase and resetting reps.
+
+The new regressions were observed failing before the fixes and passing afterward. Further checks cover metric body-weight/measurement entry, same-day corrections/deletion, food and water logging/removal, recovery/check-ins, goals, supplement toggles, saved templates, separate gym histories, and a simulated storage-quota failure. Save failure is verified not to display a successful workout summary or alter the previously persisted state. In-memory edits remain available for retry/export.
+
+## Recommended next improvements
+
+1. Run this harness on every pull request and make its result a required merge check. [Playwright documents GitHub Actions integration](https://playwright.dev/docs/ci-intro). This repository currently has no remote status check for the suite.
+2. Add a visible backup-health indicator, versioned recovery copies, and a restore preview that shows workout/date counts before replacement. Browser [persistent-storage requests](https://developer.mozilla.org/en-US/docs/Web/API/StorageManager/persist) can help protect local data but are not a substitute for backups.
+3. Add per-exercise recommendation explanations: the previous comparable session, why load/reps changed, equipment limits, and how reported difficulty affected the decision. The existing workout-level explanation is a useful start.
+4. Expand records into distinct best load, repetitions at a load, estimated maximum and session-volume categories, keeping assistance exercises separate.
+5. Complete physical iOS/Android session checks: lock/unlock during timers, offline saving, reopening, and applying an update without losing an unfinished workout. Add accessibility checks for controls, focus navigation and contrast.
 
 ## Remaining boundaries
 
