@@ -15,3 +15,6 @@ ANTHROPIC_KEY_LOCAL_README.txt
 
 # Local dev tooling (not part of the shipped app)
 .claude/
+node_modules/
+.verification/
+verification-phone.png

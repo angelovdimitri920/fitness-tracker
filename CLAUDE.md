@@ -1,5 +1,7 @@
 # PF Fitness Tracker — Project Context & Development Notes
 
+> **Current verification:** Read [TRAINING_AUDIT.md](docs/TRAINING_AUDIT.md) before changing training logic. It supersedes older claims about automatic advanced sets, hypertrophy pyramids, named-program completeness and blanket verification. Run `npm ci` and `npm test` (Playwright browser required). Keep started-session focus/exercise snapshots stable; records and progression must use comparable completed work sets.
+
 Context for the developer and for any future [Claude Code](https://claude.com/claude-code)
 session working on this repo. The user-facing overview lives in [`README.md`](README.md); this
 file is the deeper "how it's built, what's been done, what's left."

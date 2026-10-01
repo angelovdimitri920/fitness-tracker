@@ -1,5 +1,7 @@
 # PF Fitness Tracker
 
+> **October 2026 audit:** See [Training and tracking audit](docs/TRAINING_AUDIT.md) for corrected focus behavior, progression and record fixes, competitor comparisons, repeatable browser tests, and remaining limitations. Older feature-completeness claims below are historical descriptions, not verification of every feature. Production has no dependencies; the new test harness uses Playwright.
+
 A personal, single-file fitness tracker built as an offline-capable Progressive Web App (PWA).
 Everything — workouts, nutrition, running, body metrics, and progress — lives in one HTML file
 and is stored locally in your browser. No accounts, no server database, no tracking.

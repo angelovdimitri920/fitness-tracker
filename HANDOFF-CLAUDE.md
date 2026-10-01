@@ -1,5 +1,7 @@
 # Handoff — start here
 
+> **October 1, 2026 update:** [TRAINING_AUDIT.md](docs/TRAINING_AUDIT.md) is the latest training/tracking audit and verification record. The older “feature-complete” status below is superseded by its explicit scope and limitations. Lose & Tone remains the default; Muscle + Strength is optional. These repository changes require review/deployment before a hosted or installed copy changes.
+
 A pick-up summary for a fresh [Claude Code](https://claude.com/claude-code) session (or future
 you). It points at the two things you'll most likely want to do next: **resume feature work**, or
 **get the app onto your phone as something you actually use**. Reference docs:

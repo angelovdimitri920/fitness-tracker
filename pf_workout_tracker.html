@@ -3635,7 +3635,7 @@ function _equipSatisfies(dep, gymEquipment){
   return false;
 }
 function isExerciseAvailable(exName, gymEquipment){
-  if(!gymEquipment||!gymEquipment.length) return true;
+  gymEquipment=Array.isArray(gymEquipment)?gymEquipment:[];
   // Normalize legacy equipment names so old gym profiles still work
   gymEquipment = gymEquipment.map(function(e){
     if(e === 'Olympic Barbell (45 lb)') return 'Olympic Barbells';
@@ -3645,6 +3645,11 @@ function isExerciseAvailable(exName, gymEquipment){
     if(e === 'Landmine Attachment') return 'Landmine Station';
     return e;
   });
+  var hasBench=gymEquipment.some(function(e){return /bench/i.test(e);});
+  var hasRack=gymEquipment.some(function(e){return /power rack|squat cage|squat rack/i.test(e);});
+  if(/barbell/i.test(exName)&&/bench press|pin press/i.test(exName)&&(!hasBench||!hasRack)) return false;
+  if(/barbell/i.test(exName)&&/back squat|front squat|pause squat|pin squat/i.test(exName)&&!hasRack) return false;
+  if(/dumbbell/i.test(exName)&&/bench press|incline.*press|incline.*fly/i.test(exName)&&!hasBench) return false;
   // Direct match - exercise name is in equipment list
   if(gymEquipment.indexOf(exName) >= 0) return true;
   // Check dependency table
@@ -3699,8 +3704,9 @@ function isExerciseAvailable(exName, gymEquipment){
   if(xl.indexOf('plate')>=0) return gymEquipment.some(function(e){var l=e.toLowerCase();return l.indexOf('plate')>=0||l.indexOf('barbell')>=0;});
   // Plyometrics (box jump / depth jump / plyo box)
   if(xl.indexOf('box jump')>=0||xl.indexOf('depth jump')>=0||xl.indexOf('plyometric box')>=0||xl.indexOf('plyo box')>=0) return gymEquipment.some(function(e){var l=e.toLowerCase();return l.indexOf('plyometric box')>=0||l.indexOf('plyo')>=0;});
-  // Not in catalogue and no deps → treat as available (truly equipment-agnostic)
-  return true;
+  if(/machine|barbell|smith|cable|bench|sled|rope|medicine ball|pull-up|chin-up|dip|elevate|landmine|trap bar|ez bar/i.test(exName)) return false;
+  // Only explicitly bodyweight movements are available without a dependency entry.
+  return getExType(exName)==='bodyweight';
 }
 
 function getMG(n){for(var g in ELIB){for(var i=0;i<ELIB[g].length;i++){if(ELIB[g][i].n===n)return g;}}var x=n.toLowerCase();if(x.includes('close-grip')||x.includes('skull crusher'))return'triceps';if(x.includes('sumo deadlift'))return'hamstrings';if(x.includes('hip thrust')||x.includes('curtsy'))return'glutes';if(x.includes('nordic curl')||x.includes('bulgarian'))return(x.includes('bulgarian')?'quads':'hamstrings');if(x.includes('pallof')||x.includes('dead bug')||x.includes('bicycle crunch')||x.includes('l-sit'))return'core';if(x.includes('face pull')||x.includes('rear delt fly')||x.includes('upright row')||x.includes('plate front raise'))return'shoulders';if(x.includes('ez bar curl')||x.includes('concentration curl')||x.includes('spider curl')||x.includes('zottman'))return'biceps';if(x.includes('t-bar row')||x.includes('rack pull')||x.includes('landmine row')||x.includes('muscle-up'))return'back';if(x.includes('walking lunge')||x.includes('reverse lunge')||x.includes('sissy')||x.includes('bosu ball squat')||x.includes('jump squat')||x.includes('pistol squat'))return'quads';if(x.includes('bench')||x.includes('chest')||x.includes('archer push')||(x.includes('press')&&(x.includes('incline')||x.includes('decline')||x.includes('supine')||x.includes('cable chest')||x.includes('landmine'))))return'chest';if(x.includes('row')||x.includes('lat')||x.includes('pull-down')||x.includes('pull-up')||x.includes('chin')||x.includes('straight-arm'))return'back';if(x.includes('shoulder')||x.includes('overhead')||x.includes('lateral')||x.includes('delt')||x.includes('pike push')||x.includes('shrug')||x.includes('arnold'))return'shoulders';if(x.includes('curl')&&!x.includes('leg'))return'biceps';if(x.includes('tricep')||x.includes('skull')||x.includes('dip')||x.includes('diamond push'))return'triceps';if(x.includes('squat')||x.includes('leg press')||x.includes('hack')||x.includes('leg ext')||x.includes('lunge')||x.includes('goblet'))return'quads';if(x.includes('deadlift')||x.includes('rdl')||x.includes('leg curl')||x.includes('hip curl'))return'hamstrings';if(x.includes('glute')||x.includes('hip abduct')||x.includes('kickback'))return'glutes';if(x.includes('calf'))return'calves';if(x.includes('ab')||x.includes('core')||x.includes('crunch')||x.includes('torso')||x.includes('chop')||x.includes('plank')||x.includes('russian twist')||x.includes('wood chop')||x.includes('pallof')||x.includes('l-sit'))return'core';if(x.includes('back'))return'lowerback';return null;}
@@ -3738,7 +3744,94 @@ var STRENGTH_LIFTS=[
   {key:'skullcrush', name:'Skull Crushers (EZ Bar)',     def:65,  group:'Isolation', note:'Tricep isolation anchor  --  drives tricep machines, overhead extensions'},
   {key:'calfstand',  name:'Standing Calf Raise',         def:130, group:'Isolation', note:'Calf strength anchor  --  drives all calf machine and raise variants'},
 ];
-function est1RM(w,reps){var r=reps||7;return Math.round(w*(1+r/30)/5)*5;}
+function est1RM(w,reps){
+  w=Number(w); var r=reps==null?7:Number(reps);
+  if(!isFinite(w)||!isFinite(r)||w<=0||r<1) return 0;
+  // An actual single is not an extrapolation. Do not round an estimate to plate increments.
+  return r===1?w:Math.round(w*(1+r/30)*10)/10;
+}
+function validCompletedSet(s){
+  return !!s&&s.done&&isFinite(Number(s.reps))&&Number(s.reps)>0&&Number(s.reps)<=1000&&
+    isFinite(Number(s.weight||0))&&Number(s.weight||0)>=0;
+}
+function isAssistanceExercise(name){return /assist|chin\/dip/i.test(name||'');}
+function isStrengthRecordSet(s,name){
+  // Clusters and drops are not comparable to one continuous fresh working set.
+  return validCompletedSet(s)&&(s.type||'wk')==='wk'&&Number(s.weight)>0&&!isAssistanceExercise(name);
+}
+function priorGymHistory(){
+  var before=dKey(vDate), gymId=S.activeGymId;
+  return (S.history||[]).filter(function(h){return h.type==='gym'&&h.date<before&&(!h.gymId||h.gymId===gymId);})
+    .sort(function(a,b){return b.date.localeCompare(a.date)||(b.id||0)-(a.id||0);});
+}
+function loggedLiftEstimate(key){
+  var best=0;
+  (S.history||[]).filter(function(h){return h.type==='gym'&&(!h.gymId||h.gymId===S.activeGymId);}).forEach(function(h){
+    (h.exercises||[]).forEach(function(ex){
+      if(getStrKey(ex.name)!==key||ex.skipped)return;
+      (ex.sets||[]).forEach(function(s){if(isStrengthRecordSet(s,ex.name)&&Number(s.reps)<=12)best=Math.max(best,est1RM(Number(s.weight),Number(s.reps)));});
+    });
+  });
+  return best;
+}
+// One progression contract for the workout, overload notification and saved summary.
+function summarizeWorkSets(sets,focus,exName){
+  var all=(sets||[]).filter(function(s){return (s.type||'wk')==='wk';});
+  var done=all.filter(validCompletedSet); if(!done.length) return null;
+  var weight=Math.max.apply(null,done.map(function(s){return Number(s.weight)||0;}));
+  var top=done.filter(function(s){return Math.abs((Number(s.weight)||0)-weight)<0.01;});
+  var minReps=Math.min.apply(null,top.map(function(s){return Number(s.reps);}));
+  var complete=all.length===done.length;
+  var sameLoad=done.every(function(s){return Math.abs((Number(s.weight)||0)-weight)<0.01;});
+  var highEffort=done.some(function(s){return Number(s.rpe)>=9.5;});
+  var rule=exerciseProgressionRule(exName,focus);
+  return {weight:weight,reps:minReps,minReps:minReps,sets:done.length,allCompleted:complete,
+    ceilingHit:complete&&sameLoad&&done.length>=MIN_WORK_SETS&&minReps>=rule.ceil&&!highEffort&&!isAssistanceExercise(exName),
+    highEffort:highEffort};
+}
+function isMainStrengthMovement(name){
+  return isCompound(name)||/leg press|hack squat|chest press|shoulder press|supine press|incline press|pull-down|row|hip thrust/i.test(name||'');
+}
+function exerciseProgressionRule(name,focus){
+  focus=focus||getWorkoutFocus();
+  if((focus==='power'||focus==='hybrid')&&name&&!isMainStrengthMovement(name)) return {floor:8,ceil:12,weightStep:5};
+  return FOCUS_PROGRESSION[focus]||FOCUS_PROGRESSION.general;
+}
+function prescriptionForFocus(ex,focus){
+  var fp=FOCUS_META[focus]||FOCUS_META.general, rule=exerciseProgressionRule(ex.n,focus);
+  var copy=Object.assign({},ex), main=isMainStrengthMovement(ex.n);
+  copy.reps=getExType(ex.n)==='bodyweight'?ex.reps:Math.round((rule.floor+rule.ceil)/2);
+  copy.rest=focus==='hybrid'?(main?180:90):focus==='power'?(main?210:90):focus==='muscle'?(main?150:90):fp.rest;
+  // Isometric holds are logged as seconds, never as a fictitious 1-rep max.
+  if(ex.n==='Plank'||ex.n==='Side Plank') copy.reps=30;
+  return copy;
+}
+function weeklyMuscleSets(dateKey){
+  var end=new Date(dateKey+'T12:00:00'),start=new Date(end);start.setDate(start.getDate()-6);
+  var first=dKey(start),result={};
+  (S.history||[]).filter(function(h){return h.type==='gym'&&h.date>=first&&h.date<=dateKey;}).forEach(function(h){
+    (h.exercises||[]).forEach(function(e){
+      if(e.skipped)return;var g=getMG(e.name);if(!g)return;
+      var count=(e.sets||[]).filter(function(s){return validCompletedSet(s)&&(s.type||'wk')!=='wu'&&(s.type||'wk')!=='ds'&&(s.type||'wk')!=='rp';}).length;
+      if(!result[g])result[g]={sets:0,days:[]};result[g].sets+=count;
+      if(count&&result[g].days.indexOf(h.date)<0)result[g].days.push(h.date);
+    });
+  });
+  return result;
+}
+function buildTrainingGuidance(k,exs){
+  var focus=getWorkoutFocus(k), counts=weeklyMuscleSets(k);
+  var groups=['chest','back','quads','hamstrings','glutes','shoulders','biceps','triceps','calves','core'];
+  var chips=groups.map(function(g){var c=counts[g]||{sets:0,days:[]};return '<span style="display:inline-block;margin:3px 8px 3px 0">'+g+': <b>'+c.sets+'</b> sets / '+c.days.length+' days</span>';}).join('');
+  return '<details class="card" style="font-size:12px;line-height:1.6"><summary style="cursor:pointer;color:var(--ye)">Why this workout · weekly training coverage</summary>'+
+    '<p>'+(focus==='hybrid'?'Muscle + strength: main lifts use 4–8 reps and full rests; accessories use 8–12 reps.':focus==='power'?'Strength: practice the lifts you want to improve with longer rests; accessories use moderate reps.':focus==='muscle'?'Muscle growth: repeat useful movements, build controlled reps, then increase the load.':'Build consistent training with a manageable load and good technique.')+' Choose loads that leave roughly 1–3 clean reps in reserve. Adjust an estimate down if needed.</p>'+
+    '<p>Machines and free weights can both build muscle. Choose available equipment you can set up comfortably and progress consistently. Machine stack numbers are not comparable across different machines or gyms.</p>'+
+    '<div style="color:var(--mu)">Logged in the last 7 days (including this date):</div><div>'+chips+'</div>'+
+    '<p>These are primary-muscle sets; secondary work is not counted. For muscle growth, around 10 challenging sets per muscle each week is a useful starting reference, adjusted to your recovery. Spread major-muscle training across at least two days. More time or soreness does not guarantee better results. A full-body session may run beyond the Quick target to cover the major patterns.</p>'+
+    (exs.length?'<p>Log dumbbells per hand, a bar or sled including its starting resistance, and pin machines using the displayed stack value. Check your machine label; default starting weights are estimates.</p>':'<p style="color:var(--or)">No eligible exercises for this split. Enable equipment or choose a different split; no unavailable machine has been prescribed.</p>')+
+    '<p><b>Terms:</b> rep = one repetition; set = a group of reps; RIR = reps left in reserve; RPE ≈ 10 − RIR; hypertrophy = muscle growth; e1RM = estimated one-rep maximum, not a tested max. A plank is logged in seconds. Drop sets and rest-pause clusters are optional techniques, not extra fresh sets.</p>'+
+    '<a style="color:var(--cy)" href="https://www.acsm.org/wp-content/uploads/2026/03/Resistance-Training-Position-Stand-infographic.pdf" target="_blank" rel="noopener">Training guidance: ACSM 2026</a></details>';
+}
 // Derive every accessory lift's working weight from the big-4 using typical strength
 // ratios (bench/squat/deadlift/ohp anchors). One-tap fill so the user doesn't enter 16
 // numbers; each lift still auto-calibrates from logged sets afterward. DB lifts are per-hand.
@@ -3769,7 +3862,7 @@ var PROG_LIFT_LBL={squat:'Squat',bench:'Bench Press',deadlift:'Deadlift',ohp:'Ov
 function _round5(w){ return Math.round(w/5)*5; }
 function _progTM(lift){ var work=(S.strength&&S.strength[lift])||0; return _round5(0.9*est1RM(work)); }
 var STRENGTH_PROGRAMS={
-  '531':{name:'5/3/1', tag:'Wendler', basis:'tm', lifts:['squat','bench','deadlift','ohp'],
+  '531':{name:'5/3/1-style main lifts', tag:'Wendler', basis:'tm', lifts:['squat','bench','deadlift','ohp'],
     desc:'Four-week waves built on a Training Max (90% of your 1RM). The last set each day is an AMRAP — as many reps as possible.',
     progression:'After each 4-week cycle, add +5 lb to upper-body TMs (bench, press) and +10 lb to lower-body TMs (squat, deadlift).',
     weeks:[
@@ -3821,10 +3914,11 @@ function getActiveProgramFor(exName){
   try{
     var st=(typeof _progState==='function')?_progState():null;
     if(!st||!st.id||typeof STRENGTH_PROGRAMS==='undefined'||!STRENGTH_PROGRAMS[st.id]) return null;
+    if(st.id!=='531') return null; // Other cards are educational references, not implemented programs.
     var p=STRENGTH_PROGRAMS[st.id];
     var lk=(typeof getStrKey==='function')?getStrKey(exName):null;
     if(!lk||p.lifts.indexOf(lk)<0) return null;
-    var wk=(st.id==='531')?(st.week||0):0;
+    var wk=(st.id==='531')?Math.max(0,Math.min(3,Number(st.week)||0)):0;
     var scheme=p.weeks?p.weeks[wk].sets:p.scheme;
     if(!scheme||!scheme.length) return null;
     var base=p.basis==='tm'?_getProgramTM(lk):((S.strength&&S.strength[lk])||0);
@@ -3857,6 +3951,7 @@ function renderProgramDetail(id){
   var _wu=getWeightUnit();
   var html='<div style="margin-bottom:8px"><span class="badge by" style="font-size:9px">'+p.tag+'</span></div>'+
     '<div style="font-size:12px;color:#ccc;line-height:1.55;margin-bottom:10px">'+p.desc+'</div>';
+  html+='<div class="alert alert-info">'+(id==='531'?'Main-lift percentages only. This is an adaptation, not the complete 5/3/1 program; your schedule and assistance work still need planning.':'Reference only: the full schedule, set scheme and progression for this program are not implemented. It cannot drive Today.')+'</div>';
   // week selector for 531
   if(p.weeks){
     html+='<div style="display:flex;gap:5px;margin-bottom:10px">'+p.weeks.map(function(w,i){
@@ -3891,13 +3986,13 @@ function renderProgramDetail(id){
   html+='<div style="font-size:10px;color:var(--mu);font-family:\'DM Mono\',monospace;margin-top:6px">'+(anyTM?'Based on Training Max = 90% of your estimated 1RM. ':'Based on your current working weights. ')+'Weights in '+_wu+'.</div>';
   html+='<div style="font-size:11px;color:#9ca3af;line-height:1.5;margin-top:8px"><b style="color:var(--ye)">Progression:</b> '+p.progression+'</div>';
   // How it works in this app
-  html+='<div style="background:rgba(124,58,237,.07);border:1px solid rgba(124,58,237,.2);border-radius:8px;padding:9px 11px;margin-top:10px">'+
+  if(id==='531') html+='<div style="background:rgba(124,58,237,.07);border:1px solid rgba(124,58,237,.2);border-radius:8px;padding:9px 11px;margin-top:10px">'+
     '<div style="font-size:9px;color:#a78bfa;letter-spacing:1px;margin-bottom:4px">🔗 HOW IT WORKS HERE</div>'+
     '<div style="font-size:11px;color:#ccc;line-height:1.5">When active, this program <b>drives its main lifts</b> ('+p.lifts.map(function(l){return PROG_LIFT_LBL[l]||l;}).join(', ')+') on your <b>Today</b> page — prescribing the exact sets, reps and weight for the day. Your accessory exercises still follow your weekly <b>focus</b>. A 📐 card on Today shows the day\'s prescription.</div></div>';
   // YouTube learn-more link
   var _ytP='https://www.youtube.com/results?search_query='+encodeURIComponent(p.name+' strength program explained how to');
   html+='<a href="'+_ytP+'" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:8px;background:rgba(239,68,68,.1);border:1px solid rgba(239,68,68,.25);border-radius:8px;padding:9px;text-decoration:none;color:var(--re);margin-top:10px"><span>▶️</span><span style="font-size:10px;letter-spacing:1px">LEARN '+p.name.toUpperCase()+' ON YOUTUBE</span></a>';
-  html+='<button class="btn '+(isActive?'btn-g':'btn-p')+' bfw" style="margin-top:12px" onclick="'+(isActive?'clearProgram()':'selectProgram(\''+id+'\')')+'">'+(isActive?'✓ Active program — tap to clear':'Set as my program')+'</button>';
+  if(id==='531'||isActive) html+='<button class="btn '+(isActive?'btn-g':'btn-p')+' bfw" style="margin-top:12px" onclick="'+(isActive?'clearProgram()':'selectProgram(\''+id+'\')')+'">'+(isActive?'✓ Active program — tap to clear':'Set as my program')+'</button>';
   box.innerHTML=html;
 }
 // Clear today's UNDONE set weights/reps so a new prescription (program/week/focus change)
@@ -3915,7 +4010,7 @@ function _refreshTodayPrescription(){
     if(typeof isSessionComplete!=='function' || !isSessionComplete(k)){ try{buildTodayWorkout();}catch(e){} }
   }catch(e){}
 }
-function selectProgram(id){ var st=_progState(); st.id=id; if(id==='531'&&st.week==null) st.week=0; _initProgramTMs(); saveS(); renderProgramChips(); renderProgramDetail(id); try{renderStrengthProgramCard();}catch(e){} _refreshTodayPrescription(); showToast('📐 '+STRENGTH_PROGRAMS[id].name+' set as your program'); }
+function selectProgram(id){ if(id!=='531'){showToast('Reference only: this complete program is not implemented. Use a custom template.');return;} var st=_progState(); st.id=id; if(id==='531'&&st.week==null) st.week=0; _initProgramTMs(); saveS(); renderProgramChips(); renderProgramDetail(id); try{renderStrengthProgramCard();}catch(e){} _refreshTodayPrescription(); showToast('📐 '+STRENGTH_PROGRAMS[id].name+' set as your program'); }
 function clearProgram(){ var st=_progState(); var was=st.id; st.id=null; saveS(); renderProgramChips(); renderProgramDetail(was||'531'); try{renderStrengthProgramCard();}catch(e){} _refreshTodayPrescription(); showToast('Program cleared'); }
 function setProgramWeekTo(id,w){ var st=_progState(); if(st.id===id){ w=Math.max(0,Math.min(3,parseInt(w)||0)); st.week=w; } saveS(); renderProgramDetail(id); try{renderStrengthProgramCard();}catch(e){} _refreshTodayPrescription(); }
 function advanceProgramWeek(){
@@ -3938,7 +4033,7 @@ function renderStrengthProgramCard(){
   var card=el('strengthProgramCard'); if(!card) return;
   var st=_progState();
   if(!st.id || !STRENGTH_PROGRAMS[st.id]){
-    card.innerHTML='<div class="fbet"><div style="flex:1"><div class="slbl" style="margin:0">📐 Strength Program</div><div style="font-size:11px;color:var(--mu);margin-top:4px">Follow a proven progression (5/3/1, StrongLifts, GZCLP…), auto-scaled to your maxes.</div></div><button class="btn bsm" style="flex-shrink:0;background:rgba(245,196,0,.12);border-color:rgba(245,196,0,.4);color:var(--ye)" onclick="openProgramsModal()">Choose</button></div>';
+    card.innerHTML='<div class="fbet"><div style="flex:1"><div class="slbl" style="margin:0">📐 Strength Program</div><div style="font-size:11px;color:var(--mu);margin-top:4px">Use the 5/3/1-style main-lift tool or browse program references.</div></div><button class="btn bsm" style="flex-shrink:0;background:rgba(245,196,0,.12);border-color:rgba(245,196,0,.4);color:var(--ye)" onclick="openProgramsModal()">Choose</button></div>';
     return;
   }
   var p=STRENGTH_PROGRAMS[st.id];
@@ -4179,7 +4274,12 @@ var TYPES={
 'Elevate Pull-Up':'bodyweight','Elevate Core Adjustable':'bodyweight',
 'Elevate Row Adjustable':'bodyweight'
 };
-return TYPES[name]||'machine';
+if(TYPES[name]) return TYPES[name];
+if(['Side Plank','Dead Bug','Bicycle Crunch','Pike Push-Up','Diamond Push-Up','Archer Push-Up','Jump Squat','Pistol Squat','Burpee'].indexOf(name)>=0) return 'bodyweight';
+if(/dumbbell|kettlebell/i.test(name)) return 'compound_db';
+if(/barbell/i.test(name)) return 'compound';
+if(/cable/i.test(name)) return 'cable';
+return 'machine';
 }
 
 // Wrapper: whatever the progression logic below arrives at, a suggestion can never be
@@ -4196,13 +4296,14 @@ function getProgression(exName, targetReps, targetSets, weightMult){
     // Snap to something that can actually be loaded. Plain 5 lb rounding only works
     // while the base weight happens to be a multiple of 5; once you correct a sled to
     // its real weight it stops being true.
-    if(res&&res.weight>0) res.weight=snapToLoadable(exName,res.weight);
+    if(res&&res.weight>0){var requested=res.weight;res.weight=snapToLoadable(exName,res.weight);if(res.badge==='prog'&&res.weight<requested){res.badge='prev';res.msg='equipment limit reached; hold load or choose another exercise';}}
   }catch(e){}
   return res;
 }
 function _getProgressionRaw(exName, targetReps, targetSets, weightMult){
 // Active strength program drives its main lifts (top working set headline; per-set ramp
 // is applied in the set renderer). Accessories fall through to focus-based progression.
+if(isAssistanceExercise(exName)){var prev=getLastExSession(exName);return {weight:prev?prev.weight:null,reps:targetReps,sets:targetSets,badge:'prev',msg:'assistance: less weight is harder; adjust manually'};}
 var _ap=getActiveProgramFor(exName);
 if(_ap) return {weight:_ap.topWeight, reps:_ap.topReps, sets:_ap.setCount, badge:'prog', msg:_ap.program.tag+' · Wk'+(_ap.week+1)};
 var type = getExType(exName);
@@ -4210,7 +4311,7 @@ if(!weightMult) weightMult=1.0;
 function applyMult(w){ if(!w||w===0) return w; return Math.round((w*weightMult)/5)*5; }
 // Exercises that don't use weight
 if(type==='bodyweight'&&!getLastExSession(exName)){return {weight:null,reps:targetReps,sets:targetSets,badge:''};}
-if(type==='bodyweight'&&getLastExSession(exName)){var _bwl=getLastExSession(exName);if(_bwl.allCompleted){return {weight:null,reps:(_bwl.reps||targetReps)+2,sets:_bwl.sets||targetSets,badge:'prog',msg:'+2 reps'};}else{return {weight:null,reps:_bwl.reps||targetReps,sets:_bwl.sets||targetSets,badge:'prev',msg:'same'};}}
+if(type==='bodyweight'&&getLastExSession(exName)){var bw=getLastExSession(exName);return {weight:null,reps:Math.min(30,Math.max(targetReps,bw.reps)+(bw.allCompleted&&!bw.highEffort?1:0)),sets:targetSets,badge:'prev',msg:'controlled reps; progress difficulty when comfortable'};}
 
 // Step 1: Find last completed session for this exercise
 var lastSession = getLastExSession(exName);
@@ -4222,8 +4323,12 @@ var lastS = parseInt(lastSession.sets)||0;
 var allCompleted = lastSession.allCompleted; // all sets done at target
 
 // DOUBLE PROGRESSION: increase weight only when ceiling reps are hit on all sets
-var fprog=FOCUS_PROGRESSION[S.weekFocus||'general']||FOCUS_PROGRESSION.general;
+var fprog=exerciseProgressionRule(exName);
 var weightStep=fprog.weightStep||5;
+if(lastSession.focus&&lastSession.focus!==getWorkoutFocus()){
+  var adjusted=snapToLoadable(exName,Math.min(lastW,est1RM(lastW,lastR)/(1+(targetReps+2)/30)),'down');
+  return {weight:adjusted,reps:targetReps,sets:targetSets,badge:'prev',msg:'goal changed; reassess with 2 reps in reserve'};
+}
 
 if(allCompleted && lastW > 0){
   if(type==='bodyweight'){
@@ -4237,12 +4342,13 @@ if(allCompleted && lastW > 0){
   var ceilingHit=lastSession.ceilingHit;
   if(ceilingHit){
     // Ceiling achieved - increase weight by flat step (no focus multiplier - user is at actual working weight)
-    var _newW=Math.round((lastW+weightStep)/5)*5;
+    var _newW=snapToLoadable(exName,lastW+weightStep,'up');
+    if(_newW<=lastW)return {weight:_newW,reps:Math.max(fprog.floor,Math.min(fprog.ceil,lastSession.minReps||lastR)),sets:targetSets,badge:'prev',msg:'equipment limit reached; hold load or choose another exercise'};
     return {weight:_newW, reps:fprog.floor, sets:lastS, badge:'prog',
             msg:'+'+toDisplayWeight(_newW-lastW)+' '+getWeightUnit()+' (ceiling hit!)'};
   } else {
     // Keep same weight - work toward ceiling
-    return {weight:lastW, reps:fprog.floor, sets:lastS||targetSets, badge:'prev',
+    return {weight:lastW, reps:Math.max(fprog.floor,Math.min(fprog.ceil,lastSession.minReps||lastR)), sets:targetSets, badge:'prev',
             msg:'work toward '+fprog.ceil+' reps'};
   }
 } else if(allCompleted && (!lastW || lastW===0)){
@@ -4348,7 +4454,7 @@ function getLastRunLine(runType){
 }
 
 function getLastExSessionSets(exName){
-  var history=S.history.slice().reverse();
+  var history=priorGymHistory();
   for(var i=0;i<history.length;i++){
     var sess=history[i];
     if(sess.type!=='gym'||sess.date===dKey(vDate)) continue;
@@ -4366,41 +4472,24 @@ function getLastExSessionSets(exName){
   return null;
 }
 function getLastExSession(exName, overrideFocus){
-var history = S.history.slice().reverse();
-for(var i=0;i<history.length;i++){
-var sess = history[i];
-if(sess.type!=='gym') continue;
-for(var j=0;j<(sess.exercises||[]).length;j++){
-var ex = sess.exercises[j];
-if(ex.name===exName && ex.sets && ex.sets.length>0){
-// Find most common weight used in done sets
-var doneSets = ex.sets.filter(function(s){return s.done&&(s.weight||s.reps);});
-if(!doneSets.length) continue;
-// Use the last set's weight as reference
-var lastSet = doneSets[doneSets.length-1];
-var allDone = ex.sets.every(function(s){return s.done;});
-// Find min reps across all done sets (worst set determines if ceiling was hit)
-var minReps = doneSets.reduce(function(mn,s){
-  var r=parseInt(s.reps)||0; return r>0&&r<mn?r:mn;
-}, 999);
-if(minReps===999) minReps=0;
-// Ceiling check: did ALL sets hit the focus ceiling?
-var fp2=FOCUS_PROGRESSION[overrideFocus||S.weekFocus||'general']||FOCUS_PROGRESSION.general;
-var ceilingHit = allDone && minReps>=fp2.ceil;
-return {
-weight: parseFloat(lastSet.weight)||0,
-reps: parseInt(lastSet.reps)||0,
-minReps: minReps,
-sets: doneSets.length,
-allCompleted: allDone && doneSets.length>=ex.sets.length,
-ceilingHit: ceilingHit
-};
+  var history=priorGymHistory();
+  for(var i=0;i<history.length;i++){
+    var ex=(history[i].exercises||[]).find(function(e){return e.name===exName&&!e.skipped;});
+    var result=ex&&summarizeWorkSets(ex.sets,overrideFocus,exName);
+    if(result){result.date=history[i].date;result.focus=history[i].trainingFocus;return result;}
+  }
+  return null;
 }
-}
-}
-return null;
-}
-var WTPL={upper:{focus:'Upper Body Strength',exercises:[{n:'Bench Press (Barbell)',t:'Chest · Triceps',sets:4,reps:8,rest:90,p:1},{n:'Incline Dumbbell Press',t:'Upper Chest · Shoulders',sets:3,reps:10,rest:75,p:1},{n:'Cable Low Row',t:'Back · Biceps',sets:4,reps:10,rest:75,p:1},{n:'Lat Pull-Down Machine',t:'Lats · Biceps',sets:3,reps:12,rest:60,p:2},{n:'Pec Fly / Rear Delt (Rear)',t:'Rear Deltoids',sets:3,reps:15,rest:60,p:2},{n:'Cable Tricep Push-Down',t:'Triceps',sets:3,reps:12,rest:60,p:2},{n:'Dumbbell Bicep Curls',t:'Biceps',sets:3,reps:12,rest:60,p:3}],cardio:[{n:'Stair Stepper',dur:20,tgt:'Moderate pace, level 6-9  --  steady-state cardio finisher, elevates heart rate without upper body fatigue'}]},lower:{focus:'Lower Body Power',exercises:[{n:'Barbell Back Squat',t:'Quads · Glutes',sets:4,reps:6,rest:120,p:1},{n:'Plate-Loaded Leg Press',t:'Quads · Glutes',sets:4,reps:10,rest:90,p:1},{n:'Romanian Deadlift (Dumbbell)',t:'Hamstrings · Glutes',sets:3,reps:10,rest:90,p:1},{n:'Leg Extension Machine',t:'Quads',sets:3,reps:15,rest:60,p:2},{n:'Seated Leg Curl Machine',t:'Hamstrings',sets:3,reps:15,rest:60,p:2},{n:'Calf Extension Machine',t:'Calves',sets:4,reps:15,rest:45,p:2},{n:'Hip Abductor / Adductor Machine',t:'Inner/Outer Thigh',sets:3,reps:15,rest:45,p:3}],cardio:[{n:'Fan Bike (HIIT)',dur:15,tgt:'20s on / 40s off x15'}]},fullbody:{focus:'Full Body + Core',exercises:[{n:'Smith Machine Squat',t:'Quads · Glutes',sets:3,reps:12,rest:75,p:1},{n:'Dumbbell Shoulder Press',t:'Deltoids · Triceps',sets:3,reps:10,rest:75,p:1},{n:'Cable Low Row',t:'Back · Biceps',sets:3,reps:12,rest:60,p:1},{n:'Plate-Loaded Glute Trainer',t:'Glutes · Hamstrings',sets:3,reps:12,rest:60,p:2},{n:'Abdominal Machine (Adjustable)',t:'Core · Abs',sets:3,reps:15,rest:45,p:2},{n:'Back Extension Machine',t:'Lower Back · Glutes',sets:3,reps:15,rest:45,p:2},{n:'Cable Wood Chop',t:'Obliques · Core',sets:3,reps:12,rest:45,p:3}],cardio:[{n:'Stair Stepper',dur:20,tgt:'Level 6-9, steady pace  --  lower body cardio finisher'}]},glutes:{focus:'Glutes & Legs Hypertrophy',exercises:[{n:'Deadlifts (Barbell)',t:'Full Posterior Chain',sets:4,reps:5,rest:120,p:1},{n:'Plate-Loaded Hack Squat',t:'Quads · Glutes',sets:4,reps:10,rest:90,p:1},{n:'Hip Thrust Machine',t:'Glutes · Hamstrings',sets:4,reps:12,rest:75,p:1},{n:'Hip Abductor / Adductor Machine',t:'Inner/Outer Thigh',sets:3,reps:15,rest:45,p:2},{n:'Prone Leg Curl Machine',t:'Hamstrings',sets:3,reps:12,rest:60,p:2},{n:'Plate-Loaded Standing Calf',t:'Gastrocnemius',sets:4,reps:15,rest:45,p:2},{n:'Glute Kickback Machine',t:'Glutes',sets:3,reps:15,rest:45,p:3}],cardio:[{n:'Stair Stepper',dur:20,tgt:'Level 8-12'}]},arms:{focus:'Shoulders, Arms + Cardio',exercises:[{n:'Barbell Overhead Press',t:'All Deltoids · Triceps',sets:4,reps:8,rest:90,p:1},{n:'Dumbbell Lateral Raises',t:'Lateral Deltoids',sets:4,reps:12,rest:60,p:1},{n:'Pec Fly / Rear Delt (Rear)',t:'Rear Deltoids',sets:3,reps:15,rest:60,p:1},{n:'Triceps Extension Machine',t:'Triceps',sets:3,reps:12,rest:60,p:2},{n:'Dependent Curl Machine',t:'Biceps peak',sets:3,reps:12,rest:60,p:2},{n:'Cable Tricep Push-Down',t:'Triceps',sets:3,reps:12,rest:60,p:2},{n:'Rotary Torso Machine',t:'Obliques',sets:3,reps:15,rest:45,p:3}],cardio:[{n:'Elliptical Machine',dur:20,tgt:'Resistance 10-14, moderate pace  --  low-impact cardio finisher that complements arm training'}]},push:{focus:'Push Day',exercises:[{n:'Bench Press (Barbell)',t:'Chest · Triceps',sets:4,reps:8,rest:90,p:1},{n:'Plate-Loaded Incline Press',t:'Upper Chest',sets:3,reps:10,rest:75,p:1},{n:'Plate-Loaded Shoulder Press',t:'Deltoids · Triceps',sets:3,reps:10,rest:75,p:1},{n:'Dumbbell Lateral Raises',t:'Lateral Deltoids',sets:3,reps:12,rest:60,p:2},{n:'Cable Tricep Push-Down',t:'Triceps',sets:3,reps:12,rest:60,p:2},{n:'Triceps Extension Machine',t:'Triceps',sets:3,reps:10,rest:60,p:3}],cardio:[{n:'Treadmill (Incline Walk)',dur:15,tgt:'Brisk pace'}]},pull:{focus:'Pull Day',exercises:[{n:'Lat Pull-Down Machine',t:'Lats · Biceps',sets:4,reps:8,rest:90,p:1},{n:'Cable Low Row',t:'Middle Back · Lats',sets:4,reps:10,rest:75,p:1},{n:'Plate-Loaded Seated Row',t:'Middle Back',sets:3,reps:10,rest:75,p:1},{n:'Pec Fly / Rear Delt (Rear)',t:'Rear Deltoids',sets:3,reps:15,rest:60,p:2},{n:'Dumbbell Bicep Curls',t:'Biceps',sets:3,reps:10,rest:60,p:2},{n:'Hammer Curls (Dumbbells)',t:'Biceps',sets:3,reps:12,rest:60,p:3}],cardio:[{n:'Rowing Machine',dur:15,tgt:'Steady moderate'}]},core:{focus:'Core & Stability',exercises:[{n:'Abdominal Crunch Machine',t:'Core',sets:4,reps:15,rest:45,p:1},{n:'Rotary Torso Machine',t:'Obliques \xB7 Core',sets:3,reps:15,rest:45,p:1},{n:'Abdominal Machine (Adjustable)',t:'Core',sets:3,reps:15,rest:45,p:2},{n:'Back Extension Machine',t:'Lower Back',sets:3,reps:15,rest:45,p:1},{n:'Cable Wood Chop',t:'Obliques \xB7 Core',sets:3,reps:12,rest:45,p:2},{n:'Plank',t:'Core',sets:3,reps:1,rest:60,p:3},{n:'Side Plank',t:'Obliques \xB7 Core',sets:3,reps:1,rest:60,p:3},{n:'Dead Bug',t:'Core \xB7 Stability',sets:3,reps:10,rest:45,p:3}],cardio:[{n:'Elliptical Machine',dur:15,tgt:'Light resistance, focus on core engagement throughout'}]}};
+
+var WTPL={upper:{focus:'Upper Body Strength',exercises:[{n:'Bench Press (Barbell)',t:'Chest · Triceps',sets:4,reps:8,rest:90,p:1},{n:'Incline Dumbbell Press',t:'Upper Chest · Shoulders',sets:3,reps:10,rest:75,p:1},{n:'Cable Low Row',t:'Back · Biceps',sets:4,reps:10,rest:75,p:1},{n:'Lat Pull-Down Machine',t:'Lats · Biceps',sets:3,reps:12,rest:60,p:2},{n:'Pec Fly / Rear Delt (Rear)',t:'Rear Deltoids',sets:3,reps:15,rest:60,p:2},{n:'Cable Tricep Push-Down',t:'Triceps',sets:3,reps:12,rest:60,p:2},{n:'Dumbbell Bicep Curls',t:'Biceps',sets:3,reps:12,rest:60,p:3}],cardio:[{n:'Stair Stepper',dur:20,tgt:'Moderate pace, level 6-9  --  steady-state cardio finisher, elevates heart rate without upper body fatigue'}]},lower:{focus:'Lower Body Strength',exercises:[{n:'Barbell Back Squat',t:'Quads · Glutes',sets:4,reps:6,rest:120,p:1},{n:'Plate-Loaded Leg Press',t:'Quads · Glutes',sets:4,reps:10,rest:90,p:1},{n:'Romanian Deadlift (Dumbbell)',t:'Hamstrings · Glutes',sets:3,reps:10,rest:90,p:1},{n:'Leg Extension Machine',t:'Quads',sets:3,reps:15,rest:60,p:2},{n:'Seated Leg Curl Machine',t:'Hamstrings',sets:3,reps:15,rest:60,p:2},{n:'Calf Extension Machine',t:'Calves',sets:4,reps:15,rest:45,p:2},{n:'Hip Abductor / Adductor Machine',t:'Inner/Outer Thigh',sets:3,reps:15,rest:45,p:3}],cardio:[{n:'Fan Bike (HIIT)',dur:15,tgt:'20s on / 40s off x15'}]},fullbody:{focus:'Full Body + Core',exercises:[
+{n:'Smith Machine Squat',t:'Quads · Glutes',sets:3,reps:10,rest:120,p:1},
+{n:'Chest Press Machine',t:'Chest · Triceps',sets:3,reps:10,rest:120,p:1},
+{n:'Romanian Deadlift (Dumbbell)',t:'Hamstrings · Glutes',sets:3,reps:10,rest:120,p:1},
+{n:'Cable Low Row',t:'Back · Biceps',sets:3,reps:10,rest:120,p:1},
+{n:'Dumbbell Shoulder Press',t:'Shoulders · Triceps',sets:3,reps:10,rest:90,p:2},
+{n:'Calf Extension Machine',t:'Calves',sets:3,reps:12,rest:60,p:2},
+{n:'Plank',t:'Core',sets:3,reps:30,rest:60,p:3}
+],cardio:[{n:'Stair Stepper',dur:20,tgt:'Level 6-9, steady pace  --  lower body cardio finisher'}]},glutes:{focus:'Glutes & Legs Hypertrophy',exercises:[{n:'Deadlifts (Barbell)',t:'Full Posterior Chain',sets:4,reps:5,rest:120,p:1},{n:'Plate-Loaded Hack Squat',t:'Quads · Glutes',sets:4,reps:10,rest:90,p:1},{n:'Hip Thrust Machine',t:'Glutes · Hamstrings',sets:4,reps:12,rest:75,p:1},{n:'Hip Abductor / Adductor Machine',t:'Inner/Outer Thigh',sets:3,reps:15,rest:45,p:2},{n:'Prone Leg Curl Machine',t:'Hamstrings',sets:3,reps:12,rest:60,p:2},{n:'Plate-Loaded Standing Calf',t:'Gastrocnemius',sets:4,reps:15,rest:45,p:2},{n:'Glute Kickback Machine',t:'Glutes',sets:3,reps:15,rest:45,p:3}],cardio:[{n:'Stair Stepper',dur:20,tgt:'Level 8-12'}]},arms:{focus:'Shoulders, Arms + Cardio',exercises:[{n:'Barbell Overhead Press',t:'All Deltoids · Triceps',sets:4,reps:8,rest:90,p:1},{n:'Dumbbell Lateral Raises',t:'Lateral Deltoids',sets:4,reps:12,rest:60,p:1},{n:'Pec Fly / Rear Delt (Rear)',t:'Rear Deltoids',sets:3,reps:15,rest:60,p:1},{n:'Triceps Extension Machine',t:'Triceps',sets:3,reps:12,rest:60,p:2},{n:'Dependent Curl Machine',t:'Biceps peak',sets:3,reps:12,rest:60,p:2},{n:'Cable Tricep Push-Down',t:'Triceps',sets:3,reps:12,rest:60,p:2},{n:'Rotary Torso Machine',t:'Obliques',sets:3,reps:15,rest:45,p:3}],cardio:[{n:'Elliptical Machine',dur:20,tgt:'Resistance 10-14, moderate pace  --  low-impact cardio finisher that complements arm training'}]},push:{focus:'Push Day',exercises:[{n:'Bench Press (Barbell)',t:'Chest · Triceps',sets:4,reps:8,rest:90,p:1},{n:'Plate-Loaded Incline Press',t:'Upper Chest',sets:3,reps:10,rest:75,p:1},{n:'Plate-Loaded Shoulder Press',t:'Deltoids · Triceps',sets:3,reps:10,rest:75,p:1},{n:'Dumbbell Lateral Raises',t:'Lateral Deltoids',sets:3,reps:12,rest:60,p:2},{n:'Cable Tricep Push-Down',t:'Triceps',sets:3,reps:12,rest:60,p:2},{n:'Triceps Extension Machine',t:'Triceps',sets:3,reps:10,rest:60,p:3}],cardio:[{n:'Treadmill (Incline Walk)',dur:15,tgt:'Brisk pace'}]},pull:{focus:'Pull Day',exercises:[{n:'Lat Pull-Down Machine',t:'Lats · Biceps',sets:4,reps:8,rest:90,p:1},{n:'Cable Low Row',t:'Middle Back · Lats',sets:4,reps:10,rest:75,p:1},{n:'Plate-Loaded Seated Row',t:'Middle Back',sets:3,reps:10,rest:75,p:1},{n:'Pec Fly / Rear Delt (Rear)',t:'Rear Deltoids',sets:3,reps:15,rest:60,p:2},{n:'Dumbbell Bicep Curls',t:'Biceps',sets:3,reps:10,rest:60,p:2},{n:'Hammer Curls (Dumbbells)',t:'Biceps',sets:3,reps:12,rest:60,p:3}],cardio:[{n:'Rowing Machine',dur:15,tgt:'Steady moderate'}]},core:{focus:'Core & Stability',exercises:[{n:'Abdominal Crunch Machine',t:'Core',sets:4,reps:15,rest:45,p:1},{n:'Rotary Torso Machine',t:'Obliques \xB7 Core',sets:3,reps:15,rest:45,p:1},{n:'Abdominal Machine (Adjustable)',t:'Core',sets:3,reps:15,rest:45,p:2},{n:'Back Extension Machine',t:'Lower Back',sets:3,reps:15,rest:45,p:1},{n:'Cable Wood Chop',t:'Obliques \xB7 Core',sets:3,reps:12,rest:45,p:2},{n:'Plank',t:'Core',sets:3,reps:1,rest:60,p:3},{n:'Side Plank',t:'Obliques \xB7 Core',sets:3,reps:1,rest:60,p:3},{n:'Dead Bug',t:'Core \xB7 Stability',sets:3,reps:10,rest:45,p:3}],cardio:[{n:'Elliptical Machine',dur:15,tgt:'Light resistance, focus on core engagement throughout'}]}};
 var MPLAN={phases:[{name:'BASE BUILDING',weeks:[1,8],desc:'Build aerobic foundation. 80% easy running, increase mileage ~10%/week. Consistency over speed.'},{name:'BUILD',weeks:[9,16],desc:'Introduce tempo runs and intervals. Long runs grow to 14-16 miles. Maintain 80/20 easy/quality balance.'},{name:'PEAK',weeks:[17,21],desc:'Highest mileage weeks. Long runs reach 18-22 miles. Marathon-pace segments.'},{name:'TAPER',weeks:[22,24],desc:'Reduce volume 50-60%, maintain intensity. Rest, fuel, sleep. Trust your training.'}],templates:{base:{sched:[{type:'EASY',dist:3,desc:'Easy conversational pace.'},{type:'EASY',dist:4,desc:'Easy run with 4-6 strides at the end.'},{type:'EASY',dist:3,desc:'Easy recovery run.'},{type:'LONG',dist:6,desc:'Long run at easy pace.'}]},build:{sched:[{type:'EASY',dist:4,desc:'Easy run. Recovery from long run.'},{type:'TEMPO',dist:5,desc:'WU 1mi then 3mi at tempo then 1mi cooldown.'},{type:'EASY',dist:4,desc:'Easy with 6 strides at end.'},{type:'INTERVALS',dist:5,desc:'WU 1mi then 5x1000m at 5K pace then CD 1mi.'},{type:'LONG',dist:12,desc:'Long run at easy pace.'}]},peak:{sched:[{type:'EASY',dist:5,desc:'Easy recovery run.'},{type:'TEMPO',dist:7,desc:'WU 1mi then 5mi at tempo then 1mi cooldown.'},{type:'EASY',dist:5,desc:'Easy + 6-8 strides.'},{type:'MP',dist:8,desc:'Last 5 miles at goal marathon pace.'},{type:'LONG',dist:18,desc:'Long run, last 4 miles at marathon pace.'}]},taper:{sched:[{type:'EASY',dist:4,desc:'Easy short run. Stay loose.'},{type:'TEMPO',dist:4,desc:'WU 1mi then 2mi at MP then 1mi CD.'},{type:'EASY',dist:3,desc:'Very easy shake-out run.'},{type:'LONG',dist:8,desc:'Reduced long run. Focus on form.'}]}}};
 var RUN_PROGRAMS = {
   marathon: {
@@ -4569,7 +4658,7 @@ var MY_PF_EQUIPMENT = [
   'Moveable Fitness Tank','Tire Flip Area','Plyometric Box','Medicine Ball Station','Turf / Sled Track'
 ];
 
-function initS(){return{setup:{gymDays:[1,2,4,5,6],runDays:[2,4,6],goal:'tone',marathonStart:new Date().toISOString().slice(0,10),runProgram:'casual'},profile:{name:'Dimitri Angelov',heightIn:73,goalWeight:180,age:29,gender:'male',weightUnit:'lbs',activityLevel:'light'},daySched:{1:'push',2:'pull',4:'lower',5:'upper',6:'fullbody'},strength:{squat:135,bench:185,deadlift:175,ohp:90,dbpress:65,dbrow:60,latpull:155,cablerow:150,legpress:255,hacksquat:135,rdl:60,bbrow:130,bbrdl:130,hipthrust:160,dbshoulder:40,dblateral:15,legcurl:60,tricepcd:75,pullups:5,dips:8,incbench:155,ezcurl:65,skullcrush:65,calfstand:130},history:[],pbs:{},sessions:{},swaps:{},weights:[{date:new Date().toISOString().slice(0,10),w:215,bf:null}],nutrition:{},checkins:[],streak:0,planView:'week',planOffset:0,weekFocus:'tone',macroPreset:'highprotein',mileGoal:30,dayConfig:{},measurements:[],nutLog:{},recipes:[],shoes:[],raceDate:'',workoutNotes:{},strengthNotes:{},prefs:{autoSuperset:true,showWarmups:true,autoTimer:true,smartNote:true,runMode:true,autoRotateSplits:true},gymProfiles:[{
+function initS(){return{setup:{gymDays:[1,2,4,5,6],runDays:[2,4,6],goal:'tone',marathonStart:dKey(new Date()),runProgram:'casual'},profile:{name:'Dimitri Angelov',heightIn:73,goalWeight:180,age:29,gender:'male',weightUnit:'lbs',activityLevel:'light'},daySched:{1:'push',2:'pull',4:'lower',5:'upper',6:'fullbody'},strength:{squat:135,bench:185,deadlift:175,ohp:90,dbpress:65,dbrow:60,latpull:155,cablerow:150,legpress:255,hacksquat:135,rdl:60,bbrow:130,bbrdl:130,hipthrust:160,dbshoulder:40,dblateral:15,legcurl:60,tricepcd:75,pullups:5,dips:8,incbench:155,ezcurl:65,skullcrush:65,calfstand:130},history:[],pbs:{},sessions:{},swaps:{},weights:[{date:dKey(new Date()),w:215,bf:null}],nutrition:{},checkins:[],streak:0,planView:'week',planOffset:0,weekFocus:'tone',macroPreset:'highprotein',mileGoal:30,dayConfig:{},measurements:[],nutLog:{},recipes:[],shoes:[],raceDate:'',workoutNotes:{},strengthNotes:{},prefs:{autoSuperset:true,showWarmups:true,autoTimer:true,smartNote:true,runMode:true,autoRotateSplits:true},gymProfiles:[{
   id:'my-pf',
   name:'My Planet Fitness',
   isActive:true,
@@ -4579,7 +4668,7 @@ function initS(){return{setup:{gymDays:[1,2,4,5,6],runDays:[2,4,6],goal:'tone',m
 }
 
 function loadS(){try{var s=localStorage.getItem(SK);return s?JSON.parse(s):null;}catch(e){console.warn('loadS: failed to load state',e);return null;}}
-function saveS(){try{localStorage.setItem(SK,JSON.stringify(S));}catch(e){console.warn('saveS: localStorage write failed (quota exceeded?)',e);showToast('⚠️ Could not save — storage full. Export a backup!');}try{if(typeof _autoSplitCache!=='undefined')_autoSplitCache={};}catch(e){}try{if(typeof nasMaybeAutoBackup==='function')nasMaybeAutoBackup();}catch(e){}}
+function saveS(){try{localStorage.setItem(SK,JSON.stringify(S));}catch(e){console.warn('saveS: localStorage write failed (quota exceeded?)',e);showToast('⚠️ Could not save — storage full. Export a backup!');return false;}try{if(typeof _autoSplitCache!=='undefined')_autoSplitCache={};}catch(e){}try{if(typeof nasMaybeAutoBackup==='function')nasMaybeAutoBackup();}catch(e){}return true;}
 
 // ── Shared time/format helpers (extracted from duplicate local functions) ──
 // fmtRunTime: formats fractional minutes → "1h 30m 45s" or "30m 45s"
@@ -4595,7 +4684,7 @@ function isPlanDeloadWeek(w){return w%4===0&&w<=16||w===20;}
 var S=loadS()||initS();
 // Restore advanced suggestions toggle (global; not part of per-state migration).
 // Declared here (default true) so the localStorage restore below takes effect.
-var _advSuggestEnabled = true;
+var _advSuggestEnabled = true; // exposes optional manual set types; never auto-assigns them
 try{ var _as=localStorage.getItem('pf_advSuggest'); if(_as!==null)_advSuggestEnabled=_as==='1'; }catch(e){}
 // migrateState: seeds backward-compat default fields + runs data migrations on S.
 // Called at startup AND after a backup restore (see importData) so that restoring
@@ -4670,6 +4759,7 @@ if(!S.deloadWeeks) S.deloadWeeks=[];
 // called from the startup load handler once the catalogues exist. (Fixes a crash on
 // reload for any user who had saved custom items.)
 rehydrateCustomCatalogues();
+recomputePBs();
 if(!S.setup.raceGoalMins)S.setup.raceGoalMins=0;
 if(!S.setup.runProgram)S.setup.runProgram='marathon';
 if(!S.customAccessories)S.customAccessories=[];
@@ -4755,6 +4845,13 @@ function autoSplitFor(k,_depth){
   var logged=null;
   for(var hi=0;hi<S.history.length;hi++){var h=S.history[hi]; if(h.date===k&&h.type==='gym'&&h.split){logged=h.split; break;}}
   if(logged) return (_autoSplitCache[k]=logged);
+  if(S.weekFocus==='hybrid'){
+    var days=(S.setup.gymDays||[]).slice().sort(function(a,b){return ((a+6)%7)-((b+6)%7);});
+    var rotation=days.length<=3?['fullbody']:days.length===4?['upper','lower','upper','lower']:days.length===5?['upper','lower','push','pull','lower']:['push','pull','lower','push','pull','lower'];
+    var slot=days.indexOf(new Date(k+'T12:00:00').getDay());
+    return (_autoSplitCache[k]=rotation[Math.max(0,slot)%rotation.length]);
+  }
+
   if(_depth>40) return AUTO_SPLIT_POOL[0]; // recursion anchor for long empty projections
   // find the nearest prior gym/both day, then advance one slot from its split
   var d0=new Date(k+'T12:00:00'), prevSplit=null;
@@ -4777,7 +4874,7 @@ function autoSplitFor(k,_depth){
   }
   return (_autoSplitCache[k]=AUTO_SPLIT_POOL[(idx+1)%AUTO_SPLIT_POOL.length]);
 }
-function getEffTpl(k){var c=S.dayConfig[k];if(c&&c.split&&c.split!=='auto')return c.split;if(S.prefs&&S.prefs.autoRotateSplits)return autoSplitFor(k);var d=new Date(k+'T12:00:00'),dow=d.getDay();return S.daySched[dow]||'upper';}
+function getEffTpl(k){var gym=S.sessions[k]&&S.sessions[k].gym;if(gym&&gym.split&&sessionHasActivity(gym))return gym.split;var c=S.dayConfig[k];if(c&&c.split&&c.split!=='auto')return c.split;if(S.prefs&&S.prefs.autoRotateSplits)return autoSplitFor(k);var d=new Date(k+'T12:00:00'),dow=d.getDay();return S.daySched[dow]||'upper';}
 function getDayType(k){var c=S.dayConfig[k];if(c&&c.type){var _ct=c.type;if((S.prefs&&S.prefs.runMode===false)&&(_ct==='run'))return'rest';if((S.prefs&&S.prefs.runMode===false)&&(_ct==='both'))return'gym';return _ct;}var d=new Date(k+'T12:00:00'),dow=d.getDay(),isG=S.setup.gymDays.includes(dow),isR=S.setup.runDays.includes(dow)&&(S.prefs?S.prefs.runMode!==false:true);if(isG&&isR)return'both';if(isG)return'gym';if(isR)return'run';return'rest';}
 var vDate=new Date(),cMode='gym',timerInt=null,timerSecs=0,ciMood=0,ciSleep='',editDK=null,mDayType='rest',mDaySplit='auto',_originalDtype='rest';
 function dKey(d){
@@ -5129,7 +5226,7 @@ function buildHomePage(){
 
     // ── 1000 lb Club progress (your hero goal) — logged big-3 est. 1RM total ──
     try{
-      var _cb=_gBest1RM(_gIsBench),_cs=_gBest1RM(_gIsSquat),_cd=_gBest1RM(_gIsDead),_ctot=_cb+_cs+_cd;
+      var _cb=_gBestLoad(_gIsBench),_cs=_gBestLoad(_gIsSquat),_cd=_gBestLoad(_gIsDead),_ctot=_cb+_cs+_cd;
       var _cpct=Math.min(100,Math.round(_ctot/1000*100));
       cards.push(_homeCard('goals',
         '<div class="fbet" style="margin-bottom:6px"><div class="slbl" style="margin:0">🏆 1000 lb Club</div>'+
@@ -5281,9 +5378,8 @@ function updateIntensityTimes(k, tplKey){
 // so every setting always includes cardio and lands in its band.
 var INTENSITY_BANDS={quick:[30,45], standard:[60,90], full:[90,120]};
 
-// HARD RULE: never fewer than three work sets on any exercise, whatever the focus,
-// intensity, weight or rep count. Three is the floor that every study on both
-// strength and hypertrophy treats as a real working dose; anything can go ABOVE it.
+// User house rule: never fewer than three work sets on any exercise, whatever the focus,
+// intensity, weight or rep count. This is the user's house rule, not a biological minimum; lower doses can also help.
 var MIN_WORK_SETS=3;
 
 // Focus- AND exercise-specific set counts. Compounds (priority ≤1 / isCompound) get more
@@ -5291,8 +5387,9 @@ var MIN_WORK_SETS=3;
 // (e.g. 5×3), Endurance = the 3-set floor at high reps, etc. No entry may drop below
 // MIN_WORK_SETS — _focusSetCount clamps regardless.
 var SETS_BY_FOCUS={
-  power:    {comp:5, acc:3},
-  muscle:   {comp:4, acc:3},
+  hybrid:   {comp:3, acc:3},
+  power:    {comp:3, acc:3},
+  muscle:   {comp:3, acc:3},
   general:  {comp:4, acc:3},
   tone:     {comp:3, acc:3},
   endurance:{comp:3, acc:3}
@@ -5328,8 +5425,9 @@ var TIME_MODEL={
 // Seconds one exercise costs end to end: getting to it and set up, plus every work
 // set's effort and the rest between them, plus a compound's warm-up ramp.
 function _exLiftSeconds(rawEx, intensity, fp, focus){
-  focus=focus||S.weekFocus||'general';
+  focus=focus||getWorkoutFocus();
   var sets=_focusSetCount(rawEx, intensity, focus);
+  rawEx=prescriptionForFocus(rawEx,focus);
   var reps=parseInt(rawEx&&rawEx.reps,10);
   if(!(reps>0)) reps=Math.round(((fp&&fp.reps?fp.reps[0]:8)+(fp&&fp.reps?fp.reps[1]:12))/2);
   var isComp=(typeof isCompound==='function')&&isCompound(rawEx.n);
@@ -5408,12 +5506,14 @@ function selectWorkoutForDuration(tplExercises, intensity, fp, recent48, tplKey,
   // the time budget is still the real driver between min and max.
   var n = (typeof WTPL!=='undefined' && tplKey && WTPL[tplKey]) ? WTPL[tplKey].exercises.length : ((tplExercises&&tplExercises.length)||7);
   var minCount = (intensity==='quick'?3:intensity==='standard'?4:5);
+  if(tplKey==='fullbody')minCount=Math.max(4,minCount);
   var maxCount = (intensity==='quick' ? Math.max(3, Math.round(n*0.6)) : intensity==='standard' ? n : Math.min(12, n+3));
   // High-rest focuses (Power: 3–4 min rests, 5-set compounds) fit far fewer in the band.
   if(focus==='power'){
     minCount = (intensity==='quick'?2:intensity==='standard'?3:4);
     maxCount = (intensity==='quick'?3:intensity==='standard'?Math.max(3,n-3):Math.max(4,n-1));
   }
+  if(tplKey==='fullbody'){minCount=Math.max(4,minCount);maxCount=Math.max(minCount,maxCount);}
   // Past-workout awareness: if ≥2 of this split's muscle groups were trained in the last
   // 48h, run a slightly lighter session (one fewer exercise; cardio fills the band).
   try{
@@ -5424,6 +5524,9 @@ function selectWorkoutForDuration(tplExercises, intensity, fp, recent48, tplKey,
   if(minCount>maxCount) minCount=maxCount;
   // Pool: template + equipment-available accessories (room to scale the count up)
   var pool = (tplKey && gym) ? _buildSplitPool(tplKey, gym) : tplExercises.slice();
+  var availableNames=[];
+  pool=pool.map(function(ex){var safe=getEquipmentSafeExercise(ex,gym,availableNames);if(safe)availableNames.push(safe.n);return safe;}).filter(Boolean);
+  pool=pool.map(function(ex){return prescriptionForFocus(ex,focus);});
   minCount = Math.min(minCount, pool.length);
   maxCount = Math.min(maxCount, pool.length);
   // Sort: priority, then freshness (de-prioritise muscles trained in last 48h), then
@@ -5445,7 +5548,7 @@ function selectWorkoutForDuration(tplExercises, intensity, fp, recent48, tplKey,
   // cardio that fights the goal, spend the gap on more LIFTING, which is what a longer
   // strength session should actually be.
   (function(){
-    var capPeek={power:15, muscle:20, general:25, tone:45, endurance:45};
+    var capPeek={hybrid:15,power:15, muscle:20, general:25, tone:45, endurance:45};
     var cap=capPeek[focus]!=null?capPeek[focus]:30;
     var midNow=midCards.filter(function(mc){return mc.after!=null&&mc.after>=0&&mc.after<chosen.length;}).length;
     var bestCase=lift+warmupMin+midNow*midEach+cap+overheadMin;
@@ -5472,7 +5575,7 @@ function selectWorkoutForDuration(tplExercises, intensity, fp, recent48, tplKey,
   // interference effect the Power guidance warns against. When the cap bites, the
   // session simply comes in under the band rather than being padded with cardio that
   // works against the goal.
-  var FINISHER_CAP={power:15, muscle:20, general:25, tone:45, endurance:45};
+  var FINISHER_CAP={hybrid:15,power:15, muscle:20, general:25, tone:45, endurance:45};
   var finCap=FINISHER_CAP[focus]!=null?FINISHER_CAP[focus]:30;
   finisherMin = Math.max(minFin, Math.min(finisherMin, finCap));
   var cardioMin = warmupMin + renderedMid*midEach + finisherMin;
@@ -5613,10 +5716,12 @@ var _gymSavedBanner=_savedGym
 // [smart set types applied after set loop - see below]
 // [smart note updated after set loop below]
 var sess=S.sessions[k].gym,intensity=sess.intensity||'standard';
+var _started=sessionHasActivity(sess);
+if(!_started){sess.gymId=S.activeGymId;sess.trainingFocus=S.weekFocus;sess.split=getEffTpl(k);}
 document.querySelectorAll('#intCard .ibtn').forEach(function(b){b.classList.toggle('active',b.dataset.int===intensity);});
 var tplKey=getEffTpl(k),tpl=WTPL[tplKey]||WTPL.upper;
 var fp=getFocusParams();
-var focusLabel=fp?(' · '+(FOCUS_META[S.weekFocus]||{lb:''}).lb):'';
+var focusLabel=fp?(' · '+(FOCUS_META[getWorkoutFocus(k)]||{lb:''}).lb):'';
 // Set the page subtitle for gym days (rest/run paths set their own). Without this it
 // stays stuck on the initial "Loading..." placeholder.
 el('todaySub').textContent=(tpl.focus||'Workout')+focusLabel;
@@ -5627,9 +5732,9 @@ el('todaySub').textContent=(tpl.focus||'Workout')+focusLabel;
 var _recent48=(typeof getRecentMuscles==='function')?getRecentMuscles(48):{};
 var _pinned=!!(sess.exListPinned&&sess.exList&&sess.exList.length);
 var _sel;
-if(_pinned){
-  var _pLift=0; sess.exList.forEach(function(e){ try{_pLift+=_exLiftMinutes(e,intensity,fp,S.weekFocus||'general');}catch(err){_pLift+=6;} });
-  var _pPlan=sess._cardioPlan||{warmupMin:(S.weekFocus==='power')?4:6, midEachMin:6, finisherMin:10};
+if(_pinned||(_started&&sess.exList)){
+  var _pLift=0; sess.exList.forEach(function(e){ try{_pLift+=_exLiftMinutes(e,intensity,fp,getWorkoutFocus(k));}catch(err){_pLift+=6;} });
+  var _pPlan=sess._cardioPlan||{warmupMin:(getWorkoutFocus(k)==='power')?4:6, midEachMin:6, finisherMin:10};
   _sel={exercises:sess.exList.slice(), plan:_pPlan, estMin:Math.round(_pLift+(_pPlan.warmupMin||0)+(_pPlan.finisherMin||0))};
 } else {
   _sel=selectWorkoutForDuration(tpl.exercises, intensity, fp, _recent48, tplKey, getActiveGym());
@@ -5639,31 +5744,27 @@ sess._cardioPlan=_sel.plan;
 sess._estDuration=_sel.estMin;
 // The estimate line is rendered near the end of buildGym (see _renderIntEstLine),
 // once supersets have been seeded — they meaningfully shorten the session.
-// Apply focus reps/rest overrides to each exercise.
-// Pinned templates keep their saved reps/rest exactly — no focus re-override.
-exs=exs.map(function(ex,i){
-  var base=S.swaps[k+':'+i]||ex;
-  if(!fp||_pinned) return base;
-  var overridden=Object.assign({},base);
-  // Reps: use midpoint of focus range, adjusted by exercise type
-  var exType=getExType(base.n);
-  var noRepChange=(exType==='bodyweight');
-  if(!noRepChange){
-    var focusReps=Math.round((fp.reps[0]+fp.reps[1])/2);
-    overridden.reps=focusReps;
+// Keep a started workout stable across reloads, goal changes and equipment changes.
+// Set data is keyed by exercise index, so reselecting here could relabel real lifts.
+var hasLogged=Object.values(sess.exercises||{}).some(function(e){return (e.sets||[]).some(function(s){return s.done;});});
+if((_started||hasLogged||isSessionComplete(k))&&sess.exList&&sess.exList.length){
+  exs=sess.exList.slice();
+} else {
+  var usedExNames=[];
+  exs=exs.map(function(ex,i){
+    var base=S.swaps[k+':'+i]||ex;
+    var safe=getEquipmentSafeExercise(base,getActiveGym(),usedExNames);
+    if(!safe) return null;
+    usedExNames.push(safe.n);
+    return _pinned?safe:prescriptionForFocus(safe,getWorkoutFocus(k));
+  }).filter(Boolean);
+  // Only carry editable state for the same exercise, never for a reused index.
+  if(sess.exList){
+    var oldData=sess.exercises||{}, remapped={};
+    exs.forEach(function(ex,i){var old=sess.exList.findIndex(function(e){return e.n===ex.n;});if(old>=0&&oldData[old])remapped[i]=oldData[old];});
+    sess.exercises=remapped;
   }
-  // Rest: use focus rest seconds
-  overridden.rest=fp.rest;
-  return overridden;
-});
-// Filter exercises by gym equipment  --  substitute unavailable exercises
-var gym_eq=getActiveGym();
-var usedExNames=[];
-exs=exs.map(function(ex){
-  var safe=getEquipmentSafeExercise(ex,gym_eq,usedExNames);
-  usedExNames.push(safe.n);
-  return safe;
-});
+}
 // Snapshot the exact rendered list onto the session. This is the single source of
 // truth for everything keyed by exercise index (save, stats, supersets, templates,
 // quick-fill): the duration engine above can pick different exercises/counts than
@@ -5675,14 +5776,14 @@ sess.exList=exs.map(function(e){return {n:e.n,t:e.t,sets:e.sets,reps:e.reps,rest
 // _usedCardio tracks machines already placed today (by canonical type, see cardioTypeKey)
 // so warm-up / mid / finisher are always DIFFERENT machines. _cardioBySlot records the
 // final machine per slot so the swap modal can hide machines already in use elsewhere.
-var html='', _usedCardio=[], _cardioBySlot={};
+var html=buildTrainingGuidance(k,exs), _usedCardio=[], _cardioBySlot={};
 // Reserve any user-swapped cardio machines first, so AUTO-picked slots never collide with
 // a machine the user deliberately chose for another slot.
 if(sess.cardioSwaps){ Object.keys(sess.cardioSwaps).forEach(function(_sk){ var _sv=sess.cardioSwaps[_sk]; if(_sv&&_sv.n&&_usedCardio.indexOf(_sv.n)<0)_usedCardio.push(_sv.n); }); }
 if(_pinned){
   html+='<div class="card" style="background:rgba(124,58,237,.07);border-color:rgba(124,58,237,.35);margin-bottom:10px"><div style="display:flex;align-items:center;gap:8px">'+
     '<span style="font-size:1.1rem">📋</span>'+
-    '<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:700;color:#a78bfa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+(sess.fromTemplateName||'Saved template')+'</div>'+
+    '<div style="flex:1;min-width:0"><div style="font-size:12px;font-weight:700;color:#a78bfa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escapeHtml(sess.fromTemplateName||'Saved template')+'</div>'+
     '<div style="font-size:10px;color:var(--mu)">Exercises, sets &amp; weights from your template</div></div>'+
     '<button class="btn btn-g bsm" style="flex-shrink:0;font-size:10px" onclick="resetToAutoWorkout()">↩ Auto workout</button>'+
     '</div></div>';
@@ -5695,7 +5796,7 @@ if(_sel.plan.warmupMin>0){
   var warmupState=getCardioState(k,'warmup',0);
   html+=buildCardioBlock('warmup',warmupObj,warmupState,0,tplKey);
 }
-var midCards=getMidCardio(tplKey, S.weekFocus||'general', intensity);
+var midCards=getMidCardio(tplKey, getWorkoutFocus(k), intensity);
 var midCardByIndex={};
 midCards.forEach(function(mc,mci){midCardByIndex[mc.after]=mci;});
 
@@ -5722,12 +5823,12 @@ var orderedExs = sess.exOrder.map(function(i){return {ex:exs[i], origIdx:i};});
 // templates; once the duration engine started choosing from a larger pool, index [3,4]
 // could link two quad movements and call it an antagonist pair.
 (function(){
-  var _focus=S.weekFocus||'general';
+  var _focus=getWorkoutFocus(k);
   // Research confirms: antagonist supersets suit all focuses EXCEPT Power.
   // Power requires maximal CNS recovery between heavy sets (210s rest)  --  supersets compromise output.
   // Muscle/Tone: primary use case  --  metabolic stress, time efficiency, neural drive boost.
   // General/Endurance: evidence shows equal gains in less time, elevated calorie burn, ideal for busy schedules.
-  var _ssEligible=(_focus!=='power');
+  var _ssEligible=(_focus!=='power'&&_focus!=='hybrid');
   var _ssIntensity=(intensity==='standard'||intensity==='full');
   if(!_ssEligible||!_ssIntensity) return;
   // Pinned templates carry their own superset pairings (or deliberately none).
@@ -5813,37 +5914,19 @@ var lastSession=getLastExSession(ex.n);
 var suggLine='';
 var pyramidSets=[];
 if(!noWeight && suggWeight){
-var focus=S.weekFocus||'general';
-if(focus==='muscle'){
-  // Pyramid ascending: lighter/more reps early, heavier/fewer reps later
-  // Builds volume early, peak intensity late - optimal hypertrophy stimulus
-  var nSets=ex.sets||4;
-  // Weight steps: 80% -> 88% -> 94% -> 100% of top weight
-  // Rep steps: 12 -> 10 -> 8 -> 6
-  var pWeightPcts=[0.80,0.88,0.94,1.00];
-  var pReps=[12,10,8,6];
-  pyramidSets=[];
-  for(var pi=0;pi<nSets;pi++){
-    var pct=pWeightPcts[Math.min(pi,pWeightPcts.length-1)];
-    var pr=pReps[Math.min(pi,pReps.length-1)];
-    pyramidSets.push({w:Math.round(suggWeight*pct/5)*5, r:pr});
-  }
-  // Build display line showing all sets
-  var _wuSugg=getWeightUnit();
-  var pParts=pyramidSets.map(function(p){return toDisplayWeight(p.w)+'×'+p.r;});
-  suggLine='<div class="sugg">🎯 Pyramid: '+pParts.join(' → ')+' '+_wuSugg+' <span style="font-size:9px;color:var(--mu);">(ascending weight)</span></div>';
-} else if(focus==='power'){
+var focus=getWorkoutFocus(k);
+if(focus==='power'){
   var lastSess2=getLastExSession(ex.n,'power');
   var powProgMsg=lastSess2&&lastSess2.ceilingHit?
     ' <span style="font-size:9px;color:var(--gr)">▲ weight increased!</span>':
     (lastSess2&&lastSess2.allCompleted?' <span style="font-size:9px;color:var(--mu)">→ hit 5 reps to progress</span>':'');
   var _wuP=getWeightUnit();
-  suggLine='<div class="sugg">🎯 Target: '+toDisplayWeight(suggWeight)+' '+_wuP+' × 3-5 reps · 85-90% 1RM'+powProgMsg+'</div>';
+  suggLine='<div class="sugg">🎯 Target: '+toDisplayWeight(suggWeight)+' '+_wuP+' × '+ex.reps+' reps · leave 1–3 reps in reserve'+powProgMsg+'</div>';
 } else {
-  var fprog2=FOCUS_PROGRESSION[focus]||FOCUS_PROGRESSION.general;
+  var fprog2=exerciseProgressionRule(ex.n,focus);
   var rangeStr=fprog2.floor+'-'+fprog2.ceil;
   // How many sets must hit ceiling to trigger progression (75% rule)
-  var _progSetsNeeded=Math.max(1,Math.ceil((ex.sets)*0.75));
+  var _progSetsNeeded=ex.sets;
   var progMsg=lastSession&&lastSession.ceilingHit?
     ' <span style="font-size:9px;color:var(--gr)">▲ weight increased!</span>':
     (lastSession&&lastSession.allCompleted?
@@ -5863,7 +5946,7 @@ if(_apEx){
   suggLine='<div class="sugg">📐 '+_apEx.program.name+' · Wk'+(_apEx.week+1)+': '+_pgParts.join(' → ')+' '+_wuPg+' <span style="font-size:9px;color:var(--mu)">(last set AMRAP if shown +)</span></div>';
 }
 
-var fprog3=FOCUS_PROGRESSION[S.weekFocus||'general']||FOCUS_PROGRESSION.general;
+var fprog3=exerciseProgressionRule(ex.n);
 var isComp=isCompound(ex.n), progW=prog.weight||0;
 var warmups=(isComp&&progW&&(S.prefs?S.prefs.showWarmups!==false:true))?getWarmupSets(progW,ex.n):[];
 var _lastSessLine='';
@@ -5886,7 +5969,7 @@ if(_lsData&&_lsData.sets&&_lsData.sets.length){
 var _rpeOn=!!(S.prefs&&S.prefs.trackRPE);
 var _cardAddedMode=(!noWeight&&getBaseWeight(ex.n)>0&&getWeightEntryMode(ex.n)==='added');
 var _cardBase=_cardAddedMode?getBaseWeight(ex.n):0;
-var sH='<div class="sgrid" style="grid-template-columns:20px 50px 1fr 1fr 55px 28px"><div class="sh">#</div><div class="sh">TYPE</div><div class="sh">'+(_cardAddedMode?'+'+getWeightUnit().toUpperCase():getWeightUnit().toUpperCase())+'</div><div class="sh">REPS</div><div class="sh">PREV</div><div class="sh">✓</div>';
+var sH='<div class="sgrid" style="grid-template-columns:20px 50px 1fr 1fr 55px 28px"><div class="sh">#</div><div class="sh">TYPE</div><div class="sh">'+(_cardAddedMode?'+'+getWeightUnit().toUpperCase():getWeightUnit().toUpperCase())+'</div><div class="sh">'+((ex.n==='Plank'||ex.n==='Side Plank')?'SEC':'REPS')+'</div><div class="sh">PREV</div><div class="sh">✓</div>';
 // Warmup rows
 warmups.forEach(function(wu,wi){
 var wuDone=exD.warmups&&exD.warmups[wi];
@@ -5915,11 +5998,11 @@ if(set.done){
   // For all other focuses: use uniform focus-adjusted values
   var setW, setR, setWLbs;
   if(pyramidSets.length>0 && pyramidSets[s]){
-    setWLbs=pyramidSets[s].w;
+    setWLbs=snapToLoadable(ex.n,pyramidSets[s].w);
     setW=noWeight?'':String(toDisplayWeight(setWLbs)||''); // display unit
     setR=String(pyramidSets[s].r);
   } else {
-    setWLbs=suggWeight||0;
+    setWLbs=suggWeight?snapToLoadable(ex.n,suggWeight):0;
     setW=noWeight?'':String(toDisplayWeight(setWLbs)||''); // display unit
     setR=String(suggReps||ex.reps);
   }
@@ -5931,8 +6014,8 @@ if(set.done){
   var _isAdv=(set.type==='ds'||set.type==='fl'||set.type==='rp');
   // Auto-fill blank OR still-auto values (so focus/intensity changes refresh untouched
   // suggestions); user-typed values (auto flag cleared by updateSet) are never overwritten.
-  if(setWLbs && !noWeight && !_isAdv && (!set.weight||set.auto)){set.weight=String(setWLbs);set.auto=true;} // lbs
-  if(setR && !set.done && !_isAdv && (!set.reps||set.autoR)){set.reps=setR;set.autoR=true;}
+  if(setWLbs && !noWeight && !_isAdv && (!set.weight||(set.auto&&!_started))){set.weight=String(setWLbs);set.auto=true;} // lbs
+  if(setR && !set.done && !_isAdv && (!set.reps||(set.autoR&&!_started))){set.reps=setR;set.autoR=true;}
   // Display the STORED weight whenever one exists (typed by the user or autofilled).
   // toggleSet logs set.weight, so the input must always show that value — showing the
   // live suggestion here while state held a user-typed number meant the screen and the
@@ -5954,7 +6037,7 @@ var prev=getPrevBest(ex.n,s);
 var prevDisp=prev?'<span style="color:var(--gr)">'+prev+'</span>':'-';
 var setType=set.type||'wk';
 var setTypeClass=setType;
-var repPlaceholder2=setType==='fl'?'log reps':setType==='rp'?'cluster reps':pyramidSets.length>0&&pyramidSets[s]?String(pyramidSets[s].r):(fprog3.floor+'-'+fprog3.ceil);var repValue2=set.done?displayR:setType==='fl'?'':setType==='rp'&&!set.reps?(function(){var fm=FOCUS_META[S.weekFocus||'general']||FOCUS_META.general;return String(fm.rpReps||12);})():(set.reps||'');var repInputHTML='<input class="sinp" type="number" inputmode="numeric" placeholder="'+repPlaceholder2+'" value="'+repValue2+'" oninput="updateSet('+ei+','+s+',\'reps\',this.value)">';
+var repPlaceholder2=setType==='fl'?'log reps':setType==='rp'?'cluster reps':pyramidSets.length>0&&pyramidSets[s]?String(pyramidSets[s].r):(fprog3.floor+'-'+fprog3.ceil);var repValue2=set.done?displayR:setType==='fl'?'':setType==='rp'&&!set.reps?(function(){var fm=FOCUS_META[getWorkoutFocus(k)]||FOCUS_META.general;return String(fm.rpReps||12);})():(set.reps||'');var repInputHTML='<input class="sinp" type="number" inputmode="numeric" placeholder="'+repPlaceholder2+'" value="'+repValue2+'" oninput="updateSet('+ei+','+s+',\'reps\',this.value)">';
 sH+='<div class="snum">'+(s+1)+'</div>'+
 '<div style="display:inline-block"><select class="stype '+setTypeClass+'" onchange="updateSetType('+ei+','+(s)+',this.value,this)">'+
 '<option value="wk"'+(setType==="wk"?' selected':'')+'>Work</option>'+
@@ -5967,11 +6050,11 @@ repInputHTML+'<div class="sprev">'+prevDisp+'</div>'+
 '<button class="sdone '+(set.done?'chk':'')+'" onclick="toggleSet('+ei+','+s+',this)">✓</button>';
 // AMRAP top set (strength program "+" set) — prompt the user to push & log actual reps
 if(pyramidSets.length>0 && pyramidSets[s] && pyramidSets[s].amrap){
-  sH+='<div style="grid-column:1/-1;padding:2px 4px 4px;font-size:10px;color:#a78bfa;font-family:\'DM Mono\',monospace;letter-spacing:.3px">🔥 AMRAP — do as many reps as possible (target '+pyramidSets[s].r+'+), then log your actual count. Beating it powers your next-cycle TM bump.</div>';
+  sH+='<div style="grid-column:1/-1;padding:2px 4px 4px;font-size:10px;color:#a78bfa;font-family:\'DM Mono\',monospace;letter-spacing:.3px">AMRAP — stop before technique breaks down (target '+pyramidSets[s].r+'+), then log your actual count. Review performance before changing your training max.</div>';
 }
 // Show estimated 1RM inline when a work set is done and has both weight + reps
 // Use set.weight (stored in lbs) for ORM calculation
-if(set.done && !noWeight && (setType==='wk'||setType==='ds'||setType==='fl'||setType==='rp') && set.weight && set.reps && parseFloat(set.weight)>0 && parseInt(set.reps)>0){
+if(isStrengthRecordSet(set,ex.n)&&Number(set.reps)<=12){
   var _inlineORM=est1RM(parseFloat(set.weight),parseInt(set.reps));
   if(_inlineORM>0){
     sH+='<div style="grid-column:3/-1;padding:1px 2px 3px;font-family:\'DM Mono\',monospace;font-size:9px;color:#6366f1;letter-spacing:.5px">Est 1RM: '+toDisplayWeight(_inlineORM)+' '+getWeightUnit()+'</div>';
@@ -6026,7 +6109,7 @@ if(setType!=='wk'&&setType!=='wu'){
     fl:'Go to absolute failure. Log actual reps achieved.',
     rp:'Cluster reps with 10-15s micro-rests. Log total reps.'};
   var _focusHint=SET_TYPE_INFO[setType]&&SET_TYPE_INFO[setType].focusNote&&
-    SET_TYPE_INFO[setType].focusNote[S.weekFocus||'general']||'';
+    SET_TYPE_INFO[setType].focusNote[getWorkoutFocus(k)]||'';
   var _shortDesc=_typeDesc[setType]||'';
   if(_shortDesc){
     sH+='<div style="grid-column:1/-1;padding:4px 6px 2px;display:flex;align-items:flex-start;justify-content:space-between;gap:6px">';
@@ -6063,6 +6146,8 @@ html+='<div id="exCard_'+ei+'" class="exrow '+(isSwapped?'swapped':'')+'" data-e
 '<div class="exname">'+ex.n+(isSwapped?' <span class="badge bp" style="margin-left:5px">SWAPPED</span>':'')+badgeHtml+'</div>'+(getStrengthNote(ex.n)?'<div style="font-size:10px;color:#f97316;padding:2px 0 0;line-height:1.4">⚠️ '+getStrengthNote(ex.n)+'</div>':'')+
 '<div class="extgt">'+ex.t+' · '+ex.sets+'×'+ex.reps+' · Rest '+ex.rest+'s</div>'+
 _baseWeightChip(ei,ex)+
+(!noWeight&&getBaseWeight(ex.n)===0?'<button class="btn btn-g bsm" onclick="editExerciseLoading('+ei+')">Load increments / limit</button>':'')+
+(isAssistanceExercise(ex.n)?'<div class="sugg">Log assistance weight: a smaller number is harder. Adjust manually; no 1RM or load PR.</div>':'')+
 _stallBanner(ei,ex.n)+
 suggLine+
 _lastSessLine+'</div></div><div style="display:flex;gap:6px"><button class="ex-info-btn" onclick="openExInfo(\''+ex.n.replace(/'/g,"\\'")+'\')" title="Exercise info">ℹ️</button><button class="ex-info-btn" onclick="openExChart(\''+ex.n.replace(/'/g,"\\'")+'\')" title="Progress chart" style="background:rgba(245,196,0,.1);border-color:rgba(245,196,0,.25);color:var(--ye)">📈</button><button class="swpbtn" onclick="openSwap('+ei+',\''+ex.n.replace(/'/g,"\\'")+'\')">🔄</button>'+
@@ -6176,7 +6261,7 @@ if(_savedRun){
   el('cmpFill').style.background='var(--ru)';
 }
 var sess=(S.sessions[k]&&S.sessions[k].run)||{},_runProg=RUN_PROGRAMS[(S.setup&&S.setup.runProgram)||'marathon']||RUN_PROGRAMS.marathon,_progTotal=_runProg.totalWeeks||24,wk=Math.min(_progTotal,Math.max(1,mWeekNum(vDate))),phase=getPhase(wk),tpl=MPLAN.templates[getTK(phase.name)],rdays=S.setup.runDays.slice().sort(function(a,b){return a-b;});var idx=rdays.indexOf(dow);if(idx<0)idx=0;var run=getProgRunForWeek(wk,idx);if(!run)return;el('todaySub').textContent='🏃 '+(_runProg.id==='marathon'?phase.name:_runProg.label)+' · Week '+wk+(_progTotal?' of '+_progTotal:'');var _todayRunIdx=0;_runCards=[{type:run.type,dist:run.dist,desc:run.desc}];if(!S.sessions[k].run)S.sessions[k].run={};var _rs=S.sessions[k].run;el('wContent').innerHTML=(_savedRun?'<div class="card" style="background:rgba(16,185,129,.06);border-color:rgba(16,185,129,.3)"><div style="display:flex;align-items:center;gap:8px"><span style="font-size:1.2rem">✅</span><div><div style="font-size:13px;font-weight:700;color:var(--gr)">Run Logged</div><div style="font-size:11px;color:var(--mu)">'+(_savedRun.distance?_savedRun.distance+' mi · ':'')+(_savedRun.pace?_savedRun.pace+'/mi · ':'')+(_savedRun.status||'completed')+'</div></div><button class="btn btn-g bsm" style="margin-left:auto" onclick="buildTodayWorkout()">Edit</button></div></div>':'')+'<div class="rcard" style="cursor:pointer" onclick="openRunDetailByIdx(0)"><div class="fbet" style="margin-bottom:4px"><div><div class="rtype">'+run.type+' RUN</div><div class="rtitle">'+run.dist+' mile '+run.type.toLowerCase()+' run</div></div><span style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--ru);border:1px solid rgba(16,185,129,.3);padding:3px 8px;border-radius:6px">Tap for details ›</span></div><div class="rdesc">'+run.desc+'</div>'+buildPaceTargetChip(run.type)+getLastRunLine(run.type)+'</div>'+buildPreRunStretches(k,run.type)+'<div class="card"><div class="slbl">📊 Log Your Run</div><div class="g2"><div><label>Distance (mi)</label><input type="number" inputmode="decimal" step="0.1" placeholder="'+run.dist+'" value="'+(_rs.distance||'')+'" id="runDistInp" oninput="updateRun(\'distance\',this.value)"></div><div><label>Time (min)</label><input type="number" inputmode="decimal" placeholder="min" value="'+(_rs.duration||'')+'" id="runDurInp" oninput="updateRun(\'duration\',this.value)"></div><div><label>Avg Pace (auto)</label><input type="text" placeholder="auto" value="'+(_rs.pace||'')+'" id="runPaceInp" oninput="updateRun(\'pace\',this.value)"></div><div><label>Avg HR (bpm)</label><input type="number" inputmode="numeric" placeholder="optional" value="'+(_rs.hr||'')+'" oninput="updateRun(\'hr\',this.value)"></div><div><label>Calories (auto)</label><input type="number" inputmode="numeric" id="runCalInp" placeholder="auto" value="'+(_rs.calories||'')+'" oninput="updateRun(\'calories\',this.value)"></div><div><label>Effort 1-10</label><input type="number" inputmode="numeric" placeholder="RPE" min="1" max="10" value="'+(_rs.rpe||'')+'" oninput="updateRun(\'rpe\',this.value)"></div><div><label>Cadence (spm)</label><input type="number" inputmode="numeric" placeholder="175" min="100" max="230" value="'+(_rs.cadence||'')+'" oninput="updateRun(\'cadence\',this.value)"></div><div><label>Elevation (ft)</label><input type="number" inputmode="numeric" placeholder="0" min="0" value="'+(_rs.elevation||'')+'" oninput="updateRun(\'elevation\',this.value)"></div></div><div class="mt12"><label>Notes</label><textarea rows="2" placeholder="How did it feel?" oninput="updateRun(\'notes\',this.value)">'+(_rs.notes||'')+'</textarea></div><div class="mt12"><label>Status</label><select onchange="updateRun(\'status\',this.value)"><option value="">- Select -</option><option value="completed"'+(_rs.status==='completed'?' selected':'')+'>✅ Completed</option><option value="modified"'+(_rs.status==='modified'?' selected':'')+'>📝 Modified</option><option value="skipped"'+(_rs.status==='skipped'?' selected':'')+'>❌ Skipped</option></select></div><div class="mt8"><label>Injury / Issue (optional)</label><select onchange="updateRun(\'injuryTag\',this.value)"><option value=""'+(!_rs.injuryTag?' selected':'')+'>None</option><option value="knee"'+(_rs.injuryTag==='knee'?' selected':'')+'>🦵 Knee</option><option value="itband"'+(_rs.injuryTag==='itband'?' selected':'')+'>⚡ IT Band</option><option value="shin"'+(_rs.injuryTag==='shin'?' selected':'')+'>🦴 Shin Splints</option><option value="hip"'+(_rs.injuryTag==='hip'?' selected':'')+'>🏃 Hip / Glute</option><option value="foot"'+(_rs.injuryTag==='foot'?' selected':'')+'>👟 Foot / Plantar</option><option value="ankle"'+(_rs.injuryTag==='ankle'?' selected':'')+'>🦶 Ankle</option><option value="calf"'+(_rs.injuryTag==='calf'?' selected':'')+'>🦵 Calf</option><option value="illness"'+(_rs.injuryTag==='illness'?' selected':'')+'>🤒 Illness</option><option value="fatigue"'+(_rs.injuryTag==='fatigue'?' selected':'')+'>😴 Fatigue / Overtraining</option></select></div><div class="mt12"><button class="btn btn-p bfw" onclick="saveWorkoutPrompt()">💾 Log Run</button></div></div>'+buildRunSplitSection(S.sessions[k].run)+buildPostRunStretches(k,run.type);}
-function updateSet(ei,si,field,val){var k=dKey(vDate);if(field==='weight'&&val!==''){var _pw=parseFloat(val)||0;if(_pw<0)_pw=0;if(_pw>1500)_pw=1500;val=String(_pw);}var storedVal=(field==='weight'&&val!=='')?String(fromDisplayWeight(parseFloat(val)||0)):val;
+function updateSet(ei,si,field,val){var k=dKey(vDate);if(field==='reps'&&val!==''){var r=Number(val);val=String(isFinite(r)?Math.max(0,Math.min(1000,Math.floor(r))):0);}if(field==='weight'&&val!==''){var _pw=parseFloat(val)||0;if(_pw<0)_pw=0;if(_pw>1500)_pw=1500;val=String(_pw);}var storedVal=(field==='weight'&&val!=='')?String(fromDisplayWeight(parseFloat(val)||0)):val;
 // In "+plates" entry mode the number typed is only what was ADDED — fold in the bar or
 // sled weight so what gets STORED is always the true total (every 1RM, volume and PR
 // calculation downstream depends on that).
@@ -6210,6 +6295,7 @@ function toggleSet(ei,si,btn){
   var gym=S.sessions[k]&&S.sessions[k].gym;
   if(!gym||!gym.exercises[ei]||!gym.exercises[ei].sets||!gym.exercises[ei].sets[si])return;
   var set=gym.exercises[ei].sets[si];
+  if(!set.done&&(!isFinite(Number(set.reps))||Number(set.reps)<=0)){showToast('Enter the reps or seconds actually completed first');return;}
   set.done=!set.done;
   btn.classList.toggle('chk');
   // Record start time on first set tap (only sets it once)
@@ -6300,12 +6386,8 @@ function checkOverloadAlert(ei, k, gym, exs){
 
   // Check ceiling using same logic as doSaveWorkout / getProgression:
   // all work sets done AND minimum reps across them >= focus ceiling
-  var fprog = FOCUS_PROGRESSION[S.weekFocus||'general']||FOCUS_PROGRESSION.general;
-  var minRepsAlert = workSets.reduce(function(mn, s){
-    var r = parseInt(s.reps)||0; return r > 0 && r < mn ? r : mn;
-  }, 999);
-  if(minRepsAlert === 999) minRepsAlert = 0;
-  if(minRepsAlert < fprog.ceil) return;
+  var summary=summarizeWorkSets(workSets,getWorkoutFocus(k),exs&&exs[ei]&&exs[ei].n);
+  if(!summary||!summary.ceilingHit) return;
 
   // Fire  --  slight delay so it doesn't clash with "Set logged" toast
   var exName = (exs&&exs[ei]) ? exs[ei].n : 'this exercise';
@@ -6346,16 +6428,20 @@ function toggleWarmup(ei,wi,btn){
 function updateRun(field,val){
   var k=dKey(vDate);if(!S.sessions[k].run)S.sessions[k].run={};
   S.sessions[k].run[field]=val;var r=S.sessions[k].run;
+  if(field==='calories')r.caloriesManual=val!=='';
+  if(field==='distance'||field==='duration'){
+  r.pace='';var paceInput=el('runPaceInp');if(paceInput)paceInput.value='';
   // Auto-calculate pace
   if(r.distance&&r.duration){
     var pm=parseFloat(r.duration)/parseFloat(r.distance);
-    if(isFinite(pm)&&pm>0){var m=Math.floor(pm),s=Math.round((pm-m)*60);
+    if(isFinite(pm)&&pm>0){var totalSeconds=Math.round(pm*60),m=Math.floor(totalSeconds/60),s=totalSeconds%60;
       r.pace=m+':'+String(s).padStart(2,'0');
       var pi=el('runPaceInp');if(pi)pi.value=r.pace;
     }
   }
+  }
   // Auto-calculate calories (skip if user manually typed calories)
-  if(field!=='calories'&&r.distance&&r.duration){
+  if(!r.caloriesManual&&r.distance&&r.duration){
     var dist=parseFloat(r.distance)||0,dur=parseFloat(r.duration)||0;
     if(dist>0&&dur>0){
       var bwKgR=((S.weights&&S.weights.length)?S.weights[S.weights.length-1].w:200)/2.205;
@@ -6376,11 +6462,11 @@ function updateRun(field,val){
       }
       if(estCals>0){
         r.calories=estCals;
-        var ci=el('runCalInp');if(ci&&!ci._manuallySet)ci.value=estCals;
+        var ci=el('runCalInp');if(ci)ci.value=estCals;
       }
     }
   }
-  if(field==='calories'){var ci2=el('runCalInp');if(ci2)ci2._manuallySet=true;}
+  if(field==='calories'){var ci2=el('runCalInp');if(ci2)ci2._manuallySet=r.caloriesManual;}
   saveS();updateStats();
 }
 function setIntensity(lvl){
@@ -6388,6 +6474,7 @@ function setIntensity(lvl){
   var gym=S.sessions[k].gym;
   var prev=gym.intensity||'standard';
   if(prev===lvl) return;
+  if(Object.values(gym.exercises||{}).some(function(e){return (e.sets||[]).some(function(s){return s.done;});})||Object.values(gym.cardioBlocks||{}).some(function(c){return c.done||c.timer&&c.timer.running;})){showToast('This workout has started. Keep its exercise list; use swaps or extra sets to adjust it.');return;}
   gym.intensity=lvl;
   gym.cardio={};
   gym.smartNote=null;
@@ -6580,7 +6667,7 @@ function restoreRestTimer(){
   var d=null; try{d=JSON.parse(raw);}catch(e){}
   if(!d) return;
   _restTotal=d.t||0;
-  if(d.e&&d.e-Date.now()>0){ _restEndAt=null; _restLeftMs=null; startTimer(Math.ceil((d.e-Date.now())/1000),true); }
+  if(d.e&&d.e-Date.now()>0){ _restEndAt=null; _restLeftMs=null; startTimer(Math.ceil((d.e-Date.now())/1000),true); _restEndAt=d.e; _saveRestTimer(); }
   else if(d.l>0){ _restLeftMs=d.l; _restEndAt=null; timerSecs=Math.ceil(d.l/1000); el('timerWrap').classList.add('active'); updateTimerDisp(); }
   else { try{localStorage.removeItem(_RESTK);}catch(e){} }
 }
@@ -7052,14 +7139,15 @@ var STALL_MIN_GAP_DAYS=90;     // ignore sessions older than this (a layoff isn'
 function getExSessionHistory(exName, limit){
   var out=[];
   var cutoff=dKey(new Date(Date.now()-STALL_MIN_GAP_DAYS*864e5));
-  for(var i=S.history.length-1;i>=0&&out.length<(limit||8);i--){
-    var sess=S.history[i];
+  var sorted=priorGymHistory();
+  for(var i=0;i<sorted.length&&out.length<(limit||8);i++){
+    var sess=sorted[i];
     if(sess.type!=='gym'||!sess.exercises) continue;
     if(sess.date<cutoff) break;
     for(var j=0;j<sess.exercises.length;j++){
       var ex=sess.exercises[j];
       if(ex.name!==exName||!ex.sets) continue;
-      var work=ex.sets.filter(function(s){return s.done&&(s.type||'wk')!=='wu'&&parseFloat(s.weight)>0&&parseInt(s.reps)>0;});
+      var work=ex.sets.filter(function(s){return isStrengthRecordSet(s)&&Number(s.reps)<=12;});
       if(!work.length) continue;
       var bestE1=0, topW=0;
       work.forEach(function(s){
@@ -7288,6 +7376,10 @@ function doSwap(idx,name,target){
   var k=dKey(vDate);
   var rendered=getRenderedExList(k)||[];
   var cur=rendered[idx]||{};
+  var gym=S.sessions[k].gym;
+  if((gym.exercises[idx]&&gym.exercises[idx].sets||[]).some(function(s){return s.done;})){showToast('Keep the logged exercise. Swap before logging its sets.');return;}
+  if(!gym.swapOriginals)gym.swapOriginals={};if(!gym.swapOriginals[idx])gym.swapOriginals[idx]=Object.assign({},cur);
+  if(gym.exList)gym.exList[idx]=Object.assign({},cur,{n:name,t:target});
   S.swaps[k+':'+idx]=Object.assign({},cur,{n:name,t:target});
   S.sessions[k].gym.exercises[idx]={sets:[]};
   saveS();
@@ -7295,8 +7387,26 @@ function doSwap(idx,name,target){
   buildTodayWorkout();
   showToast('🔄 Swapped to '+name);
 }
-function undoSwap(idx){var k=dKey(vDate);delete S.swaps[k+':'+idx];S.sessions[k].gym.exercises[idx]={sets:[]};saveS();closeModal('swapModal');buildTodayWorkout();showToast('↩️ Reset');}
+function undoSwap(idx){
+  var k=dKey(vDate),g=S.sessions[k].gym;
+  if((g.exercises[idx]&&g.exercises[idx].sets||[]).some(function(s){return s.done;})){showToast('Keep the logged exercise.');return;}
+  if(g.swapOriginals&&g.swapOriginals[idx]&&g.exList){g.exList[idx]=g.swapOriginals[idx];delete g.swapOriginals[idx];}
+  delete S.swaps[k+':'+idx];g.exercises[idx]={sets:[]};saveS();closeModal('swapModal');buildTodayWorkout();showToast('Reset exercise');
+}
 function checkVolAlert(k,dow){var alertEl=el('volAlert');if(!alertEl||cMode!=='gym')return;var tplKey=getEffTpl(k),focus=(WTPL[tplKey]||{}).focus;var lastSame=S.history.filter(function(h){return h.type==='gym'&&h.focus===focus&&h.split===tplKey;}).slice(-1)[0];if(!lastSame){alertEl.innerHTML='';return;}var gymSess=S.sessions[k]&&S.sessions[k].gym,curr=gymSess?Object.values(gymSess.exercises||{}).reduce(function(a,ex){return a+(ex.sets||[]).filter(function(s){return s.done;}).reduce(function(b,s){return b+(parseFloat(s.weight)||0)*(parseFloat(s.reps)||0);},0);},0):0;if(!curr){alertEl.innerHTML='';return;}var diff=curr-(lastSame.volume||0);var _wuVA=getWeightUnit(),_diffD2=toDisplayWeight(Math.abs(diff));if(diff>0)alertEl.innerHTML='<div class="alert alert-up">📈 Up '+toDisplayWeight(Math.round(diff))+' '+_wuVA+' vs last '+focus+'!</div>';else if(diff<-50)alertEl.innerHTML='<div class="alert alert-dn">📉 Volume down '+Math.round(_diffD2)+' '+_wuVA+' vs last session.</div>';else alertEl.innerHTML='';}
+// One completed-cardio contract for Today, save previews and persisted history.
+function completedCardioBlocks(gym){
+  return Object.values(gym.cardioBlocks||{}).concat(Object.values(gym.cardio||{}))
+    .filter(function(c){return c&&c.done&&!c.skipped;}).map(function(c){
+      var raw=c.duration==null||c.duration===''?c.defaultDur:c.duration;
+      var duration=Number(raw)||0;
+      return Object.assign({},c,{duration:isFinite(duration)?Math.max(0,duration):0});
+    });
+}
+function completedCardioCalories(c,bwKg){
+  if(c.calories!=null&&c.calories!==''&&isFinite(Number(c.calories))&&Number(c.calories)>=0)return Number(c.calories);
+  return Math.round((CARDIO_MET[c.name]||5.5)*bwKg*(c.duration/60));
+}
 function updateStats(){
   var k=dKey(vDate),sess=S.sessions[k]||{},sets=0,vol=0,mins=0,cals=0;
   var liftingCals=0, cardioCals=0;
@@ -7334,21 +7444,9 @@ function updateStats(){
 
     // Cardio calories: read from cardioBlocks (warmup/mid/finisher) which is the live state
     // Also include the legacy sess.gym.cardio if present (older sessions)
-    var _cardioSources=Object.values(sess.gym.cardioBlocks||{});
-    // Also read legacy cardio object if present
-    Object.values(sess.gym.cardio||{}).forEach(function(c){ _cardioSources.push(c); });
-    _cardioSources.forEach(function(c){
-      // Only count cardio calories when the block is marked DONE.
-      // Typing a duration alone does not count  --  user must tap the done circle.
-      if(!c.done) return;
-      var dur=parseFloat(c.duration)||parseFloat(c.defaultDur)||0;
-      mins+=dur;
-      if(dur>0){
-        var met=CARDIO_MET[c.name]||5.5;
-        cardioCals+=Math.round(met*bwKg*(dur/60));
-      } else if(parseFloat(c.calories)>0){
-        cardioCals+=parseFloat(c.calories)||0;
-      }
+    completedCardioBlocks(sess.gym).forEach(function(c){
+      mins+=c.duration;
+      cardioCals+=completedCardioCalories(c,bwKg);
     });
   }
 
@@ -7498,6 +7596,7 @@ function quickFillExercise(ei){
     if(!exD.sets[si].done){
       exD.sets[si].weight=s.weight||'';
       exD.sets[si].reps=s.reps||'';
+      exD.sets[si].auto=false; exD.sets[si].autoR=false;
     }
   });
   saveS();
@@ -7510,7 +7609,7 @@ function quickFillExercise(ei){
 // Falls back to the legacy filter for sessions created before the snapshot existed.
 function getRenderedExList(k){
   var g=S.sessions[k]&&S.sessions[k].gym;
-  if(g&&g.exList&&g.exList.length) return g.exList;
+  if(g&&Array.isArray(g.exList)) return g.exList;
   var tpl=WTPL[getEffTpl(k)]||WTPL.upper, it=(g&&g.intensity)||'standard';
   var exs=tpl.exercises.slice();
   if(it==='quick')exs=exs.filter(function(e){return e.p<=1;}).map(function(e){return Object.assign({},e,{sets:Math.max(MIN_WORK_SETS,e.sets-1)});});
@@ -7520,26 +7619,24 @@ function getRenderedExList(k){
 }
 function doSaveWorkout(rating,notes){var k=dKey(vDate),dtype=getDayType(k),sess=S.sessions[k];if(!sess){showToast('Nothing to save');return;}var saved=false;if(cMode==='gym'&&(dtype==='gym'||dtype==='both')){var tplKey=getEffTpl(k),gym=sess.gym,tpl=WTPL[tplKey],it=gym.intensity||'standard',exs=getRenderedExList(k);var vol=0,sc=0,mins=0,exLogs=[];
 // Snapshot S.pbs BEFORE the exLogs loop overwrites it  --  needed for accurate PR detection below
+var _historyWithToday=S.history;S.history=S.history.filter(function(h){return !(h.date===k&&h.type==='gym');});recomputePBs();S.history=_historyWithToday;
 var _pbsSnapshot={};Object.keys(S.pbs).forEach(function(k2){_pbsSnapshot[k2]=S.pbs[k2].vol;});
 exs.forEach(function(ex,ei){var actual=ex,exD=gym.exercises[ei]||{sets:[]},setLogs=[];if(exD.skipped)return;var _nS=Math.max(ex.sets||0,(exD.sets||[]).length);for(var s=0;s<_nS;s++){var set=exD.sets[s]||{};if(set.done&&(set.type||'wk')!=='wu'){sc++;vol+=(parseFloat(set.weight)||0)*(parseFloat(set.reps)||0);}setLogs.push({weight:set.weight||'',reps:set.reps||'',done:!!set.done,type:set.type||'wk',rpe:set.rpe||''});}// allDoneEx: all WORK sets done (warmup sets are informational, not required for progression)
-var wkLogs=setLogs.filter(function(s){return s.done&&(s.type||'wk')==='wk';});var allWorkSets=setLogs.filter(function(s){return (s.type||'wk')==='wk';});var allDoneEx=(allWorkSets.length>0&&allWorkSets.length===wkLogs.length);
-// Ceiling hit: ≥75% of completed work sets must reach the focus ceiling rep count.
-// This allows one off-set (e.g. 3/4 sets at ceiling) without blocking progression.
-var fprogSave=FOCUS_PROGRESSION[S.weekFocus||'general']||FOCUS_PROGRESSION.general;var _progCeil=fprogSave.progressCeil!==undefined?fprogSave.progressCeil:fprogSave.ceil;var ceilHitSets=wkLogs.filter(function(s){return (parseInt(s.reps)||0)>=_progCeil;}).length;var exCeilHit=allDoneEx&&wkLogs.length>0&&ceilHitSets>=Math.max(1,Math.ceil(wkLogs.length*0.75));var exLastW=wkLogs.length?(parseFloat(wkLogs[wkLogs.length-1].weight)||0):0;exLogs.push({name:actual.n,target:actual.t,sets:setLogs,allCompleted:allDoneEx,ceilingHit:exCeilHit,weight:exLastW});setLogs.forEach(function(s,si){if(s.done&&s.weight&&s.reps){var pbKey=actual.n+'_'+si,nv=(parseFloat(s.weight)||0)*(parseFloat(s.reps)||0);if(!S.pbs[pbKey]||nv>S.pbs[pbKey].vol)S.pbs[pbKey]={exercise:actual.n,weight:s.weight,reps:s.reps,vol:nv,date:k};var strK=getStrKey(actual.n);if(strK&&parseFloat(s.weight)>(S.strength[strK]||0))S.strength[strK]=parseFloat(s.weight);}});});var cLogs=[];Object.values(gym.cardioBlocks||{}).forEach(function(c){if(c.done||(parseFloat(c.duration)>0)){mins+=parseFloat(c.duration)||0;cLogs.push(Object.assign({},c));}});// Legacy gym.cardio: include in cLogs for history display but do NOT re-sum mins
-Object.values(gym.cardio||{}).forEach(function(c){cLogs.push(Object.assign({},c));});var durMins=0;
+var workSummary=summarizeWorkSets(setLogs,gym.trainingFocus||S.weekFocus,actual.n)||{allCompleted:false,ceilingHit:false,weight:0};
+exLogs.push({name:actual.n,target:actual.t,sets:setLogs,allCompleted:workSummary.allCompleted,ceilingHit:workSummary.ceilingHit,weight:workSummary.weight});setLogs.forEach(function(s,si){if(isStrengthRecordSet(s,actual.n)){var pbKey=actual.n+'_'+si,nv=(parseFloat(s.weight)||0)*(parseFloat(s.reps)||0);if(!S.pbs[pbKey]||nv>S.pbs[pbKey].vol)S.pbs[pbKey]={exercise:actual.n,weight:s.weight,reps:s.reps,vol:nv,date:k};}});});var cLogs=completedCardioBlocks(gym);mins=cLogs.reduce(function(total,c){return total+c.duration;},0);var durMins=0;
 if(_wTimerElapsed>0) durMins=Math.round(_wTimerElapsed/60000);
 else if(S.sessions[k].gym.startTime) durMins=Math.round((Date.now()-S.sessions[k].gym.startTime)/60000);
 // Use getWorkoutCalsBurned()  --  matches live Cals counter and save prompt exactly
 var totalCals=getWorkoutCalsBurned();
 // Detect PRs: use pre-save snapshot so we compare against old values, not the ones just written
 var newPRs=[];
-exs.forEach(function(ex,ei){var actual=ex,exD=gym.exercises[ei]||{sets:[]};if(exD.skipped)return;var _nS2=Math.max(ex.sets||0,(exD.sets||[]).length);for(var s=0;s<_nS2;s++){var set=exD.sets[s]||{};if(set.done&&set.weight&&set.reps){var pbKey=actual.n+'_'+s,nv=(parseFloat(set.weight)||0)*(parseFloat(set.reps)||0);var oldVol=_pbsSnapshot[pbKey]||0;if(nv>oldVol){var already=newPRs.find(function(p){return p.exercise===actual.n;});if(!already)newPRs.push({exercise:actual.n,weight:set.weight,reps:set.reps});}}}});
+exs.forEach(function(ex,ei){var actual=ex,exD=gym.exercises[ei]||{sets:[]};if(exD.skipped)return;var _nS2=Math.max(ex.sets||0,(exD.sets||[]).length);for(var s=0;s<_nS2;s++){var set=exD.sets[s]||{};if(isStrengthRecordSet(set,actual.n)){var pbKey=actual.n+'_'+s,nv=(parseFloat(set.weight)||0)*(parseFloat(set.reps)||0);var oldVol=_pbsSnapshot[pbKey]||0;if(nv>oldVol){var already=newPRs.find(function(p){return p.exercise===actual.n;});if(!already)newPRs.push({exercise:actual.n,weight:set.weight,reps:set.reps});}}}});
 // Compute completion %  --  warmups stored as object {wi: bool}, not array
 var _saveShowWu=S.prefs?S.prefs.showWarmups!==false:true;
 var totalSets=0,doneSets=0;exs.forEach(function(ex,ei){var exD=gym.exercises[ei]||{sets:[]};if(exD.skipped)return;if(_saveShowWu)Object.keys(exD.warmups||{}).forEach(function(wi){totalSets++;if(exD.warmups[wi])doneSets++;});var _nS3=Math.max(ex.sets||0,(exD.sets||[]).length);for(var s=0;s<_nS3;s++){totalSets++;var set=exD.sets[s]||{};if(set.done)doneSets++;}});var compPct=totalSets>0?Math.round(doneSets/totalSets*100):0;
-var entry={id:Date.now(),date:k,type:'gym',day:vDate.toLocaleDateString('en-US',{weekday:'long'}),focus:tpl.focus,split:tplKey,intensity:it,volume:vol,sets:sc,cardioMins:mins,calories:totalCals,exercises:exLogs,cardio:cLogs,duration:durMins,rating:rating||0,notes:notes||'',prs:newPRs};S.history=S.history.filter(function(h){return!(h.date===k&&h.type==='gym');});S.history.push(entry);saved=true;
+var entry={id:Date.now(),date:k,type:'gym',gymId:gym.gymId||S.activeGymId,trainingFocus:gym.trainingFocus||S.weekFocus,day:vDate.toLocaleDateString('en-US',{weekday:'long'}),focus:tpl.focus,split:tplKey,intensity:it,volume:vol,sets:sc,cardioMins:mins,calories:totalCals,exercises:exLogs,cardio:cLogs,duration:durMins,rating:rating||0,notes:notes||'',prs:newPRs};S.history=S.history.filter(function(h){return!(h.date===k&&h.type==='gym');});S.history.push(entry);saved=true;
 // Store summary data for post-save screen
-var progressions=[];var fprogSum=FOCUS_PROGRESSION[S.weekFocus||'general']||FOCUS_PROGRESSION.general;exLogs.forEach(function(ex){if(ex.ceilingHit&&ex.weight>0){var nextW=Math.round((ex.weight+(fprogSum.weightStep||5))/5)*5;progressions.push({exercise:ex.name,lastW:ex.weight,nextW:nextW});}});window._lastSummary={type:'gym',sets:sc,volume:vol,calories:totalCals,duration:durMins,compPct:compPct,prs:newPRs,progressions:progressions,rating:rating||0,notes:notes||'',focus:tpl.focus,intensity:it,cardioMins:mins};
+var progressions=[];var fprogSum=FOCUS_PROGRESSION[S.weekFocus||'general']||FOCUS_PROGRESSION.general;exLogs.forEach(function(ex){if(ex.ceilingHit&&ex.weight>0&&!getActiveProgramFor(ex.name)){var nextW=snapToLoadable(ex.name,ex.weight+(fprogSum.weightStep||5),'up');if(nextW<=ex.weight)return;progressions.push({exercise:ex.name,lastW:ex.weight,nextW:nextW});}});window._lastSummary={type:'gym',sets:sc,volume:vol,calories:totalCals,duration:durMins,compPct:compPct,prs:newPRs,progressions:progressions,rating:rating||0,notes:notes||'',focus:tpl.focus,intensity:it,cardioMins:mins};
 }if(cMode==='run'&&(dtype==='run'||dtype==='both')){var r=sess.run;if(!r.distance&&!r.duration){showToast('Enter distance or time first');return;}var wk=Math.min(24,Math.max(1,mWeekNum(vDate))),phase=getPhase(wk),rentry={id:Date.now()+1,date:k,type:'run',runType:(_runCards&&_runCards[0]?_runCards[0].type:'EASY'),day:vDate.toLocaleDateString('en-US',{weekday:'long'}),week:wk,phase:phase.name,distance:parseFloat(r.distance)||0,duration:parseFloat(r.duration)||0,pace:r.pace||'',hr:r.hr||'',calories:parseFloat(r.calories)||0,rpe:r.rpe||'',cadence:r.cadence||'',elevation:parseFloat(r.elevation)||0,injuryTag:r.injuryTag||'',notes:r.notes||'',status:r.status||'completed',splits:r.splits||[]};S.history=S.history.filter(function(h){return!(h.date===k&&h.type==='run');});S.history.push(rentry);saved=true;
 // Store run summary data for post-save screen
 window._lastSummary={type:'run',distance:parseFloat(r.distance)||0,duration:parseFloat(r.duration)||0,pace:r.pace||'',hr:r.hr||'',calories:parseFloat(r.calories)||0,rpe:r.rpe||'',cadence:r.cadence||'',elevation:parseFloat(r.elevation)||0,notes:notes||r.notes||'',status:r.status||'completed',phase:phase.name,week:wk,rating:rating||0};}
@@ -7552,56 +7649,39 @@ if(saved){
     if(!S.workoutNotes)S.workoutNotes={};
     S.workoutNotes[k]=notes;
   }
-  updateStreak();saveS();buildWeekStrip();
+  recomputePBs();updateStreak();if(!saveS())return;buildWeekStrip();
   updateProgress();renderHistory();buildMarathon();
   buildBodyPage();if(window._lastSummary){showWorkoutSummary();}
   else{showToast('✅ Workout saved!');}
 }}
 // ═══════════════════════════════════════════════════════════════════
-// UPDATED FOCUS META - 5 focuses, general first
+// Focus prescriptions: five original focuses plus optional muscle + strength
 // ═══════════════════════════════════════════════════════════════════
 var FOCUS_META={
+  hybrid: {em:'🏋️',lb:'Muscle + Strength',reps:[4,8],rest:180,cardurMult:0.75,weightPct:1.0,restLabel:'90s–3 min',midCardio:false,midCardioCount:0,wuReps:[8,4],wuPct2:0.65,dsReps:[8,12],rpReps:12},
   general:   {em:'⚖️', lb:'General Fitness',   reps:[8,12],  rest:75,  cardurMult:1.0, weightPct:1.00, restLabel:'60-90s',  midCardio:false, midCardioCount:0, wuReps:[10,6],  wuPct2:0.65, dsReps:[8,12],  rpReps:12},
-  power:     {em:'⚡', lb:'Power & Strength',   reps:[3,5],   rest:210, cardurMult:0.5, weightPct:1.15, restLabel:'3-4 min', midCardio:false, midCardioCount:0, wuReps:[5,3],   wuPct2:0.70, dsReps:[6,8],   rpReps:7},
-  muscle:    {em:'💪', lb:'Build Muscle',        reps:[6,12],  rest:90,  cardurMult:0.75,weightPct:0.95, restLabel:'60-90s',  midCardio:false, midCardioCount:0, wuReps:[8,5],   wuPct2:0.65, dsReps:[8,12],  rpReps:15},
+  power:     {em:'⚡', lb:'Build Strength',   reps:[3,5],   rest:210, cardurMult:0.5, weightPct:1.15, restLabel:'3-4 min', midCardio:false, midCardioCount:0, wuReps:[5,3],   wuPct2:0.70, dsReps:[6,8],   rpReps:7},
+  muscle:    {em:'💪', lb:'Build Muscle',        reps:[6,12],  rest:150,  cardurMult:0.75,weightPct:0.95, restLabel:'90s–3 min',  midCardio:false, midCardioCount:0, wuReps:[8,5],   wuPct2:0.65, dsReps:[8,12],  rpReps:15},
   tone:      {em:'🔥', lb:'Lose & Tone',         reps:[10,14], rest:75,  cardurMult:1.6, weightPct:0.85, restLabel:'70-90s',  midCardio:true,  midCardioCount:1, wuReps:[12,8],  wuPct2:0.60, dsReps:[10,15], rpReps:20},
   endurance: {em:'🏃', lb:'Endurance',           reps:[15,20], rest:35,  cardurMult:1.9, weightPct:0.60, restLabel:'30-45s',  midCardio:true,  midCardioCount:2, wuReps:[15,10], wuPct2:0.60, dsReps:[15,20], rpReps:22}
 };
-// Evidence sources:
-// general:   NSCA guidelines for maintenance. 8-12 reps @ 60-75% 1RM. ✅
-// power:     Prilepin chart: 3-5 reps @ 85-90% 1RM optimal for strength. 3-4 min rest for full CNS recovery.
-// muscle:    NASM/Schoenfeld: 6-12 reps @ 67-85% 1RM optimal hypertrophy. 60-90s rest for metabolic stress.
-//            weightPct 0.95 → top working set ≈76% 1RM, so the 9-rep (6-12 midpoint) target lands at
-//            ~1-2 RIR — the proximity-to-failure that drives hypertrophy. 0.85 (≈68% 1RM) would leave
-//            3-4 RIR at 9 reps (under-stimulating); progression also advances at a 6-rep floor
-//            (FOCUS_PROGRESSION.muscle.progressCeil=6), confirming the heavier-leaning load is intended.
-// tone:      REVISED (Sept 2026) against current evidence. Was 12-15 reps @ 70% with 52s rest —
-//            the classic 'light weights, high reps to tone' model. Two problems: Schoenfeld's 2024
-//            Bayesian meta-analysis finds inter-set rests UNDER 60s measurably cost hypertrophy
-//            (via reduced volume load), and a deficit is exactly when muscle retention matters most;
-//            and network meta-analysis of training under caloric restriction shows lean mass is
-//            preserved by keeping the LOAD respectable, not by chasing reps. So: 10-14 reps at 85%
-//            with 75s rest, and the fat loss still comes from the elevated cardio multiplier (1.6x)
-//            plus the mid-workout block — the levers that actually create the deficit.
-// endurance: Muscular endurance zone 15-20 reps @ 50-65% 1RM. 30-45s rest for circuit conditioning.
-
+// Practical starting ranges, not guarantees of an optimal load or adaptation.
+// See docs/TRAINING_AUDIT.md for current sources and implementation limits.
+// weightPct applies only to an initial profile-derived estimate; it is not percent 1RM.
+// prescriptionForFocus gives main muscle-building lifts longer rests than accessories.
 
 // Focus-specific cardio intensity guidance
 var FOCUS_CARDIO_GUIDE={
-  general:   {warmup:'Moderate pace  --  elevate heart rate to ~60-65% max HR',
-              finisher:'Moderate steady state  --  60-70% max HR, conversational pace'},
-  power:     {warmup:'Very light  --  50-55% max HR, just elevate body temperature',
-              finisher:'Light walk or bike  --  50-60% max HR, active recovery only. Heavy cardio after strength kills adaptation.'},
-  muscle:    {warmup:'Light-moderate  --  55-60% max HR, do not pre-fatigue muscles',
-              finisher:'Low intensity steady state  --  55-65% max HR. HIIT after hypertrophy work blunts muscle growth.'},
-  tone:      {warmup:'Moderate  --  60-65% max HR, start burning calories early',
-              finisher:'Moderate-HIGH intensity  --  70-80% max HR. This is where fat burning maximizes. Push the pace.'},
-  endurance: {warmup:'Moderate  --  60-65% max HR, build aerobic engine from the start',
-              finisher:'Zone 2 steady state  --  60-70% max HR sustained throughout. Do NOT go hard. Mitochondrial adaptation requires sustained moderate effort.'}
+  hybrid:{warmup:'Easy pace; prepare for lifting without fatigue',finisher:'Easy to moderate cardio; adjust to recovery and your run schedule'},
+  general:{warmup:'Easy pace, gradually increasing until warm',finisher:'Moderate steady effort: you can talk, but singing would be difficult'},
+  power:{warmup:'Easy pace; warm up without tiring your main lifts',finisher:'Easy walk or bike. Keep fatigue manageable; separate hard endurance sessions when recovery suffers'},
+  muscle:{warmup:'Easy pace; avoid tiring the muscles before lifting',finisher:'Easy to moderate steady effort. Adjust hard cardio to your recovery and lifting performance'},
+  tone:{warmup:'Easy pace, gradually increasing until warm',finisher:'Sustainable moderate effort. Intervals are optional; fat loss depends on overall energy balance, not a special rep range'},
+  endurance:{warmup:'Easy pace, gradually increasing until warm',finisher:'Mostly conversational steady effort. Build duration gradually; coordinate harder sessions with your separate running plan'}
 };
 
 function getCardioGuide(type){
-  var focus=S.weekFocus||'general';
+  var focus=getWorkoutFocus();
   var guide=FOCUS_CARDIO_GUIDE[focus]||FOCUS_CARDIO_GUIDE.general;
   return guide[type]||'';
 }
@@ -7672,19 +7752,30 @@ function getMidCardio(tplKey, focusKey, intensity){
 
 // Double Progression rules per focus
 // floor: rep target when weight is first increased
-// ceil: rep ceiling -- hit on ≥75% of completed work sets triggers weight increase next session
+// ceil: all straight work sets at the same load must reach this; RPE 9.5–10 holds load
 // weightStep: lbs to add per progression step
 var FOCUS_PROGRESSION={
+  hybrid:    {floor:4,ceil:8,weightStep:5},
   general:   {floor:8,  ceil:12, weightStep:5},
   power:     {floor:3,  ceil:5,  weightStep:5},
-  muscle:    {floor:6,  ceil:12, progressCeil:6, weightStep:5},
+  muscle:    {floor:6,  ceil:12, weightStep:5},
   tone:      {floor:10, ceil:14, weightStep:5},
   endurance: {floor:15, ceil:20, weightStep:5}
 };
 
 
+function sessionHasActivity(gym){
+  return !!gym&&(Object.values(gym.exercises||{}).some(function(e){return (e.sets||[]).some(function(s){return s.done;});})||
+    Object.values(gym.cardioBlocks||{}).concat(Object.values(gym.cardio||{})).some(function(c){return c.done;})||
+    !!(gym.wTimer&&gym.wTimer.active));
+}
+function getWorkoutFocus(k){
+  k=k||dKey(vDate);
+  var gym=S.sessions[k]&&S.sessions[k].gym;
+  return gym&&gym.trainingFocus&&sessionHasActivity(gym)?gym.trainingFocus:(S.weekFocus||'general');
+}
 function getFocusParams(){
-  var f=S.weekFocus&&S.weekFocus!=='auto'?S.weekFocus:'general';
+  var f=getWorkoutFocus();if(f==='auto')f='general';
   return FOCUS_META[f]||FOCUS_META.general;
 }
 
@@ -7779,82 +7870,19 @@ function buildTrainingLoadHeatmap(){
 var _pendingFocus = null;
 
 var FOCUS_DETAIL = {
-  general: {
-    color: '#f5c400',
-    tagline: 'The smart starting point for well-rounded fitness.',
-    goal: 'Build and maintain a balanced fitness base. Improves all three pillars simultaneously: strength, cardiovascular endurance, and body composition. Ideal if you train 3-5 days per week and want consistent, sustainable progress without overspecializing.',
-    science: 'Based on NSCA guidelines for hypertrophy maintenance. 8-12 rep range targets the full spectrum of muscle fiber types at 60-75% 1RM. 60-90s rest balances metabolic stress with mechanical tension  --  both key hypertrophy drivers per Schoenfeld (2010).',
-    reps: '8-12 reps per set',
-    rest: '60-90 seconds between sets',
-    weight: '~60-75% of your estimated 1RM',
-    advSets: 'Rest-Pause on compound p1 exercises during Full sessions only. Standard sessions stay clean.',
-    cardio: 'Standard cardio finisher after lifting (e.g. 20 min Stair Stepper). No mid-workout cardio. Cardio duration multiplier: 1.0× template.',
-    uniqueStat: {label:'Weekly Progress', val:'Expect 1-2 PRs/week for first 8-12 weeks of consistent training'},
-    progression: 'Double progression: work toward 12 reps on all sets, then add 5 lbs.',
-    supersets: 'Antagonist supersets auto-seeded on Standard and Full intensity (e.g. Lat Pull-Down ↔ Pec Fly). Supersets increase time efficiency and calorie burn.',
-    tips: ['Best for newcomers or those returning after a break.', 'Produces consistent PRs early in your training journey.', 'Easy to pair with marathon training  --  does not overtax recovery.', 'Switch to Muscle or Power focus once General feels easy.']
-  },
-  power: {
-    color: '#a78bfa',
-    tagline: 'Train like an athlete. Move maximal weight.',
-    goal: 'Maximize neuromuscular strength and peak force output. Targets the 3-5 rep range where fast-twitch muscle fibers are maximally recruited. Best for those who want to move the most weight possible  --  not necessarily the biggest muscles, but the strongest ones.',
-    science: 'Based on Prilepin\u2019s chart and Zatsiorsky\u2019s principles of maximal effort training. 3-5 reps at 85-90% 1RM is the proven zone for myofibrillar hypertrophy and neural drive adaptation. 3-4 min rest allows full phosphocreatine resynthesis \u2014 critical for maintaining bar speed and force output set to set.',
-    reps: '3-5 reps per set',
-    rest: '3-4 minutes between sets (210s)',
-    weight: '~85-90% of your estimated 1RM (15% above General)',
-    advSets: 'Rest-Pause on compound p1 exercises only. Breaks one heavy set into 2-3 clusters with 10-15s micro-rests  --  safe on barbell movements, extends time under maximal tension. Drop Sets and Failure are NOT assigned (unsafe at near-max loads).',
-    cardio: 'Reduced cardio (0.5× template duration). Heavy compound work is CNS-demanding  --  excessive cardio blunts recovery. Cardio kept short and low-intensity.',
-    uniqueStat: {label:'Warm-Up Required', val:'40% \xD7 5, then 70% \xD7 3 before every heavy compound set'},
-    progression: 'Double progression: work toward 5 reps on all sets, then add 5 lbs. Strict \u2014 do not increase weight until you\u2019ve hit 5 solid reps across every set.',
-    supersets: 'Auto-supersets are DISABLED for Power focus. Heavy compound movements require full CNS recovery  --  supersets reduce inter-set rest and compromise strength output. Manual linking triggers a warning modal.',
-    tips: ['Warm-ups are critical at these loads: 40% × 5, then 70% × 3 before working sets.', 'Rest the full 3-4 min. Rushing rest is the #1 reason power athletes stall.', 'Track bar speed  --  when reps slow significantly, the set is over.', 'Run days complement Power focus well  --  aerobic work aids recovery without CNS fatigue.']
-  },
-  muscle: {
-    color: '#3b82f6',
-    tagline: 'Build the most muscle in the least time.',
-    goal: 'Maximize muscle hypertrophy (size). Uses a pyramid loading structure  --  weight increases set to set while reps decrease  --  to hit both metabolic stress and mechanical tension, the two primary drivers of muscle growth. Best for those who want to look bigger and stronger.',
-    science: 'NASM and Schoenfeld\'s hypertrophy research: 6-12 reps at 67-85% 1RM produces optimal myofibrillar and sarcoplasmic hypertrophy. Pyramid training creates intra-workout volume periodization. 60-90s rest maintains metabolic stress while allowing enough recovery to hit the next set hard.',
-    reps: '6-12 reps (pyramid: 12→10→8→6 as weight increases across sets)',
-    rest: '60-90 seconds between sets',
-    weight: 'Starts at ~80% of top weight, increases each set. Final set at full working weight.',
-    advSets: 'Standard: Drop Set on all p1 exercises (extend the last set past fatigue). Full: Failure Set on all p1, Drop Set on all p2. Barbell exercises auto-upgrade Failure to Rest-Pause for safety.',
-    cardio: 'Reduced cardio finisher (0.75× template duration). Heavy volume reduces cardio capacity  --  shorter finisher protects recovery.',
-    uniqueStat: {label:'Protein Timing', val:'30g protein within 45 min post-workout maximizes hypertrophy'},
-    progression: 'Double progression: work toward 12 reps on the top set of each exercise, then increase all weights by 5 lbs.',
-    supersets: 'Antagonist supersets auto-seeded on Standard and Full intensity. Research shows antagonist supersets maintain or increase strength output while doubling training density  --  ideal for hypertrophy.',
-    tips: ['Feel the muscle working  --  slow the eccentric (lowering) phase.', 'The pyramid sets accumulate fatigue intentionally. The last set should feel very hard.', 'Protein timing matters more in Muscle focus  --  aim for 30g within 45 min post-workout.', 'Expect DOMS 24-48h after lower body pyramid sessions. Normal and productive.']
-  },
-  tone: {
-    color: '#f97316',
-    tagline: 'Burn fat. Build definition. Look and feel athletic.',
-    goal: 'Simultaneous fat loss and muscle retention (body recomposition). The lifting keeps the load respectable so you hold onto the muscle you have; the fat loss comes from the extra cardio and your diet, not from lifting lighter. Best for leaning out without giving back the muscle you built.',
-    science: 'Updated September 2026. The old setup here was the classic light-weight/high-rep toning model (12-15 reps at 70%, 52s rest), and it works against you on a cut. Schoenfeld’s 2024 Bayesian meta-analysis finds inter-set rests under 60s measurably reduce hypertrophy through lost volume load, and network meta-analyses of training under caloric restriction show lean mass is preserved by keeping the LOAD up rather than by adding reps. So this focus now runs 10-14 reps at ~85% with 75s rest, and creates the deficit where it actually comes from: the 1.6x cardio finisher, the mid-workout cardio block, and your food log.',
-    reps: '10-14 reps per set',
-    rest: '70-90 seconds between sets (75s default)',
-    weight: '~85% of your working weight — deliberately heavier than a classic toning routine, so you keep muscle while you cut.',
-    advSets: 'Standard: Drop Set on all p1 exercises. Full: Failure Set on all p1, Drop Set on all p2. Combined with short rest, Drop Sets keep metabolic stress high and calorie burn elevated.',
-    cardio: 'Full cardio finisher (1.6× template duration) PLUS one mid-workout cardio block inserted between exercise groups. Mid-workout cardio keeps heart rate elevated throughout the session and significantly increases total calorie burn.',
-    uniqueStat: {label:'Calorie Burn', val:'~300-450 extra cal/session, mostly from the cardio blocks'},
-    progression: 'Double progression: work toward 14 reps on all sets, then add 5 lbs.',
-    supersets: 'Antagonist supersets auto-seeded on Standard and Full intensity. Combined with short rest, supersets dramatically increase training density and calorie burn  --  ideal for Tone focus.',
-    tips: ['Don\'t drop the weight just because you\'re cutting  --  the load is what tells your body to keep the muscle.', 'Keep moving between sets  --  light walking or stretching during rest is fine.', 'The mid-workout cardio will feel uncomfortable. That\'s the point  --  it\'s where the deficit comes from.', 'Hit your protein. Muscle retention on a cut is far more about protein and load than about rep count.', 'Track weekly scale weight and photos. Recomposition changes show in photos before the scale.']
-  },
-  endurance: {
-    color: '#10b981',
-    tagline: 'Build a body that never quits.',
-    goal: 'Maximize muscular endurance  --  the ability to sustain effort over many reps and long durations. Develops slow-twitch Type I muscle fibers, capillary density, and lactate threshold. Best for marathon runners, cyclists, or anyone who wants to last longer and recover faster.',
-    science: 'ACSM guidelines for muscular endurance: 15-20+ reps at 50-65% 1RM. Ultra-short 30-45s rest periods keep lactate accumulation high, training the body to clear it faster. Two mid-workout cardio blocks simulate race conditions  --  sustained effort, brief recoveries. Highest cardio duration multiplier (1.9×) of all focuses.',
-    reps: '15-20 reps per set',
-    rest: '30-45 seconds between sets (35s default)',
-    weight: '~60% of your estimated 1RM',
-    advSets: 'Standard: Failure Set on all p1 exercises (push to absolute muscular exhaustion). Full: Failure on all p1, Drop Set on all p2. High rep failure sets build the mental and physical endurance adaptations specific to distance athletics.',
-    cardio: 'Maximum cardio  --  finisher at 1.9× template duration PLUS two mid-workout cardio blocks. Sessions will feel like circuit training. This is the highest-volume cardio of any focus.',
-    uniqueStat: {label:'Race Carryover', val:'Builds aerobic base; projects +5-10% marathon improvement in 10 wks'},
-    progression: 'Double progression: work toward 20 reps on all sets, then add 5 lbs.',
-    supersets: 'Antagonist supersets auto-seeded. Combined with 30s rest, supersets create a continuous circuit-like effect  --  maximizes aerobic conditioning and muscular endurance simultaneously.',
-    tips: ['This focus pairs exceptionally well with marathon training days.', 'Expect sessions to feel like a cardio-weights hybrid. That\'s by design.', 'Your heart rate will stay elevated throughout  --  this is the endurance adaptation stimulus.', 'Recovery is slower than other focuses due to high volume. Sleep and nutrition are non-negotiable.']
-  }
+  hybrid:{color:'#22c55e',tagline:'Build muscle and strength together.',goal:'Repeat main lifts for heavier practice, with moderate-rep accessories for muscle growth. The automatic split matches your weekly training frequency.',reps:'Main lifts 4–8; accessories 8–12',rest:'Main lifts 180s; accessories 90s',weight:'Leave 1–3 clean reps in reserve',science:'Strength and hypertrophy overlap. Heavier practice develops lift-specific strength; recoverable weekly work supports muscle growth. No single machine is best for every person.',cardio:'Short, manageable cardio after lifting, adapted to your running schedule.',tips:['Use the same main movements consistently and track both load and reps.','At 2–3 gym days, prefer full-body training with rest between sessions.','At 4 days, alternate upper and lower; at 5 days, use upper/lower/push/pull/lower.','Review weekly coverage and recovery before adding more work.']},
+  general:{color:'#f5c400',tagline:'A repeatable foundation.',goal:'Train the major movement patterns consistently, combining resistance work with manageable cardio.',reps:'8–12',rest:'75 seconds; take longer if needed',weight:'Adjust to 1–3 reps in reserve',science:'Consistency and progressive training matter more than complex methods. Rep ranges are practical defaults, not exclusive adaptation zones.',cardio:'Moderate activity scaled to available time and recovery.',tips:['Keep useful exercises stable long enough to compare performance.','Progress gradually; do not chase a record every session.']},
+  power:{color:'#a78bfa',tagline:'Improve strength in the lifts you practice.',goal:'Prioritize heavy, controlled main lifts. This is strength training. Explosive power training uses different loading and speed goals.',reps:'Main lifts 3–5; accessories 8–12',rest:'Main lifts 210s; accessories 90s',weight:'Use a challenging load with 1–3 reps in reserve',science:'Heavier loading is useful for maximal strength. Machines improve machine-specific strength; a barbell strength goal requires practicing that lift.',cardio:'Short, easy cardio; manage hard running and lifting fatigue together.',tips:['Use appropriate warm-ups, rack safeties and a spotter when needed.','Stop a set when technique deteriorates.','This mode does not prescribe explosive lifts.']},
+  muscle:{color:'#3b82f6',tagline:'Build muscle through repeatable, progressive work.',goal:'Use straight working sets so reps and load are easy to compare. Machines, cables and free weights are all useful options.',reps:'6–12 as a practical starting range',rest:'150s on main movements; 90s on accessories',weight:'Leave about 1–3 controlled reps in reserve',science:'Muscle growth is possible across a broad range of loads. Weekly challenging-set volume, sufficient effort and consistency matter; pyramids and failure are not prerequisites.',cardio:'Easy to moderate cardio adjusted to lifting performance and recovery.',tips:['Start with a recoverable weekly volume and increase gradually if needed.','Use the weekly coverage panel to spot neglected muscle groups.','Daily nutrition matters more than a narrow post-workout window.','Soreness is not a reliable score for muscle growth.']},
+  tone:{color:'#f97316',tagline:'Maintain strength while pursuing fat loss.',goal:'Preserve muscle with resistance training while managing overall energy balance. No rep range selectively tones a muscle or removes nearby fat.',reps:'10–14',rest:'75s; extend rest when performance drops',weight:'Challenging, controlled reps; reduce when recovery requires it',science:'Resistance training helps retain muscle. Cardio supports health and expenditure, but a fixed session cannot guarantee a calorie deficit.',cardio:'Additional cardio is optional; skip a block when recovery or time requires it.',tips:['Track bodyweight trends over several weeks rather than daily noise.','Keep protein intake and recovery consistent.','Exercise discomfort is not proof of effectiveness.']},
+  endurance:{color:'#10b981',tagline:'Practice sustained muscular effort.',goal:'Use lighter loads and higher reps for local muscular endurance. This complements but does not replace running-specific training.',reps:'15–20',rest:'35s; increase if technique or breathing requires it',weight:'Select a manageable load; do not force failure',science:'Training adaptations are specific. High-rep lifting does not guarantee a faster marathon or replace aerobic training.',cardio:'More cardio blocks; adapt them to your running schedule.',tips:['Keep technique consistent as fatigue builds.','Reduce gym volume when hard running compromises recovery.']}
 };
+Object.keys(FOCUS_DETAIL).forEach(function(key){
+  var d=FOCUS_DETAIL[key];
+  d.advSets='Manual options only. Ordinary work sets are the default; failure, drop sets and rest-pause are not required. Rest-pause is not an inherently safe replacement for barbell failure.';
+  d.progression='Reach the top of the rep range on every straight work set at the same weight with controlled form, then add the next loadable increment. RPE 9.5–10 holds the load. Warm-ups, drops and clusters do not qualify. A changed goal may lower the suggested load.';
+  d.supersets=(key==='power'||key==='hybrid')?'Automatic supersets are disabled to preserve rest.':'Optional pairings save time when they do not compromise technique or performance.';
+});
 
 function openFocusModal(g) {
   _pendingFocus = g;
@@ -8212,7 +8240,7 @@ function updateTDEEPreview(){
 
 function buildWeekFocusRow(){
   var row=el('weekFocusRow');if(!row)return;
-  var goals=['general','power','muscle','tone','endurance'];
+  var goals=['hybrid','general','power','muscle','tone','endurance'];
   row.innerHTML=goals.map(function(g){
     var m=FOCUS_META[g],active=S.weekFocus===g;
     var desc=m.restLabel+' rest · '+m.reps[0]+'-'+m.reps[1]+' reps';
@@ -8227,9 +8255,10 @@ function buildWeekFocusRow(){
 }
 function setWeeklyFocus(g){
   S.weekFocus=g;
+  _autoSplitCache={};
   // Use vDate consistently  --  all operations target the currently viewed day
   var k=dKey(vDate);
-  if(S.sessions[k]&&S.sessions[k].gym){
+  if(S.sessions[k]&&S.sessions[k].gym&&!sessionHasActivity(S.sessions[k].gym)){
     var gym=S.sessions[k].gym;
     // Clear auto-seeded supersets so they re-evaluate for the new focus
     gym.supersets={};
@@ -9675,14 +9704,14 @@ function buildExerciseProgressionChart(){
   var exName=sel.value;
   if(!exName){chart.innerHTML='<div style="font-size:11px;color:var(--mu)">Pick an exercise above to see its weight progression.</div>';return;}
   // Gather all gym sessions and find sets for this exercise
-  var gymHist=S.history.filter(function(h){return h.type==='gym';}).sort(function(a,b){return a.date.localeCompare(b.date);});
+  var gymHist=S.history.filter(function(h){return h.type==='gym'&&(!h.gymId||h.gymId===S.activeGymId);}).sort(function(a,b){return a.date.localeCompare(b.date);});
   var points=[];
   gymHist.forEach(function(h){
     (h.exercises||[]).forEach(function(ex){
       if(ex.name!==exName) return;
       var maxSet=null;
       (ex.sets||[]).forEach(function(s){
-        if(s.done&&s.weight&&s.reps&&s.type!=='wu'){
+        if(isStrengthRecordSet(s,ex.name)&&Number(s.reps)<=12){
           var orm=est1RM(parseFloat(s.weight)||0,parseInt(s.reps)||1);
           if(!maxSet||orm>maxSet.orm) maxSet={date:h.date,weight:parseFloat(s.weight),reps:parseInt(s.reps),orm:orm};
         }
@@ -9757,7 +9786,7 @@ function buildStrengthStandardsTable(){
 
   lifts.forEach(function(lift){
     var std=standards[lift.k];
-    var current1RM=est1RM(S.strength[lift.k]||0);
+    var current1RM=loggedLiftEstimate(lift.k);
     var userLevel=' -- ';
     levels.slice().reverse().forEach(function(l){if(current1RM>=Math.round(wt*std[l])&&userLevel===' -- ')userLevel=l;});
     html+='<tr><td>'+lift.n+'</td>';
@@ -9769,7 +9798,7 @@ function buildStrengthStandardsTable(){
     html+='<td style="color:var(--ye);font-weight:700">'+toDisplayWeight(current1RM)+'</td></tr>';
   });
   html+='</tbody></table></div>';
-  html+='<div style="font-size:10px;color:var(--mu);margin-top:8px">Numbers are target 1RM in '+_wuSS+'. ✓ = achieved.</div>';
+  html+='<div style="font-size:10px;color:var(--mu);margin-top:8px">Reference estimates in '+_wuSS+'. Based on logged straight sets of 1–12 reps; not tested maxes.</div>';
   el2.innerHTML=html;
 }
 
@@ -9778,7 +9807,7 @@ function buildStrengthStandardsTable(){
 // ═══════════════════════════════════════════════════════════════════
 function buildLiftRatioCheck(){
   var el2=el('liftRatioCheck'); if(!el2) return;
-  var sq=S.strength.squat||0, be=S.strength.bench||0, dl=S.strength.deadlift||0, oh=S.strength.ohp||0;
+  var sq=loggedLiftEstimate('squat'),be=loggedLiftEstimate('bench'),dl=loggedLiftEstimate('deadlift'),oh=loggedLiftEstimate('ohp');
   if(!sq&&!be&&!dl){el2.innerHTML='<div style="font-size:11px;color:var(--mu)">Log your lifts to see ratio analysis.</div>';return;}
   // Ideal ratios: Deadlift ~120% Squat, Bench ~67% Squat, OHP ~67% Bench, Deadlift ~150% Bench
   var ratios=[
@@ -9787,14 +9816,14 @@ function buildLiftRatioCheck(){
     {label:'OHP / Bench',     actual:be>0?oh/be:0,ideal:0.67,min:0.55,max:0.80,note:'Target ~67%'},
     {label:'Deadlift / Bench',actual:be>0?dl/be:0,ideal:1.5, min:1.2, max:1.9,note:'Target ~150%'}
   ];
-  var html='<div style="font-size:10px;color:var(--mu);margin-bottom:10px">Ideal muscle balance ratios. Too far outside range may signal a weakness.</div>';
+  var html='<div style="font-size:10px;color:var(--mu);margin-bottom:10px">Rough lift ratios, not a health or injury assessment. Anatomy, training history and technique affect these comparisons.</div>';
   ratios.forEach(function(r){
     if(r.actual===0)return;
     var pct=Math.round(r.actual*100);
     var idealPct=Math.round(r.ideal*100);
     var inRange=r.actual>=r.min&&r.actual<=r.max;
     var col=inRange?'var(--gr)':(r.actual<r.min?'var(--bl)':'var(--or)');
-    var status=inRange?'✓ Balanced':(r.actual<r.min?'↑ Develop':'⚠ Check form');
+    var status=inRange?'Within reference':(r.actual<r.min?'Below reference':'Above reference');
     var barPct=Math.min(100,Math.round((r.actual/r.max)*100));
     html+='<div class="ratio-row"><div style="width:100px;font-size:11px;color:#fff;flex-shrink:0">'+r.label+'</div>';
     html+='<div style="flex:1"><div class="ratio-bar-wrap"><div class="ratio-bar-fill" style="width:'+barPct+'%;background:'+col+'"></div></div>';
@@ -9817,7 +9846,7 @@ function buildOrmMilestones(){
   var html='<div style="font-size:10px;color:var(--mu);margin-bottom:10px">Next round-number milestones. Rate assumes ~5 '+_wuMs+'/session progression.</div>';
   var hasAny=false;
   lifts.forEach(function(lift){
-    var current1RM=est1RM(S.strength[lift.k]||0);
+    var current1RM=loggedLiftEstimate(lift.k);
     if(!current1RM)return;
     hasAny=true;
     // Round number milestones (in lbs - internal storage)
@@ -9836,7 +9865,7 @@ function buildOrmMilestones(){
       var pct=Math.min(100,Math.round((current1RM/target)*100));
       html+='<div style="margin-bottom:6px"><div class="fbet" style="margin-bottom:3px">';
       html+='<div style="font-size:11px;color:#fff">'+targetD+' '+_wuMs+'</div>';
-      html+='<div style="font-size:10px;color:var(--mu);font-family:\'DM Mono\',monospace">+'+gapD+' '+_wuMs+' · ~'+weeksEst+'w</div></div>';
+      html+='<div style="font-size:10px;color:var(--mu);font-family:\'DM Mono\',monospace">+'+gapD+' '+_wuMs+' · timing varies</div></div>';
       html+='<div style="height:5px;background:var(--s3);border-radius:99px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:var(--ye);border-radius:99px;transition:width .4s"></div></div></div>';
     });
     html+='</div>';
@@ -9888,7 +9917,7 @@ function buildStrengthTab(){
     {k:'legpress',n:'Leg Press',col:'#22c55e'},
     {k:'latpull', n:'Lat Pull', col:'#06b6d4'}
   ];
-  var gymHistory = S.history.filter(function(h){return h.type==='gym';}).slice(-60);
+  var gymHistory = S.history.filter(function(h){return h.type==='gym'&&(!h.gymId||h.gymId===S.activeGymId);}).sort(function(a,b){return a.date.localeCompare(b.date);}).slice(-60);
   if(!gymHistory.length){trend.innerHTML='<div style="font-size:11px;color:var(--mu)">Log workouts to see 1RM trend.</div>';return;}
   var html = '<div style="overflow-x:auto">';
   var anyData = false;
@@ -9899,10 +9928,10 @@ function buildStrengthTab(){
       h.exercises.forEach(function(ex){
         // Use EX_TO_STRENGTH for accurate matching — resolves OHP, Leg Press, etc.
         if(!ex.name) return;
-        var strKey = EX_TO_STRENGTH[ex.name] || getStrKey(ex.name);
+        var strKey = getStrKey(ex.name);
         if(strKey !== lift.k) return;
         (ex.sets||[]).forEach(function(s){
-          if(s.weight&&s.reps&&s.done){
+          if(isStrengthRecordSet(s,ex.name)&&Number(s.reps)<=12){
             var orm = est1RM(parseFloat(s.weight)||0, parseInt(s.reps)||1);
             data.push({date:h.date, orm:orm});
           }
@@ -11025,7 +11054,7 @@ return '<div class="plateau-item">📊 <strong>'+p.name.split('(')[0].trim()+'</
 }
 var progAlertsEl=el('progAlerts');
 if(progAlertsEl) progAlertsEl.innerHTML=deloadHTML+plateauHTML;
-var now=new Date(),dow=now.getDay(),mon=new Date(now);mon.setDate(now.getDate()-((dow===0?7:dow)-1));var dates=[];for(var i=0;i<7;i++){var d=new Date(mon);d.setDate(mon.getDate()+i);dates.push(dKey(d));}var ws=S.history.filter(function(h){return dates.indexOf(h.date)>=0;}),exp=S.setup.gymDays.length+S.setup.runDays.length,done=ws.length,pct=exp>0?Math.round(done/exp*100):0;el('ringC').style.strokeDashoffset=188-(188*Math.min(1,done/Math.max(exp,1)));el('wkPct').textContent=pct+'%';el('wkLbl').textContent=done+' of '+exp;var wV=ws.reduce(function(a,h){return a+(h.volume||0);},0),wS=ws.reduce(function(a,h){return a+(h.sets||0);},0),wC=ws.reduce(function(a,h){return a+(h.cardioMins||0)+(h.duration||0);},0),wM=ws.filter(function(h){return h.type==='run';}).reduce(function(a,h){return a+(h.distance||0);},0);var _wuWk=getWeightUnit(),_wVD=toDisplayWeight(wV);var _vcLbl=el('volChartLbl');if(_vcLbl)_vcLbl.textContent='Volume This Week ('+_wuWk+')';el('wkStats').innerHTML='<div class="sb"><div class="sv">'+(_wVD>999?Math.round(_wVD/1000)+'k':Math.round(_wVD))+'</div><div class="sl">Vol '+_wuWk+'</div></div><div class="sb"><div class="sv">'+wS+'</div><div class="sl">Sets</div></div><div class="sb"><div class="sv">'+Math.round(wC)+'</div><div class="sl">Cardio</div></div><div class="sb"><div class="sv" style="color:var(--ru)">'+wM.toFixed(1)+'</div><div class="sl">Run mi</div></div>';drawBar('volChart',dates.map(function(d){var s=ws.find(function(h){return h.date===d&&h.type==='gym';});return s?toDisplayWeight(s.volume||0):0;}),['M','T','W','Th','F','Sa','Su'],'#f5c400');drawBar('runChart',dates.map(function(d){var s=ws.find(function(h){return h.date===d&&h.type==='run';});return s?s.distance:0;}),['M','T','W','Th','F','Sa','Su'],'#10b981');var lifts=[{k:'squat',n:'Squat'},{k:'bench',n:'Bench'},{k:'deadlift',n:'Deadlift'},{k:'ohp',n:'OHP'}];var _wuOrm=getWeightUnit();el('ormChart').innerHTML=lifts.map(function(l){return'<div class="fbet" style="padding:7px 0;border-bottom:1px solid var(--b1)"><div style="font-size:12px">'+l.n+'</div><div><span class="badge by">Est 1RM: '+toDisplayWeight(est1RM(S.strength[l.k]||0))+' '+_wuOrm+'</span><span style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--mu);margin-left:8px">Working: '+toDisplayWeight(S.strength[l.k]||0)+' '+_wuOrm+'</span></div></div>';}).join('');var pbs=Object.values(S.pbs);if(!pbs.length){el('pbList').innerHTML='<div style="color:var(--mu);font-size:12px">Log workouts to track PRs.</div>';return;}var byEx={};pbs.forEach(function(p){if(!byEx[p.exercise]||p.vol>byEx[p.exercise].vol)byEx[p.exercise]=p;});var _wuPB=getWeightUnit();el('pbList').innerHTML=Object.values(byEx).slice(0,8).map(function(p){return'<div class="fbet" style="padding:7px 0;border-bottom:1px solid var(--b1)"><div style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:65%">'+p.exercise+'</div><span class="badge by">🏆 '+toDisplayWeight(parseFloat(p.weight)||0)+' '+_wuPB+' × '+p.reps+'</span></div>';}).join('');
+var now=new Date(),dow=now.getDay(),mon=new Date(now);mon.setDate(now.getDate()-((dow===0?7:dow)-1));var dates=[];for(var i=0;i<7;i++){var d=new Date(mon);d.setDate(mon.getDate()+i);dates.push(dKey(d));}var ws=S.history.filter(function(h){return dates.indexOf(h.date)>=0;}),exp=S.setup.gymDays.length+S.setup.runDays.length,done=ws.length,pct=exp>0?Math.round(done/exp*100):0;el('ringC').style.strokeDashoffset=188-(188*Math.min(1,done/Math.max(exp,1)));el('wkPct').textContent=pct+'%';el('wkLbl').textContent=done+' of '+exp;var wV=ws.reduce(function(a,h){return a+(h.volume||0);},0),wS=ws.reduce(function(a,h){return a+(h.sets||0);},0),wC=ws.reduce(function(a,h){return a+(h.type==='run'?(h.duration||0):(h.cardioMins||0));},0),wM=ws.filter(function(h){return h.type==='run';}).reduce(function(a,h){return a+(h.distance||0);},0);var _wuWk=getWeightUnit(),_wVD=toDisplayWeight(wV);var _vcLbl=el('volChartLbl');if(_vcLbl)_vcLbl.textContent='Volume This Week ('+_wuWk+')';el('wkStats').innerHTML='<div class="sb"><div class="sv">'+(_wVD>999?Math.round(_wVD/1000)+'k':Math.round(_wVD))+'</div><div class="sl">Vol '+_wuWk+'</div></div><div class="sb"><div class="sv">'+wS+'</div><div class="sl">Sets</div></div><div class="sb"><div class="sv">'+Math.round(wC)+'</div><div class="sl">Cardio</div></div><div class="sb"><div class="sv" style="color:var(--ru)">'+wM.toFixed(1)+'</div><div class="sl">Run mi</div></div>';drawBar('volChart',dates.map(function(d){var s=ws.find(function(h){return h.date===d&&h.type==='gym';});return s?toDisplayWeight(s.volume||0):0;}),['M','T','W','Th','F','Sa','Su'],'#f5c400');drawBar('runChart',dates.map(function(d){var s=ws.find(function(h){return h.date===d&&h.type==='run';});return s?s.distance:0;}),['M','T','W','Th','F','Sa','Su'],'#10b981');var lifts=[{k:'squat',n:'Squat'},{k:'bench',n:'Bench'},{k:'deadlift',n:'Deadlift'},{k:'ohp',n:'OHP'}];var _wuOrm=getWeightUnit();el('ormChart').innerHTML=lifts.map(function(l){return'<div class="fbet" style="padding:7px 0;border-bottom:1px solid var(--b1)"><div style="font-size:12px">'+l.n+'</div><div><span class="badge by">Est 1RM: '+toDisplayWeight(loggedLiftEstimate(l.k))+' '+_wuOrm+'</span><span style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--mu);margin-left:8px">Working: '+toDisplayWeight(S.strength[l.k]||0)+' '+_wuOrm+'</span></div></div>';}).join('');var pbs=Object.values(S.pbs);if(!pbs.length){el('pbList').innerHTML='<div style="color:var(--mu);font-size:12px">Log workouts to track PRs.</div>';return;}var byEx={};pbs.forEach(function(p){if(!byEx[p.exercise]||p.vol>byEx[p.exercise].vol)byEx[p.exercise]=p;});var _wuPB=getWeightUnit();el('pbList').innerHTML=Object.values(byEx).slice(0,8).map(function(p){return'<div class="fbet" style="padding:7px 0;border-bottom:1px solid var(--b1)"><div style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:65%">'+escapeHtml(p.exercise)+'</div><span class="badge by">🏆 '+toDisplayWeight(parseFloat(p.weight)||0)+' '+_wuPB+' × '+p.reps+'</span></div>';}).join('');
   buildReadyToProgressPanel();
   // Ensure correct tab panel is visible and its content is built
   var _pt = _activeProgTab || 'strength';
@@ -11099,7 +11128,7 @@ function renderHistory(){
     var topExercises='';
     var _wuHL=getWeightUnit(), _sVD=toDisplayWeight(s.volume||0);
     if(s.exercises&&s.exercises.length){var doneEx=s.exercises.filter(function(e){return e.sets&&e.sets.some(function(x){return x.done;});});if(doneEx.length){topExercises='<div style="font-size:10px;color:var(--mu);margin-top:4px;font-family:\'DM Mono\',monospace">'+doneEx.slice(0,3).map(function(e){var maxW=Math.max.apply(null,e.sets.filter(function(x){return x.done&&x.weight;}).map(function(x){return parseFloat(x.weight)||0;}));return e.name+(maxW?': '+toDisplayWeight(maxW)+' '+_wuHL:'');}).join(' · ')+(doneEx.length>3?' +more':'')+'</div>';}}
-    return'<div class="hitem gym" onclick="openHistDetail('+s.id+')"><div class="fbet"><div><div class="hdate">'+fmtDate(s.date)+(s.duration?'<span class="dur-badge" style="margin-left:6px">⏱ '+s.duration+'m</span>':'')+'</div><div class="htitle">🏋️ '+s.day+' · '+s.focus+prBadge+'</div></div><span class="badge bg">✓ '+(s.intensity||'std')+'</span></div><div class="hstats"><div class="hst">Vol: <span>'+(_sVD>999?Math.round(_sVD/1000)+'k':Math.round(_sVD))+'</span></div><div class="hst">Sets: <span>'+s.sets+'</span></div><div class="hst">Cardio: <span>'+Math.round(s.cardioMins||0)+'m</span></div>'+(stars?'<div class="hst"><span>'+stars+'</span></div>':'')+'</div>'+topExercises+(s.notes?'<div style="font-size:11px;color:var(--mu);margin-top:4px;font-style:italic">📝 '+s.notes+'</div>':'')+'</div>';
+    return'<div class="hitem gym" onclick="openHistDetail('+s.id+')"><div class="fbet"><div><div class="hdate">'+fmtDate(s.date)+(s.duration?'<span class="dur-badge" style="margin-left:6px">⏱ '+s.duration+'m</span>':'')+'</div><div class="htitle">🏋️ '+s.day+' · '+s.focus+prBadge+'</div></div><span class="badge bg">✓ '+(s.intensity||'std')+'</span></div><div class="hstats"><div class="hst">Vol: <span>'+(_sVD>999?Math.round(_sVD/1000)+'k':Math.round(_sVD))+'</span></div><div class="hst">Sets: <span>'+s.sets+'</span></div><div class="hst">Cardio: <span>'+Math.round(s.cardioMins||0)+'m</span></div>'+(stars?'<div class="hst"><span>'+stars+'</span></div>':'')+'</div>'+topExercises+(s.notes?'<div style="font-size:11px;color:var(--mu);margin-top:4px;font-style:italic">📝 '+escapeHtml(s.notes)+'</div>':'')+'</div>';
   }).join('');
 }
 function openHistDetail(id){
@@ -11120,13 +11149,13 @@ html='<div style="font-size:11px;color:var(--ru);margin-bottom:10px;font-family:
 (s.elevation?'<div style="font-size:12px;color:#bbb;margin:4px 0">Elevation: '+s.elevation+' ft</div>':'')+
 (s.injuryTag?'<div style="font-size:12px;color:var(--or);margin:4px 0;background:rgba(251,146,60,.08);padding:5px 8px;border-radius:6px">⚠️ Issue: '+({knee:'🦵 Knee',itband:'⚡ IT Band',shin:'🦴 Shin Splints',hip:'🏃 Hip/Glute',foot:'👟 Foot/Plantar',ankle:'🦶 Ankle',calf:'🦵 Calf',illness:'🤒 Illness',fatigue:'😴 Fatigue'}[s.injuryTag]||s.injuryTag)+'</div>':'')+
 (s.splits&&s.splits.length?'<div style="margin-top:10px"><div style="font-size:11px;font-weight:600;color:#fff;margin-bottom:6px">📊 Mile Splits</div>'+s.splits.map(function(sp,i){return'<div style="display:flex;gap:8px;font-size:11px;padding:4px 0;border-bottom:1px solid var(--b1)"><span style="color:var(--mu);width:50px;font-family:\'DM Mono\',monospace">Mile '+(i+1)+'</span>'+(sp.pace?'<span style="color:#fff">'+sp.pace+'/mi</span>':'')+(sp.hr?'<span style="color:var(--ru);margin-left:8px">'+sp.hr+'bpm</span>':'')+(sp.feel?'<span style="color:var(--mu);margin-left:auto">'+sp.feel+'</span>':'')+'</div>';}).join('')+'</div>':'')+
-(s.notes?'<div style="font-size:12px;color:#ccc;margin:8px 0;padding:9px;background:var(--s3);border-radius:7px">📝 '+s.notes+'</div>':'');
+(s.notes?'<div style="font-size:12px;color:#ccc;margin:8px 0;padding:9px;background:var(--s3);border-radius:7px">📝 '+escapeHtml(s.notes)+'</div>':'');
 } else {
 title='🏋️ '+s.day.toUpperCase()+' · '+fmtDate(s.date);
 var detStars=''; for(var ri=0;ri<(s.rating||0);ri++) detStars+='⭐';
 var _wuHD=getWeightUnit(),_sVolD=toDisplayWeight(s.volume||0);
 html=(detStars?'<div style="margin-bottom:8px">'+detStars+'</div>':'')+
-(s.notes?'<div style="font-size:12px;color:#ccc;padding:9px;background:var(--s3);border-radius:7px;margin-bottom:10px;font-style:italic">📝 '+s.notes+'</div>':'')+
+(s.notes?'<div style="font-size:12px;color:#ccc;padding:9px;background:var(--s3);border-radius:7px;margin-bottom:10px;font-style:italic">📝 '+escapeHtml(s.notes)+'</div>':'')+
 '<div style="font-size:11px;color:var(--mu);margin-bottom:10px;font-family:\'DM Mono\',monospace">'+s.focus+' · '+(s.intensity||'standard').toUpperCase()+'</div>'+
 '<div class="sg"><div class="sb"><div class="sv">'+(_sVolD>999?Math.round(_sVolD/1000)+'k':Math.round(_sVolD))+'</div><div class="sl">Vol '+_wuHD+'</div></div>'+
 '<div class="sb"><div class="sv">'+s.sets+'</div><div class="sl">Sets</div></div>'+
@@ -11138,8 +11167,8 @@ var done=ex.sets.filter(function(x){return x.done;});
 if(!done.length) return;
 html+='<div style="margin-bottom:9px">'+
 '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">'+
-'<div style="font-weight:600;font-size:12px">'+ex.name+'</div>'+
-'<button class="btn btn-g bsm" style="font-size:9px;padding:3px 8px" data-nm="'+ex.name+'" onclick="openExChart(\u0027'+ex.name+'\u0027)">📈</button></div>'+
+'<div style="font-weight:600;font-size:12px">'+escapeHtml(ex.name)+'</div>'+
+'<button class="btn btn-g bsm" style="font-size:9px;padding:3px 8px" data-nm="'+escapeHtml(ex.name)+'" onclick="openExChart(this.dataset.nm)">📈</button></div>'+
 done.map(function(x,i){return'<div style="font-size:11px;color:var(--mu);font-family:\'DM Mono\',monospace">Set '+(i+1)+': '+toDisplayWeight(parseFloat(x.weight)||0)+' '+_wuHD+' × '+x.reps+' reps'+(x.type&&x.type!=='wk'?' ['+x.type+']':'')+'</div>';}).join('')+
 '</div>';
 });
@@ -11162,7 +11191,7 @@ function recomputePBs(){
     if(h.type!=='gym'||!h.exercises) return;
     h.exercises.forEach(function(ex){
       (ex.sets||[]).forEach(function(s,si){
-        if(s.done&&s.weight&&s.reps){
+        if(isStrengthRecordSet(s,ex.name)){
           var key=ex.name+'_'+si, nv=(parseFloat(s.weight)||0)*(parseFloat(s.reps)||0);
           if(!pbs[key]||nv>pbs[key].vol) pbs[key]={exercise:ex.name,weight:s.weight,reps:s.reps,vol:nv,date:h.date};
         }
@@ -11692,11 +11721,37 @@ function printReport(){
     try{ var eff=getEffectiveTDEE(); if(eff) h+=stat(eff+' cal','Maintenance est.'); }catch(e){}
     h+='</div>';
   }
-  h+='<div class="pr-foot">Generated by PF Fitness Tracker · Private health summary · '+new Date().toISOString().slice(0,10)+'</div>';
+  h+='<div class="pr-foot">Generated by PF Fitness Tracker · Private health summary · '+dKey(new Date())+'</div>';
   c.innerHTML=h;
   window.print();
 }
 
+function validateBackupState(data){
+  function object(v){return v&&typeof v==='object'&&!Array.isArray(v);}
+  function fail(msg){throw new Error('Invalid backup: '+msg);}
+  function date(k){return /^\d{4}-\d{2}-\d{2}$/.test(k)&&dKey(new Date(k+'T12:00:00'))===k;}
+  if(!object(data)||!object(data.setup)||!object(data.strength)||!object(data.sessions)||!Array.isArray(data.history)||!Array.isArray(data.weights))fail('missing setup, strength, sessions, history or weights');
+  ['gymDays','runDays'].forEach(function(key){if(!Array.isArray(data.setup[key])||data.setup[key].some(function(d){return !Number.isInteger(d)||d<0||d>6;}))fail(key);});
+  function sets(ex){
+    if(!object(ex)||!Array.isArray(ex.sets))fail('exercise sets');
+    ex.sets.forEach(function(s){
+      if(!object(s))fail('set');
+      ['weight','reps'].forEach(function(key){if(s[key]!=null&&s[key]!==''&&(!isFinite(Number(s[key]))||Number(s[key])<0))fail('negative or invalid '+key);});
+    });
+  }
+  data.history.forEach(function(h){
+    if(!object(h)||!date(h.date)||['gym','run'].indexOf(h.type)<0)fail('history entry');
+    if(h.type==='gym'){if(!Array.isArray(h.exercises))fail('gym exercises');h.exercises.forEach(function(e){if(typeof e.name!=='string')fail('exercise name');sets(e);});}
+    ['distance','duration','volume','sets','cardioMins'].forEach(function(key){if(h[key]!=null&&(!isFinite(Number(h[key]))||Number(h[key])<0))fail(key);});
+  });
+  data.weights.forEach(function(w){if(!object(w)||!date(w.date)||!isFinite(Number(w.w))||Number(w.w)<=0)fail('body weight');});
+  Object.keys(data.sessions).forEach(function(k){
+    var session=data.sessions[k];if(!date(k)||!object(session))fail('session');
+    if(session.gym){if(!object(session.gym.exercises)&&!Array.isArray(session.gym.exercises))fail('gym session');Object.values(session.gym.exercises).forEach(sets);}
+  });
+  if(data.gymProfiles!=null&&(!Array.isArray(data.gymProfiles)||data.gymProfiles.some(function(g){return !object(g)||!Array.isArray(g.equipment)||g.equipment.some(function(e){return typeof e!=='string';});})))fail('gym equipment');
+  return data;
+}
 function importData(){
   try{
     var inp=document.createElement('input');
@@ -11707,9 +11762,7 @@ function importData(){
       var reader=new FileReader();
       reader.onload=function(e){
         try{
-          var data=JSON.parse(e.target.result);
-          if(!data||typeof data!=='object'){showToast('Invalid backup file');return;}
-          if(!data.sessions&&!data.weights&&!data.setup){showToast('This does not look like a PF backup');return;}
+          var data=validateBackupState(JSON.parse(e.target.result));
           var exportDate=data._exportDate?data._exportDate.slice(0,10):'unknown date';
           showConfirm('Restore backup from '+exportDate+'? This will replace all current data.',function(){
             delete data._version;delete data._exportDate;delete data._appName;
@@ -12207,11 +12260,11 @@ function buildSpPRList(){
   var groupEmoji={'Big 4':'🏆','Pull':'⬆️','Hinge':'🔁','Press':'💪','Isolation':'🎯','Bodyweight':'🤸'};
   var html='<div style="font-size:10px;color:var(--mu);margin-bottom:8px">'+entries.length+' exercise PR'+(entries.length===1?'':'s')+(_prFilter!=='all'?' in last '+_prFilter+' days':'')+'</div>';
   function renderPR(p){
-    var orm=est1RM(parseFloat(p.weight)||0,parseInt(p.reps)||7);
+    var orm=Number(p.reps)<=12?est1RM(Number(p.weight)||0,Number(p.reps)):0;
     var _wuPR=getWeightUnit();
     return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--b1)">'+
       '<div style="min-width:0;flex:1">'+
-        '<div style="font-size:12px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+p.exercise+'</div>'+
+        '<div style="font-size:12px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+escapeHtml(p.exercise)+'</div>'+
         '<div style="font-size:10px;color:var(--mu);font-family:\'DM Mono\',monospace;margin-top:1px">'+fmtDate(p.date)+'</div>'+
       '</div>'+
       '<div style="text-align:right;flex-shrink:0;margin-left:8px">'+
@@ -12258,7 +12311,7 @@ function updateTestMaxPreview() {
   // Convert from display unit to lbs for all calculations
   var wLbs = fromDisplayWeight(w);
   // Epley formula (in lbs internally)
-  var orm = Math.round(wLbs * (1 + r/30) / 5) * 5;
+  var orm = est1RM(wLbs,r);
   res.style.display = 'block';
   if(ormEl) ormEl.textContent = toDisplayWeight(orm) + ' ' + getWeightUnit();
   // Strength level classification (bw stored in lbs, orm now in lbs — ratio is correct)
@@ -12278,7 +12331,7 @@ function updateTestMaxPreview() {
       var levels=['Beginner','Novice','Intermediate','Advanced','Elite'];
       var lColors={Beginner:'var(--mu)',Novice:'var(--bl)',Intermediate:'var(--ye)',Advanced:'var(--or)',Elite:'#a78bfa'};
       var userLevel='Beginner';
-      levels.slice().reverse().forEach(function(l){if(orm >= Math.round(bw*std[l])) userLevel=l;});
+      levels.slice().reverse().some(function(l){if(orm >= Math.round(bw*std[l])){userLevel=l;return true;}return false;});
       levelHtml = ' · <span style="color:'+lColors[userLevel]+';font-weight:700">'+userLevel+'</span>';
     }
   }
@@ -12334,7 +12387,7 @@ function applyTestMax() {
   // The weight they lifted IS their working weight -- set it directly.
   // Only reduce it if they tested a true 1RM (1 rep) to get a working weight at ~80%.
   var workingWeight = r === 1 ? Math.round(w * 0.80 / 5) * 5 : w;
-  var orm = Math.round(w * (1 + r/30) / 5) * 5;
+  var orm = est1RM(w,r);
   S.strength[sel.value] = workingWeight;
   // Log this test to history
   if(!S.strengthTests) S.strengthTests = {};
@@ -12861,12 +12914,15 @@ document.querySelectorAll('.mo').forEach(function(o){o.addEventListener('click',
 // ── Goals helpers — everything below derives from LOGGED activity (workout
 //    history + weigh-ins) so nothing is ever pre-awarded from baseline numbers.
 function _gMinWeight(){var w=S.weights||[];if(!w.length)return Infinity;return w.reduce(function(m,e){return Math.min(m,e.w);},Infinity);}
-function _gIsBench(n){n=(n||'').toLowerCase();return n.indexOf('bench press')>=0&&n.indexOf('incline')<0&&n.indexOf('decline')<0&&n.indexOf('close')<0&&n.indexOf('dumbbell')<0;}
-function _gIsSquat(n){n=(n||'').toLowerCase();if(n.indexOf('squat')<0)return false;return ['hack','smith','goblet','split','bulgarian','sissy','jump','wall','pistol','box','belt','lunge'].every(function(x){return n.indexOf(x)<0;});}
-function _gIsDead(n){n=(n||'').toLowerCase();return n.indexOf('deadlift')>=0&&n.indexOf('romanian')<0&&n.indexOf('rdl')<0&&n.indexOf('stiff')<0&&n.indexOf('single')<0&&n.indexOf('dumbbell')<0&&n.indexOf('deficit')<0;}
-function _gIsOHP(n){n=(n||'').toLowerCase();return (n.indexOf('overhead press')>=0||n.indexOf('military press')>=0)&&n.indexOf('dumbbell')<0&&n.indexOf('seated')<0;}
-function _gBest1RM(matchFn){var best=0;(S.history||[]).forEach(function(h){if(h.type!=='gym'||!h.exercises)return;h.exercises.forEach(function(ex){if(!matchFn(ex.name))return;(ex.sets||[]).forEach(function(s){if(s.done&&s.weight&&s.reps){var w=parseFloat(s.weight)||0,r=parseInt(s.reps)||0;if(w>0&&r>0){var e=est1RM(w,r);if(e>best)best=e;}}});});});return best;}
-function _gClubTotal(){return _gBest1RM(_gIsBench)+_gBest1RM(_gIsSquat)+_gBest1RM(_gIsDead);}
+function _gIsBench(n){return ['Bench Press (Barbell)','Barbell Bench Press'].indexOf(n)>=0;}
+function _gIsSquat(n){return ['Barbell Back Squat','Back Squat (Barbell)'].indexOf(n)>=0;}
+function _gIsDead(n){return ['Deadlifts (Barbell)','Barbell Deadlift','Sumo Deadlift'].indexOf(n)>=0;}
+function _gIsOHP(n){return ['Barbell Overhead Press','Barbell Military Press'].indexOf(n)>=0;}
+function _gBestLoad(matchFn){
+  var best=0;(S.history||[]).forEach(function(h){if(h.type!=='gym')return;(h.exercises||[]).forEach(function(ex){if(!matchFn(ex.name))return;(ex.sets||[]).forEach(function(s){if(isStrengthRecordSet(s,ex.name))best=Math.max(best,Number(s.weight));});});});return best;
+}
+function _gBest1RM(matchFn){var best=0;(S.history||[]).forEach(function(h){if(h.type!=='gym'||!h.exercises)return;h.exercises.forEach(function(ex){if(!matchFn(ex.name))return;(ex.sets||[]).forEach(function(s){if(isStrengthRecordSet(s)){var w=parseFloat(s.weight)||0,r=parseInt(s.reps)||0;if(w>0&&r>0){var e=est1RM(w,r);if(e>best)best=e;}}});});});return best;}
+function _gClubTotal(){return _gBestLoad(_gIsBench)+_gBestLoad(_gIsSquat)+_gBestLoad(_gIsDead);}
 function _gLongestRun(){return (S.history||[]).reduce(function(m,h){return h.type==='run'?Math.max(m,h.distance||0):m;},0);}
 function _gRunCount(){return (S.history||[]).filter(function(h){return h.type==='run';}).length;}
 function _gGymCount(){return (S.history||[]).filter(function(h){return h.type==='gym';}).length;}
@@ -12929,22 +12985,22 @@ var ACHIEVEMENTS = [
   {id:'w_185', icon:'🔥', label:'Almost There',  desc:'Reach 185 lbs',                          cat:'weight', test:function(){return _gMinWeight()<=185;}},
   {id:'w_goal',icon:'🏆', label:'Goal Weight!',  desc:'Hit your 180 lb goal',                   cat:'weight', test:function(){return _gMinWeight()<=180;}},
   // Strength — Bench (logged est. 1RM)
-  {id:'b_225', icon:'🏋️', label:'Bench 225',     desc:'Two plates — log a 225 lb bench',        cat:'strength', test:function(){return _gBest1RM(_gIsBench)>=225;}},
-  {id:'b_250', icon:'💪', label:'Bench 250',     desc:'Your 1000-club bench target',            cat:'strength', test:function(){return _gBest1RM(_gIsBench)>=250;}},
-  {id:'b_275', icon:'🥇', label:'Bench 275',     desc:'Log a 275 lb bench 1RM',                 cat:'strength', test:function(){return _gBest1RM(_gIsBench)>=275;}},
+  {id:'b_225', icon:'🏋️', label:'Bench 225',     desc:'Two plates — log a 225 lb bench',        cat:'strength', test:function(){return _gBestLoad(_gIsBench)>=225;}},
+  {id:'b_250', icon:'💪', label:'Bench 250',     desc:'Your 1000-club bench target',            cat:'strength', test:function(){return _gBestLoad(_gIsBench)>=250;}},
+  {id:'b_275', icon:'🥇', label:'Bench 275',     desc:'Log a 275 lb bench 1RM',                 cat:'strength', test:function(){return _gBestLoad(_gIsBench)>=275;}},
   // Strength — Squat (your biggest rebuild)
-  {id:'s_185', icon:'🦵', label:'Squat 185',     desc:'Rebuild: log a 185 lb squat',            cat:'strength', test:function(){return _gBest1RM(_gIsSquat)>=185;}},
-  {id:'s_225', icon:'🦵', label:'Squat 225',     desc:'Two plates — log a 225 lb squat',        cat:'strength', test:function(){return _gBest1RM(_gIsSquat)>=225;}},
-  {id:'s_275', icon:'🏋️', label:'Squat 275',     desc:'Log a 275 lb squat 1RM',                 cat:'strength', test:function(){return _gBest1RM(_gIsSquat)>=275;}},
-  {id:'s_315', icon:'🥇', label:'Squat 315',     desc:'Your 1000-club squat target (3 plates)', cat:'strength', test:function(){return _gBest1RM(_gIsSquat)>=315;}},
+  {id:'s_185', icon:'🦵', label:'Squat 185',     desc:'Rebuild: log a 185 lb squat',            cat:'strength', test:function(){return _gBestLoad(_gIsSquat)>=185;}},
+  {id:'s_225', icon:'🦵', label:'Squat 225',     desc:'Two plates — log a 225 lb squat',        cat:'strength', test:function(){return _gBestLoad(_gIsSquat)>=225;}},
+  {id:'s_275', icon:'🏋️', label:'Squat 275',     desc:'Log a 275 lb squat 1RM',                 cat:'strength', test:function(){return _gBestLoad(_gIsSquat)>=275;}},
+  {id:'s_315', icon:'🥇', label:'Squat 315',     desc:'Your 1000-club squat target (3 plates)', cat:'strength', test:function(){return _gBestLoad(_gIsSquat)>=315;}},
   // Strength — Deadlift (your strongest lift)
-  {id:'d_225', icon:'💀', label:'Deadlift 225',  desc:'Log a 225 lb deadlift',                  cat:'strength', test:function(){return _gBest1RM(_gIsDead)>=225;}},
-  {id:'d_315', icon:'💀', label:'Deadlift 315',  desc:'Three plates on the deadlift',           cat:'strength', test:function(){return _gBest1RM(_gIsDead)>=315;}},
-  {id:'d_380', icon:'🥇', label:'Deadlift 380',  desc:'Your 1000-club deadlift target',         cat:'strength', test:function(){return _gBest1RM(_gIsDead)>=380;}},
-  {id:'d_405', icon:'🩸', label:'Deadlift 405',  desc:'Four plates — back to your old PR',       cat:'strength', test:function(){return _gBest1RM(_gIsDead)>=405;}},
+  {id:'d_225', icon:'💀', label:'Deadlift 225',  desc:'Log a 225 lb deadlift',                  cat:'strength', test:function(){return _gBestLoad(_gIsDead)>=225;}},
+  {id:'d_315', icon:'💀', label:'Deadlift 315',  desc:'Three plates on the deadlift',           cat:'strength', test:function(){return _gBestLoad(_gIsDead)>=315;}},
+  {id:'d_380', icon:'🥇', label:'Deadlift 380',  desc:'Your 1000-club deadlift target',         cat:'strength', test:function(){return _gBestLoad(_gIsDead)>=380;}},
+  {id:'d_405', icon:'🩸', label:'Deadlift 405',  desc:'Four plates — back to your old PR',       cat:'strength', test:function(){return _gBestLoad(_gIsDead)>=405;}},
   // Strength — Overhead press (your bonus goal)
-  {id:'o_135', icon:'🎯', label:'OHP 135',       desc:'Press 135 lbs overhead',                 cat:'strength', test:function(){return _gBest1RM(_gIsOHP)>=135;}},
-  {id:'o_175', icon:'🌟', label:'OHP 175',       desc:'Press 175 lbs overhead',                 cat:'strength', test:function(){return _gBest1RM(_gIsOHP)>=175;}},
+  {id:'o_135', icon:'🎯', label:'OHP 135',       desc:'Press 135 lbs overhead',                 cat:'strength', test:function(){return _gBestLoad(_gIsOHP)>=135;}},
+  {id:'o_175', icon:'🌟', label:'OHP 175',       desc:'Press 175 lbs overhead',                 cat:'strength', test:function(){return _gBestLoad(_gIsOHP)>=175;}},
   // The 1000 lb club — bench + squat + deadlift est. 1RM total
   {id:'c_600', icon:'⚡', label:'600 Club',      desc:'600 lb big-three total',                 cat:'club', test:function(){return _gClubTotal()>=600;}},
   {id:'c_800', icon:'🔋', label:'800 Club',      desc:'800 lb big-three total',                 cat:'club', test:function(){return _gClubTotal()>=800;}},
@@ -13159,12 +13215,11 @@ function snapToLoadable(exName, targetLbs, dir){
   if(!(targetLbs>0)) return targetLbs;
   var base=getBaseWeight(exName);
   if(!(base>0)){
-    // No base weight: dumbbells and pin stacks both move in whole increments, so keep
-    // the established 5 lb rounding rather than guessing a stack's step size.
-    var snapped=Math.round(targetLbs/5)*5;
-    if(dir==='up'&&snapped<targetLbs) snapped+=5;
-    if(dir==='down'&&snapped>targetLbs) snapped-=5;
-    return Math.max(5,snapped);
+    var loading=getExerciseLoading(exName),step=loading.step,min=loading.min;
+    var n=(targetLbs-min)/step;
+    var rounded=dir==='up'?Math.ceil(n-1e-8):dir==='down'?Math.floor(n+1e-8):Math.round(n);
+    var maxStep=isFinite(loading.max)?Math.floor((loading.max-min)/step+1e-8):Infinity;
+    return Math.round((min+Math.max(0,Math.min(maxStep,rounded))*step)*1000)/1000;
   }
   if(targetLbs<=base) return base;
   var want=(targetLbs-base)/2;
@@ -13173,15 +13228,38 @@ function snapToLoadable(exName, targetLbs, dir){
   var hi=i<loads.length?loads[i]:loads[loads.length-1];
   var lo=i>0?loads[i-1]:0;
   var pick;
-  if(dir==='up') pick=hi;
+  if(Math.abs(hi-want)<1e-9) pick=hi;
+  else if(dir==='up') pick=hi;
   else if(dir==='down') pick=lo;
   else pick=(Math.abs(hi-want)<Math.abs(want-lo))?hi:lo;
   return Math.round((base+pick*2)*100)/100;
 }
+function getExerciseLoading(name){
+  var gym=getActiveGym(),config=gym.loading&&gym.loading[name];
+  if(config&&config.step>0&&config.min>=0&&config.max>=config.min)return config;
+  var max=Infinity;
+  if(/dumbbell/i.test(name)){
+    var limits=(gym.equipment||[]).filter(function(e){return /dumbbell/i.test(e);}).map(function(e){var m=e.match(/(\d+)\s*-\s*(\d+)/);return m?Number(m[2]):Infinity;});
+    if(limits.length)max=Math.max.apply(null,limits);
+  }
+  return {min:5,step:5,max:max};
+}
+function editExerciseLoading(ei){
+  var ex=getRenderedExList(dKey(vDate))[ei];if(!ex)return;
+  var c=getExerciseLoading(ex.n),unit=getWeightUnit();
+  var value=prompt('Available loads for '+ex.n+' ('+unit+'): minimum, increment, maximum.\nFor dumbbells enter the weight of ONE dumbbell. Example: 5, 5, 75',
+    [toDisplayWeight(c.min),toDisplayWeight(c.step),isFinite(c.max)?toDisplayWeight(c.max):''].join(', '));
+  if(value===null)return;
+  var parts=value.split(',').map(function(v){return Number(v.trim());});
+  if(parts.length!==3||parts.some(function(v){return !isFinite(v);})||parts[0]<0||parts[1]<=0||parts[2]<parts[0]||parts[2]<=0){showToast('Enter minimum, positive increment, and maximum.');return;}
+  var gym=getActiveGym();if(!gym.loading)gym.loading={};
+  gym.loading[ex.n]={min:fromDisplayWeight(parts[0]),step:fromDisplayWeight(parts[1]),max:fromDisplayWeight(parts[2])};
+  saveS();buildTodayWorkout();
+}
 // Can this exact total be set up on this equipment?
 function isLoadableWeight(exName, totalLbs){
   var base=getBaseWeight(exName);
-  if(!(base>0)) return true;
+  if(!(base>0)) return Math.abs(snapToLoadable(exName,totalLbs)-totalLbs)<0.01;
   if(totalLbs<base) return false;
   if(Math.abs(totalLbs-base)<0.01) return true;
   return Math.abs(snapToLoadable(exName,totalLbs)-totalLbs)<0.01;
@@ -13409,7 +13487,7 @@ function buildActiveGoals(){
   }
 
   // 1000 lb Club — best logged est. 1RM on bench + squat + deadlift
-  var _b=_gBest1RM(_gIsBench),_s=_gBest1RM(_gIsSquat),_d=_gBest1RM(_gIsDead),_tot=_b+_s+_d;
+  var _b=_gBestLoad(_gIsBench),_s=_gBestLoad(_gIsSquat),_d=_gBestLoad(_gIsDead),_tot=_b+_s+_d;
   goals.push({
     icon:'🏆', label:'1000 lb Club',
     value:toDisplayWeight(Math.round(_tot))+' / '+toDisplayWeight(1000)+' '+_wu,
@@ -13503,7 +13581,7 @@ function buildUpcomingMilestones(){
   var el2=el('upcomingMilestones'); if(!el2) return;
   var _wu=getWeightUnit();
   // All from LOGGED data (matches the achievements engine — nothing pre-counted)
-  var bench1RM=_gBest1RM(_gIsBench), squat1RM=_gBest1RM(_gIsSquat), dl1RM=_gBest1RM(_gIsDead);
+  var bench1RM=_gBestLoad(_gIsBench), squat1RM=_gBestLoad(_gIsSquat), dl1RM=_gBestLoad(_gIsDead);
   var clubTot=bench1RM+squat1RM+dl1RM, longRun=_gLongestRun();
 
   var milestones=[];
@@ -13676,7 +13754,7 @@ return [
 var SET_TYPE_INFO = {
   wk:{name:'Work Set',desc:'Your main working sets. These drive all progress.',
     how:'Perform the prescribed reps at working weight with full effort. The double progression engine tracks these to decide when to increase weight.',
-    focusNote:{general:'8-12 reps, 60-90s rest.',power:'3-5 heavy reps, 3-4 min rest. Speed and force are priority.',muscle:'6-12 reps, 60-90s rest. Feel the muscle working.',tone:'10-14 reps, 70-90s rest. Keep the load up while you cut.',endurance:'15-20 reps, 30-45s rest. Build work capacity.'},
+    focusNote:{general:'8-12 reps, 60-90s rest.',power:'3-5 heavy reps, 3-4 min rest. Speed and force are priority.',muscle:'6–12 reps; 90–150s rest, longer if needed.',tone:'10-14 reps, 70-90s rest. Keep the load up while you cut.',endurance:'15-20 reps, 30-45s rest. Build work capacity.'},
     tips:['Only Work sets count toward progression.','Control both the lift and lower.','Log reps honestly.']},
   wu:{name:'Warm-Up Set',desc:'Progressive sets that prime joints and nervous system before heavy work.',
     how:'Two auto-generated sets at 40% and 65-70% of working weight. Reps match your focus: lower for Power, higher for Endurance. Never skip these.',
@@ -13684,15 +13762,15 @@ var SET_TYPE_INFO = {
     tips:['Warm-Up sets do NOT count toward progression.','Rest 60-90s between warm-ups.','If stiff, add a third warm-up at 80% x2.']},
   ds:{name:'Drop Set',desc:'Reduce weight 20% after near-failure and continue  --  no rest.',
     how:'Complete your last Work set to near-failure. Without resting, reduce weight by 20% and rep to near-failure again. Tap Continue Drop to add another 20% reduction. Best on machines and cables.',
-    focusNote:{general:'Drop 20%, aim for 8-12 reps.',power:'Not recommended for power goals. Use Rest-Pause instead.',muscle:'Drop 20%, aim for 8-12 reps. Extends set beyond failure for hypertrophy.',tone:'Drop 20%, aim for 10-15 reps. Keeps metabolic stress high.',endurance:'Drop 20%, push to near-failure (15-20 reps). Maximizes endurance fiber recruitment.'},
+    focusNote:{general:'Drop 20%, aim for 8-12 reps.',power:'Not needed for strength goals. Use ordinary sets with full rests.',muscle:'Drop 20%, aim for 8-12 reps. Extends set beyond failure for hypertrophy.',tone:'Drop 20%, aim for 10-15 reps. Keeps metabolic stress high.',endurance:'Drop 20%, push to near-failure (15-20 reps). Maximizes endurance fiber recruitment.'},
     tips:['Only on the LAST set of an exercise.','Best on machines and cables  --  fast weight changes.','Never on heavy barbell compounds.','Drop Sets do NOT count toward progression.']},
   fl:{name:'Failure Set',desc:'Train until you cannot complete another rep with good form.',
     how:'Perform reps until the muscle gives out. Log actual reps achieved. Best on the final set of isolation and machine exercises. For Power focus, stop 1-2 reps before failure instead.',
-    focusNote:{general:'Go to form failure on your last set. Log actual reps.',power:'NOT recommended on compounds. Leave 1-2 reps in reserve. Isolation only.',muscle:'Last set of machines and isolation to true failure  --  maximum hypertrophy.',tone:'Failure on last isolation set keeps intensity high.',endurance:'Failure on final set maximizes muscular endurance adaptations.'},
+    focusNote:{general:'Go to form failure on your last set. Log actual reps.',power:'NOT recommended on compounds. Leave 1-2 reps in reserve. Isolation only.',muscle:'Optional on stable isolation exercises; failure is not required for growth.',tone:'Failure on last isolation set keeps intensity high.',endurance:'Optional; stop before technique fails.'},
     tips:['ONLY on the final set.','Safest on machines, cables, and dumbbells.','NEVER on barbell squats or bench without a spotter.','Failure sets do NOT count toward progression.']},
   rp:{name:'Rest-Pause Set',desc:'One extended set broken into mini-clusters with 10-15 second rests.',
     how:'Rep to near-failure (1-2 reps in reserve). Rest 10-15 seconds. Rep again. Rest 10-15 seconds. One more cluster. Log TOTAL reps across all clusters as one set.',
-    focusNote:{general:'~3 clusters, 12-15 total reps at working weight.',power:'~3 clusters of 2-3 heavy reps each (7-9 total). Excellent for CNS strength.',muscle:'~3 clusters of 5-6 reps (15-18 total). Proven for hypertrophy at heavy loads.',tone:'~3-4 clusters, 18-22 total reps.',endurance:'~4 clusters, 20-25 total reps. Builds serious work capacity.'},
+    focusNote:{general:'~3 clusters, 12-15 total reps at working weight.',power:'Not automatically prescribed. Heavy clusters need careful load and fatigue management.',muscle:'~3 clusters of 5-6 reps (15-18 total). Proven for hypertrophy at heavy loads.',tone:'~3-4 clusters, 18-22 total reps.',endurance:'~4 clusters, 20-25 total reps. Builds serious work capacity.'},
     tips:['Keep working weight  --  do NOT reduce it.','10-15 seconds rest only.','Log total reps across ALL clusters.','Rest-Pause sets do NOT count toward progression.']}
 };
 
@@ -13953,13 +14031,13 @@ function showWorkoutSummary(){
 }
 
 function buildGymSummaryHTML(s){
-  var FOCUS_LABELS={general:'General Fitness',power:'Power & Strength',muscle:'Build Muscle',tone:'Lose & Tone',endurance:'Endurance'};
+  var FOCUS_LABELS={hybrid:'Muscle + Strength',general:'General Fitness',power:'Build Strength',muscle:'Build Muscle',tone:'Lose & Tone',endurance:'Endurance'};
   var INT_LABELS={quick:'Quick',standard:'Standard',full:'Full'};
   var starStr=['','⭐','⭐⭐','⭐⭐⭐','⭐⭐⭐⭐','⭐⭐⭐⭐⭐'];
   var prHTML='';
   if(s.prs&&s.prs.length){
-    prHTML='<div class="sum-pr-block"><div class="sum-sect-lbl">🏆 Personal Records</div>'+
-    s.prs.map(function(p){return'<div class="sum-pr-row"><span class="sum-pr-name">'+p.exercise+'</span><span class="sum-pr-badge">'+toDisplayWeight(parseFloat(p.weight)||0)+' '+getWeightUnit()+' × '+p.reps+'</span></div>';}).join('')+'</div>';
+    prHTML='<div class="sum-pr-block"><div class="sum-sect-lbl">🏆 Set-volume records (load × reps)</div>'+
+    s.prs.map(function(p){return'<div class="sum-pr-row"><span class="sum-pr-name">'+escapeHtml(p.exercise)+'</span><span class="sum-pr-badge">'+toDisplayWeight(parseFloat(p.weight)||0)+' '+getWeightUnit()+' × '+p.reps+'</span></div>';}).join('')+'</div>';
   }
   var _wuSum=getWeightUnit();
   var durStr=s.duration>0?(s.duration>=60?Math.floor(s.duration/60)+'h '+(s.duration%60)+'m':s.duration+'m'):'-';
@@ -13969,11 +14047,11 @@ function buildGymSummaryHTML(s){
   if(s.progressions&&s.progressions.length){
     progHTML='<div class="sum-prog-block"><div class="sum-sect-lbl">📈 Weight Increases Next Session</div>'+
     s.progressions.map(function(p){
-      return '<div class="sum-prog-row"><span class="sum-prog-name">'+p.exercise+'</span>'
+      return '<div class="sum-prog-row"><span class="sum-prog-name">'+escapeHtml(p.exercise)+'</span>'
         +'<span class="sum-prog-badge">'+toDisplayWeight(parseFloat(p.lastW)||0)+' → '+toDisplayWeight(parseFloat(p.nextW)||0)+' '+_wuSum+'</span></div>';
     }).join('')+'</div>';
   }
-  var notesHTML=s.notes?'<div class="sum-notes-block"><div class="sum-sect-lbl">📝 Notes</div><div class="sum-notes-text">'+s.notes+'</div></div>':'';
+  var notesHTML=s.notes?'<div class="sum-notes-block"><div class="sum-sect-lbl">📝 Notes</div><div class="sum-notes-text">'+escapeHtml(s.notes)+'</div></div>':'';
   var ratingHTML=s.rating?'<div class="sum-rating">'+starStr[s.rating]+'</div>':'';
   return '<div class="sum-hero"><div class="sum-hero-em">✅</div><div class="sum-hero-title">WORKOUT COMPLETE</div>'+
     '<div class="sum-hero-sub">'+(FOCUS_LABELS[s.focus]||s.focus)+' · '+(INT_LABELS[s.intensity]||s.intensity)+'</div>'+
@@ -14003,7 +14081,7 @@ function buildRunSummaryHTML(s){
   var hrStr=s.hr?s.hr+' bpm':'-';
   var calStr=s.calories>0?Math.round(s.calories):'-';
   var rpeStr=s.rpe?s.rpe+'/10':'-';
-  var notesHTML=s.notes?'<div class="sum-notes-block"><div class="sum-sect-lbl">📝 Notes</div><div class="sum-notes-text">'+s.notes+'</div></div>':'';
+  var notesHTML=s.notes?'<div class="sum-notes-block"><div class="sum-sect-lbl">📝 Notes</div><div class="sum-notes-text">'+escapeHtml(s.notes)+'</div></div>':'';
   // Best pace comparison  --  exclude today's entry so we compare against prior runs only
   var runs=S.history.filter(function(h){return h.type==='run'&&h.distance>=2&&h.pace&&h.date!==dKey(vDate);});
   var bestPaceHTML='';
@@ -14068,7 +14146,7 @@ function shareWorkout(){
     if(s.notes){lines.push('');lines.push('Notes: '+s.notes);}
     txt=lines.join('\n');
   } else {
-    var FOCUS_LABELS={general:'General Fitness',power:'Power & Strength',muscle:'Build Muscle',tone:'Lose & Tone',endurance:'Endurance'};
+    var FOCUS_LABELS={hybrid:'Muscle + Strength',general:'General Fitness',power:'Build Strength',muscle:'Build Muscle',tone:'Lose & Tone',endurance:'Endurance'};
     var starStr=['','⭐','⭐⭐','⭐⭐⭐','⭐⭐⭐⭐','⭐⭐⭐⭐⭐'];
     var durStr2=s.duration>0?(s.duration>=60?Math.floor(s.duration/60)+'h '+(s.duration%60)+'m':s.duration+'m'):'';
     var lines2=['⚡ PF FITNESS  --  WORKOUT COMPLETE',''];
@@ -14080,8 +14158,8 @@ function shareWorkout(){
     if(s.calories>0) lines2.push('Calories: '+s.calories+' kcal');
     if(durStr2) lines2.push('Duration: '+durStr2);
     lines2.push('Completion: '+s.compPct+'%');
-    if(s.prs&&s.prs.length){lines2.push('');lines2.push('🏆 PRs Hit:');s.prs.forEach(function(p){lines2.push('  • '+p.exercise+': '+toDisplayWeight(parseFloat(p.weight)||0)+' '+_wuSh+' × '+p.reps);});}
-    if(s.progressions&&s.progressions.length){lines2.push('');lines2.push('📈 Weight Increases Next Session:');s.progressions.forEach(function(p){lines2.push('  • '+p.exercise+': '+toDisplayWeight(parseFloat(p.lastW)||0)+' → '+toDisplayWeight(parseFloat(p.nextW)||0)+' '+_wuSh);});}
+    if(s.prs&&s.prs.length){lines2.push('');lines2.push('🏆 PRs Hit:');s.prs.forEach(function(p){lines2.push('  • '+escapeHtml(p.exercise)+': '+toDisplayWeight(parseFloat(p.weight)||0)+' '+_wuSh+' × '+p.reps);});}
+    if(s.progressions&&s.progressions.length){lines2.push('');lines2.push('📈 Weight Increases Next Session:');s.progressions.forEach(function(p){lines2.push('  • '+escapeHtml(p.exercise)+': '+toDisplayWeight(parseFloat(p.lastW)||0)+' → '+toDisplayWeight(parseFloat(p.nextW)||0)+' '+_wuSh);});}
     if(s.rating) lines2.push('');if(s.rating) lines2.push('Rating: '+starStr[s.rating]);
     if(s.notes){lines2.push('');lines2.push('Notes: '+s.notes);}
     txt=lines2.join('\n');
@@ -14120,7 +14198,7 @@ function shareWorkoutCard(){
     if(s.calories>0) rows.push(['Calories', Math.round(s.calories)+' kcal']);
     if(s.rpe) rows.push(['Effort', s.rpe+'/10']);
   } else {
-    var FL={general:'General Fitness',power:'Power & Strength',muscle:'Build Muscle',tone:'Lose & Tone',endurance:'Endurance'};
+    var FL={hybrid:'Muscle + Strength',general:'General Fitness',power:'Build Strength',muscle:'Build Muscle',tone:'Lose & Tone',endurance:'Endurance'};
     x.fillStyle='#f5c400'; x.font='800 70px Arial'; x.fillText('WORKOUT COMPLETE', cx, 210);
     x.fillStyle='#888'; x.font='32px Arial'; x.fillText((FL[s.focus]||s.focus||'')+' · '+((s.intensity||'')+'').toUpperCase(), cx, 270);
     var vd=toDisplayWeight(s.volume||0);
@@ -14335,12 +14413,11 @@ lowerback:{em:'🔩',nm:'Lower Back'}
 };
 
 function getRecentMuscles(hoursBack){
-var cutoff=Date.now()-hoursBack*3600000;
+var anchor=new Date(dKey(vDate)+'T12:00:00').getTime(),cutoff=anchor-hoursBack*3600000;
 var trained={};
-S.history.filter(function(h){
-return h.type==='gym' && new Date(h.date+'T12:00:00').getTime()>=cutoff;
-}).forEach(function(h){
+S.history.filter(function(h){var t=new Date(h.date+'T12:00:00').getTime();return h.type==='gym'&&t>=cutoff&&t<anchor;}).forEach(function(h){
 (h.exercises||[]).forEach(function(ex){
+if(ex.skipped||!(ex.sets||[]).some(function(s){return validCompletedSet(s)&&(s.type||'wk')!=='wu';}))return;
 var g=getMG(ex.name); if(g) trained[g]=(trained[g]||0)+1;
 });
 });
@@ -25241,16 +25318,13 @@ function getWorkoutCalsBurned(){
   var bwKg = bw / 2.205;
   var tplKey = getEffTpl(k);
   var tpl = WTPL[tplKey];
-  var exs = tpl ? tpl.exercises.slice() : [];
-  var intensity = sess.gym.intensity || 'standard';
-  if(intensity === 'quick') exs = exs.filter(function(e){return e.p<=1;});
-  else if(intensity === 'standard') exs = exs.filter(function(e){return e.p<=2;});
-  if((S.weekFocus||'general')==='power'&&intensity!=='full'){exs=exs.filter(function(e){return e.p<=1;});}
+  var exs = getRenderedExList(k);
 
   // Lifting calories: count actual done sets (same MET logic as updateStats)
   var liftingCals = 0;
   Object.entries(sess.gym.exercises||{}).forEach(function(entry){
     var ei=parseInt(entry[0]), exD=entry[1];
+    if(exD.skipped)return;
     var exName=(S.swaps[k+':'+ei]&&S.swaps[k+':'+ei].n)||(exs[ei]&&exs[ei].n)||'';
     var exType = getExType(exName);
     var met = (exType==='compound'||exType==='plate_machine') ? 5.0 :
@@ -25264,18 +25338,7 @@ function getWorkoutCalsBurned(){
 
   // Cardio calories: read cardioBlocks (live storage), same done-gate as updateStats
   var cardioCals = 0;
-  var cardioSources = Object.values(sess.gym.cardioBlocks||{});
-  Object.values(sess.gym.cardio||{}).forEach(function(c){ cardioSources.push(c); });
-  cardioSources.forEach(function(c){
-    if(!c.done) return; // only count completed cardio
-    var dur = parseFloat(c.duration) || parseFloat(c.defaultDur) || 0;
-    if(dur > 0){
-      var met = CARDIO_MET[c.name] || 5.5;
-      cardioCals += Math.round(met * bwKg * (dur/60));
-    } else if(parseFloat(c.calories) > 0){
-      cardioCals += parseFloat(c.calories);
-    }
-  });
+  completedCardioBlocks(sess.gym).forEach(function(c){cardioCals+=completedCardioCalories(c,bwKg);});
 
   return Math.round(liftingCals + cardioCals);
 }
@@ -25287,219 +25350,12 @@ function getWorkoutCalsBurned(){
 
 
 function applySmartSetTypes(k){
-  var sess=S.sessions[k];
-  if(!sess||!sess.gym) return;
-  var tplKey=getEffTpl(k);
-  var tpl=WTPL[tplKey];
-  if(!tpl) return;
-  var intensity=sess.gym.intensity||'standard';
-  var focus=S.weekFocus||'general';
-
-  // Smart guard: skip ONLY if key matches AND advanced type is already correctly assigned.
-  // This fixes the bug where sets are cleared but key is already set, causing types to be skipped.
-  var currentKey=intensity+'|'+focus;
-  var needsRun=true;
-  if(sess.gym.lastAppliedKey===currentKey){
-    // Key matches  --  verify ALL p1 exercises that should have advanced types actually do.
-    // Checking only the first compound was the bug: once OHP had rp, needsRun=false
-    // and all other p1 exercises (DB Lateral, Pec Fly etc) never got their type assigned.
-    var _exsChk=tpl.exercises.slice();
-    if(intensity==='quick') _exsChk=_exsChk.filter(function(e){return e.p<=1;});
-    else if(intensity==='standard') _exsChk=_exsChk.filter(function(e){return e.p<=2;});
-    if((S.weekFocus||'general')==='power'&&intensity!=='full'){_exsChk=_exsChk.filter(function(e){return e.p<=1;});}
-
-    if(intensity==='quick'){
-      // Quick: no advanced sets expected  --  needsRun only if some advanced type crept in
-      needsRun=_exsChk.some(function(ex,ei){
-        var sets=sess.gym.exercises[ei]&&sess.gym.exercises[ei].sets||[];
-        return sets.some(function(s){return !s.done&&s.type&&s.type!=='wk';});
-      });
-    } else {
-      // Standard/Full: check if any exercise that SHOULD have an advanced type still shows wk
-      // Determine which types are expected for this focus/intensity
-      var _expectAdv=focus!=='general'||(intensity==='full'); // general-standard expects no adv
-      if(!_expectAdv){
-        // General standard: no advanced sets expected  --  check none crept in
-        needsRun=false;
-      } else {
-        // Find any p1 exercise whose last undone set is still wk when it should be advanced
-        needsRun=false; // assume OK until proven otherwise
-        _exsChk.forEach(function(ex,ei){
-          if(needsRun) return; // already found one, no need to continue
-          var sets=sess.gym.exercises[ei]&&sess.gym.exercises[ei].sets||[];
-          var undone=sets.filter(function(s){return !s.done;});
-          if(!undone.length) return; // all done, skip
-          var lastU=undone[undone.length-1];
-          // Determine if this exercise should have an advanced type
-          var shouldBeAdv=false;
-          if(ex.p===1){
-            if(focus==='power') shouldBeAdv=true;
-            else if(focus==='muscle'||focus==='tone'||focus==='endurance') shouldBeAdv=true;
-            else if(focus==='general'&&intensity==='full'&&isCompound(ex.n)) shouldBeAdv=true;
-          } else if(ex.p===2&&intensity==='full'){
-            if(focus==='muscle'||focus==='tone'||focus==='endurance') shouldBeAdv=true;
-          }
-          if(shouldBeAdv&&(!lastU.type||lastU.type==='wk')){
-            needsRun=true; // this exercise needs its type assigned
-          }
-        });
-      }
-    }
-  }
-  sess.gym.lastAppliedKey=currentKey;
-  if(!needsRun) return;
-  // Step 1: Reset ONLY the auto-assigned advanced set (within template bounds).
-  // Sets beyond template count are user-added (extra drops etc) and must be preserved.
-  var allExs=tpl.exercises.slice();
-  allExs.forEach(function(ex,ei){
-    if(!sess.gym.exercises[ei]) return;
-    var sets=sess.gym.exercises[ei].sets||[];
-    // Only reset within template set count  --  user-added sets beyond this are untouched
-    var templateCount=ex.sets||sets.length;
-    for(var _ri=0;_ri<Math.min(sets.length,templateCount);_ri++){
-      var _rs=sets[_ri];
-      if(!_rs.done && (_rs.type==='rp'||_rs.type==='fl'||_rs.type==='ds')){
-        _rs.type='wk';
-        var ww=getWorkingWeight(ei);
-        if(ww>0) _rs.weight=String(ww);
-        var fm=FOCUS_META[focus]||FOCUS_META.general;
-        _rs.reps=String(fm.reps[0]||8);
-      }
-    }
-  });
-
-  // Quick intensity: no advanced sets at all, note dismissed
-  if(intensity==='quick'){
-    sess.gym.smartNote=null;
-    saveS();
-    return;
-  }
-
-  var exs=tpl.exercises.slice();
-  if(intensity==='standard') exs=exs.filter(function(e){return e.p<=2;});
-  if((S.weekFocus||'general')==='power'&&intensity!=='full'){exs=exs.filter(function(e){return e.p<=1;});}
-
-  var resolvedExs=exs.map(function(ex,ei){
-    return S.swaps[k+':'+ei]?Object.assign({},ex,{n:S.swaps[k+':'+ei].n}):ex;
-  });
-
-  // Find primary compound and primary isolation
-  var primaryCompIdx=-1, primaryIsolIdx=-1;
-  resolvedExs.forEach(function(ex,ei){
-    if(ex.p<=1&&isCompound(ex.n)&&primaryCompIdx<0) primaryCompIdx=ei;
-    if(ex.p>=2&&!isCompound(ex.n)&&primaryIsolIdx<0) primaryIsolIdx=ei;
-  });
-
-  var noteItems=[];
-
-  function assignLastSet(ei,type){
-    if(ei<0) return;
-    if(!sess.gym.exercises[ei]) return;
-    // Fail-safe: this function indexes by the FILTERED TEMPLATE, but sess.gym.exercises is
-    // keyed to the rendered sess.exList (the source of truth). They align in every reachable
-    // state today (selection renders template exercises in template order and always keeps the
-    // p1/p2 set-type targets), but if the rendered list ever diverges from the template (e.g. a
-    // future selection change drops a middle exercise), tagging by template index would land an
-    // advanced set on the WRONG exercise. Guard against that by only assigning when the rendered
-    // exercise at this index really is the one we resolved — otherwise skip (no advanced type)
-    // rather than mis-tag. Honors the codebase invariant: index-keyed consumers follow exList.
-    var _renderList=(typeof getRenderedExList==='function')?getRenderedExList(k):null;
-    if(_renderList && resolvedExs[ei] && _renderList[ei] && _renderList[ei].n!==resolvedExs[ei].n) return;
-    // Skip exercises driven by an active strength program — those are straight working
-    // sets prescribed by the program (e.g. 5/3/1), not auto drop/failure/rest-pause sets.
-    if(typeof getActiveProgramFor==='function' && resolvedExs[ei] && getActiveProgramFor(resolvedExs[ei].n)) return;
-    var sets=sess.gym.exercises[ei].sets||[];
-    // Safety: free barbell exercises cannot safely be taken to failure or drop sets.
-    // Downgrade fl/ds to rp (rest-pause) which is safe on barbell movements.
-    var exName=resolvedExs[ei]?resolvedExs[ei].n:'';
-    var isFreeBarbell=exName.toLowerCase().indexOf('barbell')>=0;
-    if(isFreeBarbell&&(type==='fl'||type==='ds')) type='rp';
-    // Find last undone work set WITHIN template count only
-    // Never touch user-added sets beyond the template (they were added intentionally)
-    var _tplEx=tpl.exercises[ei];
-    var _tplCount=_tplEx?(_tplEx.sets||sets.length):sets.length;
-    var lastWk=-1;
-    for(var i=Math.min(sets.length,_tplCount)-1;i>=0;i--){
-      if((!sets[i].type||sets[i].type==='wk')&&!sets[i].done){lastWk=i;break;}
-    }
-    if(lastWk<0) return;
-    sets[lastWk].type=type;
-    autoFillSetType(ei,lastWk,type);
-    noteItems.push({name:exName||'exercise',type:type});
-  }
-
-  // If advanced sets are disabled globally, skip assignment.
-  // The reset step above has already cleared any existing ds/fl/rp back to wk.
-  if(!_advSuggestEnabled){
-    sess.gym.smartNote=null;
-    saveS();
-    return;
-  }
-
-  // Assign based on focus + intensity
-  // Expanded: assign advanced types to ALL eligible exercises, not just the first compound/isolation.
-  // p1 exercises = primary (compounds + heavy accessories)  --  get the focus's main advanced type
-  // p2 exercises = secondary (machines, cables, isolations)  --  get a supporting advanced type
-  // p3 exercises = finishers/accessories  --  no advanced types assigned (keep them clean)
-  // Note: assignLastSet has barbell safety built in  --  fl/ds on barbell -> rp automatically
-
-  if(intensity==='standard'){
-    // Standard: p1 exercises get focus's primary advanced type
-    // General standard: no advanced sets (clean baseline)
-    // Power standard: rp on p1 only (heavy work, long rest - keep it focused)
-    resolvedExs.forEach(function(ex,ei){
-      if(ex.p===1){
-        if(focus==='power')          assignLastSet(ei,'rp');
-        else if(focus==='muscle')    assignLastSet(ei,'ds');
-        else if(focus==='tone')      assignLastSet(ei,'ds');
-        else if(focus==='endurance') assignLastSet(ei,'fl');
-        // general standard: no advanced sets
-      }
-      // p2 standard: no advanced types  --  standard is already demanding enough
-    });
-  } else if(intensity==='full'){
-    resolvedExs.forEach(function(ex,ei){
-      if(ex.p===1){
-        // p1 full: primary advanced type per focus
-        // General + Power: rp on compound p1 only (isCompound check keeps it to true compounds)
-        // Muscle/Tone/Endurance: fl on all p1 (safe for machines/dumbbells; barbell safety -> rp)
-        if(focus==='power'){
-          if(isCompound(ex.n)) assignLastSet(ei,'rp');
-          // non-compound p1 on power: leave as work set (high weight, not appropriate for rp)
-        } else if(focus==='muscle')    { assignLastSet(ei,'fl'); }
-        else if(focus==='tone')        { assignLastSet(ei,'fl'); }
-        else if(focus==='endurance')   { assignLastSet(ei,'fl'); }
-        else if(focus==='general'){
-          // General full: rp only on true compound exercises, keep others clean
-          if(isCompound(ex.n)) assignLastSet(ei,'rp');
-        }
-      } else if(ex.p===2){
-        // p2 full: secondary supporting type
-        // Power + General: no advanced on p2 (long rest / clean baseline)
-        // Muscle/Tone/Endurance: ds on p2  --  extends metabolic stress on isolation/machine work
-        if(focus==='muscle')         assignLastSet(ei,'ds');
-        else if(focus==='tone')      assignLastSet(ei,'ds');
-        else if(focus==='endurance') assignLastSet(ei,'ds');
-        // power and general: p2 stays as clean work sets on full
-      }
-      // p3: no assignment regardless of focus/intensity
-    });
-  }
-
-  // Build/update dismissible note (reset if intensity changed)
-  if(!sess.gym.smartNoteDismissed){
-    var typeNames={rp:'Rest-Pause',ds:'Drop Set',fl:'Failure Set'};
-    if(noteItems.length>0){
-      var _noteDisplay=noteItems.slice(0,3).map(function(n){return (typeNames[n.type]||n.type)+' on '+n.name;});
-      if(noteItems.length>3) _noteDisplay.push('+'+(noteItems.length-3)+' more exercises');
-      sess.gym.smartNote="Today\'s plan includes: "+_noteDisplay.join(', ')+
-        ". Tap any set type to learn what it means or change it.";
-    } else {
-      sess.gym.smartNote=null;
-    }
-  }
-  saveS();
+  var gym=S.sessions[k]&&S.sessions[k].gym;
+  if(!gym) return;
+  // Normal work sets are the default. User-selected techniques stay exactly as logged.
+  gym.smartNote=null;
 }
+
 
 function dismissSmartNote(k){
   var key = (k && typeof k === 'string') ? k : dKey(vDate);
@@ -27605,6 +27461,7 @@ function getCardioInfo(name){
 // idx: unique index for state keys
 // tplKey: current workout template key (for swap context)
 function buildCardioBlock(type, cardioObj, stateObj, idx, tplKey){
+  if(!cardioObj){if(stateObj&&!stateObj.done){stateObj.skipped=true;stateObj.duration='';stateObj.timer=null;}return '';}
   if(!stateObj.duration) stateObj.duration='';
   if(!stateObj.calories) stateObj.calories='';
   if(!stateObj.metric)   stateObj.metric='';
@@ -27643,8 +27500,10 @@ function buildCardioBlock(type, cardioObj, stateObj, idx, tplKey){
   };
   var tc=typeColors[type]||typeColors.finisher;
 
-  var safeN=cardioObj.n.replace(/'/g,'');
-  var safeTgt=cardioObj.tgt.replace(/'/g,'');
+  var easyFocus=getWorkoutFocus()!=='tone';
+  var safeN=(easyFocus?cardioObj.n.replace(/\(HIIT\)/g,'(Easy)'):cardioObj.n).replace(/'/g,'');
+  var safeTgt=getCardioGuide(type==='mid'?'finisher':type).replace(/'/g,'');
+  stateObj.name=safeN;
 
   var skipped=stateObj.skipped||false;
   var cardioTimerId='cardio-timer-'+type+'-'+idx;
@@ -27655,9 +27514,8 @@ function buildCardioBlock(type, cardioObj, stateObj, idx, tplKey){
         '<div style="font-size:8px;letter-spacing:1.5px;color:'+tc.lbl+';text-transform:uppercase;margin-bottom:3px">'+
           tc.icon+' '+tc.label+' · '+adjustedDur+' min'+focusTag+
         '</div>'+
-        '<div style="font-weight:600;font-size:14px;color:'+(skipped?'var(--mu)':'#fff')+';'+(skipped?'text-decoration:line-through':'')+';" id="cardio-name-'+type+'-'+idx+'">'+cardioObj.n+'</div>'+
-        '<div style="font-size:11px;color:var(--mu);margin-top:3px;line-height:1.4" id="cardio-tgt-'+type+'-'+idx+'">'+cardioObj.tgt+'</div>'+
-      '<div style="font-size:10px;color:var(--ye);margin-top:4px;font-style:italic">'+getCardioGuide(type==="mid"?"finisher":type)+'</div>'+
+        '<div style="font-weight:600;font-size:14px;color:'+(skipped?'var(--mu)':'#fff')+';'+(skipped?'text-decoration:line-through':'')+';" id="cardio-name-'+type+'-'+idx+'">'+escapeHtml(safeN)+'</div>'+
+        '<div style="font-size:11px;color:var(--mu);margin-top:3px;line-height:1.4" id="cardio-tgt-'+type+'-'+idx+'">'+escapeHtml(safeTgt)+'</div>'+
       '</div>'+
       '<div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0;margin-left:8px;align-items:flex-end">'+
         '<div style="display:flex;gap:5px">'+
@@ -27680,8 +27538,8 @@ function buildCardioBlock(type, cardioObj, stateObj, idx, tplKey){
     '<div class="g2" style="gap:6px">'+
       '<div><label>Actual time (min)</label><input type="number" inputmode="numeric" placeholder="'+adjustedDur+'" value="'+(stateObj.duration)+'" class="sinp" oninput="updateCardioBlock(\''+type+'\','+idx+',\'duration\',this.value)"></div>'+
       '<div><label>Calories</label><input type="number" inputmode="numeric" placeholder="est" value="'+stateObj.calories+'" class="sinp" oninput="updateCardioBlock(\''+type+'\','+idx+',\'calories\',this.value)"></div>'+
-      '<div><label>Speed/Level</label><input type="text" placeholder="e.g. 3.5mph" value="'+stateObj.metric+'" class="sinp" oninput="updateCardioBlock(\''+type+'\','+idx+',\'metric\',this.value)"></div>'+
-      '<div><label>How was it?</label><input type="text" placeholder="notes" value="'+stateObj.notes+'" class="sinp" oninput="updateCardioBlock(\''+type+'\','+idx+',\'notes\',this.value)"></div>'+
+      '<div><label>Speed/Level</label><input type="text" placeholder="e.g. 3.5mph" value="'+escapeHtml(stateObj.metric)+'" class="sinp" oninput="updateCardioBlock(\''+type+'\','+idx+',\'metric\',this.value)"></div>'+
+      '<div><label>How was it?</label><input type="text" placeholder="notes" value="'+escapeHtml(stateObj.notes)+'" class="sinp" oninput="updateCardioBlock(\''+type+'\','+idx+',\'notes\',this.value)"></div>'+
     '</div>')+
   '</div>';
 }
@@ -28119,6 +27977,7 @@ function repeatLastSession(){
         if(!exD.sets[si].done){
           exD.sets[si].weight=s.weight||'';
           exD.sets[si].reps=s.reps||'';
+      exD.sets[si].auto=false; exD.sets[si].autoR=false;
           exD.sets[si].type=s.type||'wk';
         }
       });
@@ -28679,7 +28538,7 @@ function getEquipmentSafeCardio(defaultObj, tplKey, excludeNames){
 
   function isAvailable(name){
     if(!name) return false;
-    if(!gym || !gym.equipment || !gym.equipment.length) return true;
+    if(!gym || !gym.equipment || !gym.equipment.length) return false;
     // Normalize legacy names
     var _normGymEquip = gym.equipment.map(function(e){
       if(e==='Olympic Barbell (45 lb)') return 'Olympic Barbells';
@@ -28715,14 +28574,14 @@ function getEquipmentSafeCardio(defaultObj, tplKey, excludeNames){
   // Build list of available machines at this gym
   var avail;
   if(!gym || !gym.equipment || !gym.equipment.length){
-    avail = CARDIO_OPTIONS;
+    avail = [];
   } else {
     avail = [];
     for(var oi=0; oi<CARDIO_OPTIONS.length; oi++){
       if(isAvailable(CARDIO_OPTIONS[oi].n)) avail.push(CARDIO_OPTIONS[oi]);
     }
   }
-  if(!avail.length) return defaultObj;
+  if(!avail.length) return null;
 
   var pool = tplKey ? (CARDIO_POOL[tplKey] || []) : [];
 
@@ -28751,16 +28610,8 @@ function getEquipmentSafeCardio(defaultObj, tplKey, excludeNames){
     }
   }
 
-  // Pass 3: allow excluded (only 1 machine available)
-  for(var p3=0; p3<pool.length; p3++){
-    for(var a3=0; a3<avail.length; a3++){
-      if(normCardio(avail[a3].n) === normCardio(pool[p3])){
-        return makeFallback(avail[a3]);
-      }
-    }
-  }
-
-  return {n:avail[0].n, dur:avail[0].dur, tgt:avail[0].tgt};
+  var remaining=avail.find(function(m){return !isExcluded(m.n);});
+  return remaining?makeFallback(remaining):null;
 }
 // Returns ex if available at active gym, else finds best available alternative.
 // usedNames: exercise names already placed in this session (avoid duplicates).
@@ -28785,7 +28636,7 @@ function isExerciseUserEnabled(exName){
 
 function getEquipmentSafeExercise(ex, gym, usedNames){
   if(!ex||!ex.n) return ex;
-  if(!gym||!gym.equipment||!gym.equipment.length) return ex;
+  gym=gym||{equipment:[]}; gym.equipment=gym.equipment||[];
   var used = usedNames||[];
 
   // isExerciseAvailable() is the single source of truth: it returns true for moves
@@ -28798,7 +28649,7 @@ function getEquipmentSafeExercise(ex, gym, usedNames){
 
   // Otherwise it's unavailable (equipment missing) or user-disabled → find substitute
   var g = getMG(ex.n);
-  if(!g) return ex;
+  if(!g) return null;
   var candidates = ELIB[g]||[];
   for(var ci=0;ci<candidates.length;ci++){
     var c2=candidates[ci];
@@ -28809,7 +28660,7 @@ function getEquipmentSafeExercise(ex, gym, usedNames){
       return Object.assign({},ex,{n:c2.n,t:c2.t});
     }
   }
-  return ex; // no suitable swap found
+  return null; // no available alternative: omit, never invent equipment
 }
 
 
@@ -28938,7 +28789,7 @@ function buildWeeklyMGSets(){
   });
   html+='<div style="font-size:9px;color:var(--mu);font-family:DM Mono,monospace;margin-top:8px;line-height:1.6">'+
     '<span style="color:var(--bl)">■</span> Under 10 (build up) &nbsp;'+
-    '<span style="color:var(--gr)">■</span> 10–20 (optimal range) &nbsp;'+
+    '<span style="color:var(--gr)">■</span> 10–20 (general reference) &nbsp;'+
     '<span style="color:var(--re)">■</span> 20+ (high volume)</div>';
   wrap.innerHTML=html;
 }
@@ -28952,9 +28803,9 @@ function populateLoadTableLifts(){
     {key:'bench',label:'Bench Press'},
     {key:'squat',label:'Squat'},
     {key:'deadlift',label:'Deadlift'},
-    {key:'ohpress',label:'Overhead Press'},
+    {key:'ohp',label:'Overhead Press'},
     {key:'bbrow',label:'Barbell Row'},
-    {key:'incline',label:'Incline Press'},
+    {key:'incbench',label:'Incline Press'},
     {key:'bbrdl',label:'Romanian Deadlift'},
     {key:'hipthrust',label:'Hip Thrust'},
     {key:'hacksquat',label:'Hack Squat'},
@@ -28976,7 +28827,7 @@ function buildLoadTable(){
   var key=sel.value; if(!key){wrap.innerHTML='<div style="font-size:11px;color:var(--mu)">Select a lift above to see the percentage loading table.</div>';return;}
   var workWt=S.strength[key]||0; if(!workWt){wrap.innerHTML='<div style="font-size:11px;color:var(--mu)">No weight logged for this lift yet.</div>';return;}
   var orm=est1RM(workWt,8);
-  var isKg=(S.prefs&&S.prefs.weightUnit==='kg');
+  var isKg=getWeightUnit()==='kg';
   var unit=isKg?'kg':'lb';
   var ROWS=[
     {pct:50,reps:'15–20',note:'Warm-up / technique work'},
@@ -29042,10 +28893,10 @@ function buildWilksDots(){
   // estimated big-3 total (squat + bench + deadlift 1RMs) — the standard way.
   var BIG3=[['squat','Squat'],['bench','Bench'],['deadlift','Deadlift']];
   var total=0, have=[], missing=[];
-  BIG3.forEach(function(pp){ var w=S.strength[pp[0]]||0; if(w>0){ total+=est1RM(w,8); have.push(pp[1]); } else missing.push(pp[1]); });
-  if(!bw || total<=0){
+  BIG3.forEach(function(pp){ var match={squat:_gIsSquat,bench:_gIsBench,deadlift:_gIsDead}[pp[0]],w=_gBestLoad(match); if(w>0){ total+=w; have.push(pp[1]); } else missing.push(pp[1]); });
+  if(!bw || total<=0 || missing.length){
     scores.innerHTML='<div style="font-size:11px;color:var(--or);line-height:1.5;padding:2px 0">'+
-      (!bw?'📍 Log your <b>bodyweight</b> on the Body page':'📍 Enter your <b>squat, bench &amp; deadlift</b> below')+
+      (!bw?'📍 Log your <b>bodyweight</b> on the Body page':'📍 Log all three lifts: <b>squat, bench &amp; deadlift</b>')+
       ' to see your Wilks &amp; DOTS scores.</div>';
     return;
   }
@@ -29059,7 +28910,7 @@ function buildWilksDots(){
       '<div style="flex:1;text-align:center;background:var(--s3);border:1px solid var(--b1);border-radius:9px;padding:9px 4px"><div class="wilks-score" style="color:#c084fc">'+dots+'</div><div style="font-size:8px;font-family:DM Mono,monospace;color:var(--mu);letter-spacing:1px;margin-top:2px">DOTS</div></div>'+
       '<div style="flex:1.3;text-align:center;background:var(--s3);border:1px solid var(--b1);border-radius:9px;padding:9px 4px;display:flex;flex-direction:column;justify-content:center"><div style="font-size:13px;font-weight:700;color:'+wr.color+';line-height:1.1">'+wr.label+'</div><div style="font-size:8px;font-family:DM Mono,monospace;color:var(--mu);letter-spacing:1px;margin-top:3px">LEVEL</div></div>'+
     '</div>'+
-    '<div style="font-size:10px;color:var(--mu);margin-top:8px;text-align:center;line-height:1.5">Big-3 est. 1RM <strong style="color:#fff">'+toDisplayWeight(total)+' '+getWeightUnit()+'</strong> · Bodyweight <strong style="color:#fff">'+toDisplayWeight(bw)+' '+getWeightUnit()+'</strong>'+missNote+'</div>';
+    '<div style="font-size:10px;color:var(--mu);margin-top:8px;text-align:center;line-height:1.5">Logged gym bests (not a meet total) <strong style="color:#fff">'+toDisplayWeight(total)+' '+getWeightUnit()+'</strong> · Bodyweight <strong style="color:#fff">'+toDisplayWeight(bw)+' '+getWeightUnit()+'</strong>'+missNote+'</div>';
 }
 // Info modal for Wilks/DOTS — mirrors the exercise/machine info modals.
 function openWilksInfo(){
@@ -29068,7 +28919,7 @@ function openWilksInfo(){
   if(c) c.innerHTML=
     '<div style="font-size:12px;color:#ccc;line-height:1.7">'+
       '<div style="margin-bottom:12px"><div style="font-size:9px;color:#a5b4fc;letter-spacing:1px;margin-bottom:4px;font-family:\'DM Mono\',monospace">WHAT THEY ARE</div>'+
-      'A single score that makes strength fair to compare across bodyweights — a 150 lb and a 250 lb lifter measured on equal footing. Each takes your estimated <b>big-3 total</b> (squat + bench + deadlift 1RM) and divides out a bodyweight coefficient. <b>DOTS</b> is the newer, now-standard version; Wilks is the classic one.</div>'+
+      'A single score that makes strength fair to compare across bodyweights — a 150 lb and a 250 lb lifter measured on equal footing. Here they use your logged <b>big-3 gym bests</b> (squat + bench + deadlift), which may come from different days and are not an official competition total, and divides out a bodyweight coefficient. <b>DOTS</b> is the newer, now-standard version; Wilks is the classic one.</div>'+
       '<div style="margin-bottom:12px"><div style="font-size:9px;color:#a5b4fc;letter-spacing:1px;margin-bottom:6px;font-family:\'DM Mono\',monospace">HOW TO READ IT</div>'+
       '<div style="display:grid;grid-template-columns:auto 1fr;gap:5px 12px;font-family:\'DM Mono\',monospace;font-size:11px">'+
         '<span style="color:#94a3b8">≈ 200</span><span>Novice</span>'+
@@ -29373,7 +29224,7 @@ if (_origBuildGymSummaryHTML) {
 // ═══════════════════════════════════════════════════════════
 var DELOAD_GUIDANCE = {
   general:  {title:'General Fitness Deload',steps:['Use 70% of your normal working weight','Limit to 3 sets per exercise (skip the 4th)','Rest an extra 15–30 seconds between sets','Stop 2–3 reps before failure on every set','Keep cardio but reduce duration by 40%']},
-  power:    {title:'Power & Strength Deload',steps:['Use 55–60% of working weight','Compound lifts only — skip all isolation work','2–3 sets max per movement','Full 5-minute rest between sets','Focus entirely on bar speed and technique']},
+  power:    {title:'Build Strength Deload',steps:['Use 55–60% of working weight','Compound lifts only — skip all isolation work','2–3 sets max per movement','Full 5-minute rest between sets','Focus entirely on bar speed and technique']},
   muscle:   {title:'Hypertrophy Deload',steps:['Use 60–65% of working weight','3 sets max per exercise','No drop sets, no failure sets','Stop 3 reps short of failure every set','Cardio finisher at 50% normal duration']},
   tone:     {title:'Tone/Fat Loss Deload',steps:['Reduce cardio to 50% duration','Keep intensity moderate — no HIIT this week','3 sets per exercise at 65% weight','Prioritize sleep and stress management','Increase protein intake slightly to preserve muscle']},
   endurance:{title:'Endurance Deload',steps:['Cut all cardio volumes by 50%','Keep movement quality and intensity','No HIIT or high-intensity intervals','Active recovery: walking, light cycling, stretching','This is where your aerobic adaptations consolidate']}
@@ -29535,7 +29386,7 @@ function buildTodayProgramCard(){
   // listing lifts that are not in today's session and omitting ones that are.
   var _todayEx=getRenderedExList(dKey(vDate))||[];
   if(!_todayEx.length){ var _tplFb=WTPL[getEffTpl(dKey(vDate))]; if(!_tplFb) return; _todayEx=_tplFb.exercises; }
-  var wk=(st.id==='531')?(st.week||0):0;
+  var wk=(st.id==='531')?Math.max(0,Math.min(3,Number(st.week)||0)):0;
   var sets=p.weeks?p.weeks[wk].sets:p.scheme;
   var wkLbl=p.weeks?(' · '+p.weeks[wk].label):'';
   var rows=[];

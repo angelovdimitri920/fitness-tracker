@@ -20,11 +20,17 @@ const TYPES = {
   '.webmanifest': 'application/manifest+json'
 };
 
+const SHELL = new Set(['index.html','pf_workout_tracker.html','sw.js','manifest.json','icon-192.png','icon-512.png']);
 http.createServer(function (req, res) {
-  let rel = decodeURIComponent(req.url.split('?')[0]);
+  let rel;
+  try { rel = decodeURIComponent(req.url.split('?')[0]); }
+  catch (_) { res.writeHead(400).end('Invalid URL'); return; }
   if (rel === '/') rel = '/index.html';
-  const file = path.join(ROOT, path.normalize(rel).replace(/^([/\\])+/, ''));
-  if (!file.startsWith(ROOT)) { res.writeHead(403).end('Forbidden'); return; }
+  // This app only needs six public shell files. Never expose local API-key files,
+  // Git metadata, backups, or arbitrary paths from the development directory.
+  const relative = rel.replace(/^[/\\]+/, '');
+  if (!SHELL.has(relative)) { res.writeHead(404).end('Not found'); return; }
+  const file = path.resolve(ROOT, relative);
   fs.readFile(file, function (err, buf) {
     if (err) { res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not found: ' + rel); return; }
     res.writeHead(200, {
