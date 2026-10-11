@@ -88,7 +88,7 @@ let server, browser;
       check(owners.length===1&&owners[0]===old[index],JSON.stringify({old:old[index],owners}));
     });
     test('all 144 generated configurations render valid, unique exercises', () => {
-      for(const focus of Object.keys(FOCUS_META)) for(const split of Object.keys(WTPL)) for(const intensity of ['quick','standard','full']) {
+      for(const focus of Object.keys(FOCUS_META)) for(const split of Object.keys(WTPL).filter(s=>!WTPL[s].home)) for(const intensity of ['quick','standard','full']) {
         reset(); S.weekFocus=focus; const k=dKey(vDate); S.dayConfig[k].split=split;
         S.sessions[k]={gym:{intensity,exercises:{},cardio:{}}}; buildTodayWorkout();
         const g=S.sessions[k].gym,names=g.exList.map(e=>e.n);
@@ -102,7 +102,7 @@ let server, browser;
     });
     test('all 144 configurations also work without equipment or with only dumbbells', () => {
       for(const equipment of [[], ['Dumbbells (5-75 lbs)']])
-      for(const focus of Object.keys(FOCUS_META)) for(const split of Object.keys(WTPL)) for(const intensity of ['quick','standard','full']) {
+      for(const focus of Object.keys(FOCUS_META)) for(const split of Object.keys(WTPL).filter(s=>!WTPL[s].home)) for(const intensity of ['quick','standard','full']) {
         reset(); getActiveGym().equipment=equipment; S.weekFocus=focus;
         const k=dKey(vDate);S.dayConfig[k].split=split;S.sessions[k]={gym:{intensity,exercises:{},cardio:{}}};buildTodayWorkout();
         const g=S.sessions[k].gym;
@@ -215,7 +215,7 @@ let server, browser;
         if(focus!=='tone')check(!card.includes('Treadmill (HIIT)'),`${focus}: HIIT card`);
       }
     });
-    test('changing default focus preserves started workout and applies to the next day', () => {
+    test('a past, unsaved started workout keeps its focus snapshot; the next day adopts the default', () => {
       reset();S.weekFocus='tone';buildTodayWorkout();const k=dKey(vDate),g=S.sessions[k].gym;
       g.exercises[0].sets[0]=set(100,12);g.supersets={0:1};
       const before=JSON.stringify({ex:g.exList,plan:g._cardioPlan,sets:g.exercises});
@@ -306,6 +306,154 @@ let server, browser;
       reset();const name='Chest Press Machine';
       S.history=[{...history('2026-09-28',[set(80,10)],name),gymId:S.activeGymId},{...history('2026-09-30',[set(180,10)],name),gymId:'other-gym'}];
       check(getLastExSession(name).weight===80,'other gym prescribed the load');
+    });
+    // ── Live workouts follow the plan (today or later, not yet saved) ──────────
+    const liveDay = () => { const d=new Date(); d.setDate(d.getDate()+3); d.setHours(12,0,0,0); return d; };
+    const liveReset = (split='upper') => {
+      reset(); vDate=liveDay(); const k=dKey(vDate); S.dayConfig={}; S.dayConfig[k]={type:'gym',split}; S.history=[]; S.sessions={};
+      showToast=()=>{}; showConfirm=(m,yes)=>yes(); return k;
+    };
+    const names = g => (g.exList||[]).map(e=>e.n);
+    test('plan-page split change re-plans a started workout and keeps logged sets', () => {
+      const k=liveReset('upper'); buildTodayWorkout(); const g=S.sessions[k].gym; const first=g.exList[0].n;
+      g.exercises[0].sets[0]=set(100,10); g.wTimer={startedAt:Date.now(),accumMs:0,running:true,active:true}; saveS();
+      openDayModal(k); setSplit('lower'); saveDayConfig();
+      const n=S.sessions[k].gym; check(getEffTpl(k)==='lower','split did not change');
+      check(names(n).some(x=>/squat|leg press|lunge/i.test(x)),'no lower-body work: '+names(n));
+      const i=names(n).indexOf(first); check(i>=0&&n.exercises[i].sets.some(s=>s.done&&s.weight==='100'),'logged set lost');
+      check(n.exList[i].carried,'kept exercise not marked as done from the earlier plan');
+    });
+    test('switching the split on Today any number of times shifts the week once and can switch back', () => {
+      const k=liveReset('upper'); buildTodayWorkout(); const later=[];
+      for(let i=1;i<=7;i++){const d=new Date(vDate);d.setDate(d.getDate()+i);later.push(dKey(d));}
+      const week=()=>later.map(dk=>getDayType(dk)==='rest'?'-':getEffTpl(dk)).join(',');
+      const original=week();
+      confirmSplitSwitch('lower'); const once=week();
+      confirmSplitSwitch('push'); check(week()===once,'second switch shifted the week again: '+once+' → '+week());
+      confirmSplitSwitch('pull'); check(week()===once,'third switch shifted the week again');
+      confirmSplitSwitch('upper'); check(week()===original,'switching back did not restore the week: '+original+' vs '+week());
+      check(getEffTpl(k)==='upper','today not back on the planned split');
+    });
+    test('a split switch mid-workout is allowed and keeps logged sets', () => {
+      const k=liveReset('upper'); buildTodayWorkout(); const g=S.sessions[k].gym; const first=g.exList[0].n; g.exercises[0].sets[0]=set(95,8); saveS();
+      buildTodayWorkout(); check(el('swapWorkoutBanner').style.display!=='none','switcher hidden after logging');
+      confirmSplitSwitch('lower'); confirmSplitSwitch('push');
+      const n=S.sessions[k].gym, i=names(n).indexOf(first);
+      check(getEffTpl(k)==='push','not on push'); check(i>=0&&n.exercises[i].sets.some(s=>s.done&&s.weight==='95'),'logged set lost');
+    });
+    test('focus changes back and forth on a live workout match a fresh build every time', () => {
+      const fresh={};
+      for(const f of ['tone','power','muscle','endurance','general','hybrid']){ const k=liveReset('upper'); S.weekFocus=f; buildTodayWorkout(); fresh[f]=JSON.stringify(S.sessions[k].gym.exList); }
+      const k=liveReset('upper'); S.weekFocus='tone'; buildTodayWorkout();
+      for(const f of ['power','tone','muscle','power','endurance','tone','hybrid','general']){
+        setWeeklyFocus(f); const g=S.sessions[k].gym;
+        check(JSON.stringify(g.exList)===fresh[f],f+': list differs from a fresh '+f+' build');
+        g.exList.forEach((e,i)=>{ const work=(g.exercises[i].sets||[]).filter(s=>!s.spec&&(s.type||'wk')==='wk'); check(work.length>=e.sets&&e.sets>=3,f+': '+e.n+' has '+work.length+' work sets'); });
+        check(document.querySelector('#todaySub').textContent.includes(FOCUS_META[f].lb),f+': Today label not updated');
+      }
+    });
+    test('focus change mid-workout re-plans and keeps logged work', () => {
+      const k=liveReset('upper'); S.weekFocus='tone'; buildTodayWorkout(); const g=S.sessions[k].gym; const first=g.exList[0].n; g.exercises[0].sets[0]=set(155,12); saveS();
+      setWeeklyFocus('power'); const n=S.sessions[k].gym, i=names(n).indexOf(first);
+      check(getWorkoutFocus(k)==='power','focus not applied mid-workout');
+      check(i>=0&&n.exercises[i].sets[0].done&&n.exercises[i].sets[0].weight==='155','logged set changed');
+      check(n.exercises[i].sets.filter(s=>!s.done&&!s.spec).every(s=>Number(s.reps)<=5),'remaining sets not re-prescribed for strength');
+      doSaveWorkout(3,'mid-workout focus'); check(S.history[0].trainingFocus==='power','saved with stale focus');
+    });
+    test('intensity change mid-workout re-plans instead of refusing', () => {
+      const k=liveReset('upper'); buildTodayWorkout(); const g=S.sessions[k].gym; g.exercises[0].sets[0]=set(100,10); saveS();
+      setIntensity('quick'); check(S.sessions[k].gym.intensity==='quick','intensity refused');
+      check(S.sessions[k].gym.exercises[0].sets[0].done,'logged set lost');
+    });
+    test('end without saving clears the workout and records nothing', () => {
+      const k=liveReset('upper'); buildTodayWorkout(); startWorkoutTimer(); S.sessions[k].gym.exercises[0].sets[0]=set(100,10); saveS();
+      discardWorkout(); const g=S.sessions[k].gym;
+      check(S.history.length===0,'history written'); check(!_wTimerActive,'clock still running');
+      check(!Object.values(g.exercises||{}).some(e=>(e.sets||[]).some(s=>s.done)),'logged sets kept');
+    });
+    test('each focus gets its own specialty sets as extras; the switch is separate from supersets', () => {
+      const want={power:'cl',hybrid:'cl',muscle:'ds',tone:'ds',endurance:'rp',general:'ds'};
+      for(const f of Object.keys(want)){
+        const k=liveReset(f==='general'?'upper':'push'); _advSuggestEnabled=true; S.weekFocus=f; buildTodayWorkout(); const g=S.sessions[k].gym;
+        const specs=[]; g.exList.forEach((e,i)=>(g.exercises[i].sets||[]).forEach(s=>{ if(s.spec) specs.push({n:e.n,t:s.type,i}); }));
+        check(specs.some(x=>x.t===want[f]),f+': no '+want[f]+' set ('+JSON.stringify(specs)+')');
+        for(const x of specs){ const work=g.exercises[x.i].sets.filter(s=>!s.spec&&(s.type||'wk')==='wk').length; check(work>=g.exList[x.i].sets,f+': specialty replaced a work set on '+x.n); }
+        if(f==='power') check(!specs.some(x=>x.t==='ds'||x.t==='fl'),'strength got drops/failure');
+      }
+      const k=liveReset('push'); _advSuggestEnabled=true; S.weekFocus='tone'; S.prefs.autoSuperset=true; buildTodayWorkout();
+      toggleAdvSuggest(); let g=S.sessions[k].gym; check(!Object.values(g.exercises).some(e=>e.sets.some(s=>s.spec)),'specialty sets not removed when off');
+      check(S.prefs.autoSuperset===true,'specialty switch changed supersets');
+      toggleAdvSuggest(); g=S.sessions[k].gym; check(Object.values(g.exercises).some(e=>e.sets.some(s=>s.spec)),'specialty sets not restored');
+      _advSuggestEnabled=false;
+    });
+    test('specialty sets never count toward records or progression', () => {
+      reset(); S.history=[history('2026-09-29',[set(100,10),set(100,10),set(100,10),{...set(300,12,'cl'),spec:true},{...set(80,10,'ds'),spec:true}])]; recomputePBs();
+      check(!Object.values(S.pbs).some(p=>Number(p.weight)>100),'specialty set became a record');
+      const last=getLastExSession('Bench Press (Barbell)'); check(last&&last.weight===100,'specialty set drove progression');
+    });
+    test('profile starting loads follow the rep target for every focus', () => {
+      const e1=est1RM(S.strength.bench||185,7);
+      for(const f of Object.keys(FOCUS_META)){
+        const k=liveReset('push'); S.weekFocus=f; buildTodayWorkout(); const g=S.sessions[k].gym, i=names(g).indexOf('Bench Press (Barbell)'); if(i<0) continue;
+        const w=Number(g.exercises[i].sets[0].weight), r=Number(g.exList[i].reps);
+        check(w<=e1/(1+r/30)+5,f+': '+w+' lb x '+r+' exceeds an estimated '+r+'-rep max');
+      }
+    });
+    test('exercises are organised into calisthenics / free weights / plate-loaded / pin machines', () => {
+      const cases={'Push-Ups':'calisthenics','Pull-Ups':'calisthenics','TRX Row':'calisthenics','Stability Ball Crunch':'calisthenics',
+        'Bench Press (Barbell)':'freeweight','Dumbbell Bicep Curls':'freeweight','EZ Bar Curl':'freeweight','Kettlebell Swing':'freeweight','Landmine Press':'freeweight',
+        'Plate-Loaded Leg Press':'plate','Smith Machine Squat':'plate','Hack Squat Machine':'plate','ISO-Lateral Chest Press':'plate',
+        'Chest Press Machine':'pin','Lat Pull-Down Machine':'pin','Cable Tricep Push-Down':'pin','Assisted Chin-Up (Underhand)':'pin','Leg Extension Machine':'pin',
+        'Band Chest Fly':'bands','Treadmill (Running)':'cardio'};
+      for(const [n,c] of Object.entries(cases)) check(exerciseCategory(n)===c,n+' → '+exerciseCategory(n)+' (want '+c+')');
+      for(const n of ['Wide Push-Up','Decline Push-Up','TRX Atomic Push-Up','Stability Ball Pike']) check(getExType(n)==='bodyweight',n+' given a weight model');
+      for(const g of Object.keys(ELIB)) for(const e of ELIB[g]) check(EX_CATEGORIES.some(c=>c.id===exerciseCategory(e.n)),'unclassified '+e.n);
+    });
+    test('library-added exercises stay through re-plans', () => {
+      const k=liveReset('upper'); buildTodayWorkout(); const pick=allLibraryExercises().find(e=>e.cat==='calisthenics'&&isExerciseAvailable(e.n,getActiveGym().equipment)&&!names(S.sessions[k].gym).includes(e.n));
+      addExerciseToToday(pick.n); check(names(S.sessions[k].gym).includes(pick.n),'not added');
+      setWeeklyFocus('muscle'); check(names(S.sessions[k].gym).includes(pick.n),'lost on focus change');
+      confirmSplitSwitch('lower'); check(names(S.sessions[k].gym).includes(pick.n),'lost on split change');
+    });
+    // ── Home workout ────────────────────────────────────────────────────────────
+    const homeReset = (split) => { const k=liveReset('push'); switchPage('today'); cMode='gym'; buildTodayWorkout(); if(split){S.homeConfig={};S.homeConfig[k]={split};} switchMode('home'); return k; };
+    test('home workout is a separate session that never touches the gym workout', () => {
+      const k=homeReset(); cMode='gym'; buildTodayWorkout(); const gymBefore=JSON.stringify(S.sessions[k].gym.exList); switchMode('home');
+      const h=S.sessions[k].home; check(h&&h.exList&&h.exList.length>=4,'no home workout'); check(h!==S.sessions[k].gym,'shared session');
+      h.exercises[0].sets[0]={...h.exercises[0].sets[0],reps:'10',done:true}; saveS(); doSaveWorkout(4,'home');
+      check(S.history.length===1&&S.history[0].type==='home','not saved as home');
+      switchMode('gym'); check(JSON.stringify(S.sessions[k].gym.exList)===gymBefore,'gym workout changed'); check(!isSessionComplete(k,'gym'),'gym marked saved');
+      cMode='gym';
+    });
+    test('home rotation avoids the muscles trained at the gym that day', () => {
+      const k=liveReset('push'); check(homeSplitFor(k)!=='hpush','home push on a gym push day');
+      S.dayConfig[k].split='lower'; check(homeSplitFor(k)!=='hlegs','home legs on a gym leg day');
+    });
+    test('every home split x focus builds a valid workout from home equipment only', () => {
+      for(const sp of HOME_SPLITS) for(const f of Object.keys(FOCUS_META)) for(const it of ['quick','standard']){
+        const k=homeReset(sp); S.weekFocus=f; S.sessions[k].home={exercises:{},cardio:{},cardioBlocks:{},intensity:it}; buildTodayWorkout();
+        const h=S.sessions[k].home, eq=getHomeEquipment(); check(h.exList.length>=3,sp+'/'+f+': '+h.exList.length+' exercises');
+        check(new Set(names(h)).size===h.exList.length,sp+'/'+f+': duplicate');
+        h.exList.forEach((e,i)=>{ check(isExerciseAvailable(e.n,eq),sp+': '+e.n+' not at home'); check(e.sets>=3,'set floor '+e.n);
+          for(const s of h.exercises[i].sets) if(Number(s.weight)>0) check(isLoadableWeight(e.n,Number(s.weight)),sp+'/'+f+': unloadable '+e.n+' '+s.weight); });
+        if(it==='quick'){ const est=Number(el('intEstLine').getAttribute('data-est-mid')); check(est>=28&&est<=50,sp+'/'+f+': '+est+' min'); }
+      }
+      cMode='gym';
+    });
+    test('home loads are real: GMWD bumper combos, one 20 lb kettlebell, doorframe bar limits', () => {
+      homeReset('hpush'); const perArm=gmwdPerArmLoads();
+      check(JSON.stringify(perArm)===JSON.stringify([10,15,25,35,40,45,50,55,60,70,75,80,85,90,95,105,115,120,130]),'per-arm loads '+perArm);
+      check(!isLoadableWeight('GMWD Chest Press (Flat)',40)&&isLoadableWeight('GMWD Chest Press (Flat)',50),'two-arm totals wrong');
+      check(snapToLoadable('Kettlebell Goblet Squat',45)===20,'kettlebell not fixed at 20');
+      const eq=getHomeEquipment(); check(isExerciseAvailable('Pull-Ups',eq)&&isExerciseAvailable('Dead Hang',eq),'doorframe bar unusable');
+      check(!isExerciseAvailable('Muscle-Up',eq),'muscle-ups allowed on a doorframe bar');
+      check(isLevelExercise('Twister Chest Squeeze')&&getExType('Twister Chest Squeeze')==='bodyweight','twister given a pound load');
+      cMode='gym';
+    });
+    test('home swaps are kept apart from the gym workout', () => {
+      const k=homeReset('hpush'); doSwap(1,'Diamond Push-Up','Triceps');
+      check(S.swaps['home:'+k+':1'],'home swap not stored'); check(!S.swaps[k+':1'],'home swap leaked to gym');
+      cMode='gym';
     });
     reset(); saveS();
     return results;

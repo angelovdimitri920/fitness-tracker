@@ -5652,7 +5652,6 @@ function selectWorkoutForDuration(tplExercises, intensity, fp, recent48, tplKey,
   // the time budget is still the real driver between min and max.
   var n = (typeof WTPL!=='undefined' && tplKey && WTPL[tplKey]) ? WTPL[tplKey].exercises.length : ((tplExercises&&tplExercises.length)||7);
   var minCount = (intensity==='quick'?3:intensity==='standard'?4:5);
-  if(tplKey&&WTPL[tplKey]&&WTPL[tplKey].home) minCount+=1;
   if(tplKey==='fullbody')minCount=Math.max(4,minCount);
   var maxCount = (intensity==='quick' ? Math.max(3, Math.round(n*0.6)) : intensity==='standard' ? n : Math.min(12, n+3));
   // High-rest focuses (Power: 3–4 min rests, 5-set compounds) fit far fewer in the band.
@@ -5661,6 +5660,8 @@ function selectWorkoutForDuration(tplExercises, intensity, fp, recent48, tplKey,
     maxCount = (intensity==='quick'?3:intensity==='standard'?Math.max(3,n-3):Math.max(4,n-1));
   }
   if(tplKey==='fullbody'){minCount=Math.max(4,minCount);maxCount=Math.max(minCount,maxCount);}
+  // Home sessions skip the travel and walking, so one more exercise fits the band.
+  if(tplKey&&WTPL[tplKey]&&WTPL[tplKey].home){minCount+=1;maxCount=Math.max(minCount,maxCount);}
   // Past-workout awareness: if ≥2 of this split's muscle groups were trained in the last
   // 48h, run a slightly lighter session (one fewer exercise; cardio fills the band).
   try{
@@ -5856,7 +5857,7 @@ function _replanSession(k,gym){
   gym.exListPinned=false; gym.fromTemplateName=null;
   gym.supersets={}; gym.activeSuperset=undefined; gym.userUnlinkedSupersets=false;
   gym.exOrder=null; gym.smartNote=null; gym.lastAppliedKey=null;
-  Object.keys(S.swaps||{}).forEach(function(sk){if(sk.indexOf(k+':')===0) delete S.swaps[sk];});
+  Object.keys(S.swaps||{}).forEach(function(sk){if(sk.indexOf(swapPrefix(k))===0) delete S.swaps[sk];});
   var cb=gym.cardioBlocks||{}, keep={}, cs=gym.cardioSwaps||{}, keepSw={};
   Object.keys(cb).forEach(function(key){
     var b=cb[key]; if(!b) return;
@@ -5931,7 +5932,7 @@ if((_started||hasLogged||isSessionComplete(k))&&sess.exList&&sess.exList.length&
 } else {
   var usedExNames=[];
   exs=exs.map(function(ex,i){
-    var base=S.swaps[k+':'+i]||ex;
+    var base=S.swaps[swapKeyOf(k,i)]||ex;
     var safe=getEquipmentSafeExercise(base,getActiveGym(),usedExNames);
     if(!safe) return null;
     usedExNames.push(safe.n);
@@ -6117,7 +6118,7 @@ if(exD.skipped){
     '<button class="btn btn-g bsm" onclick="toggleSkipExercise('+ei+')">↩ Undo</button></div></div>';
   return;
 }
-var isSwapped=!!S.swaps[k+':'+ei];
+var isSwapped=!!S.swaps[swapKeyOf(k,ei)];
 var prog=getProgression(ex.n,ex.reps,ex.sets,focusLoadFactor(getWorkoutFocus(k),ex.reps));
 var suggWeight=prog.weight;
 var suggReps=prog.reps||ex.reps;
@@ -6737,7 +6738,7 @@ function setIntensity(lvl){
   // Clear this day's exercise swaps: swaps are keyed by list index, but changing
   // intensity re-selects a different exercise set, so old indices no longer align
   // (a stale swap could land on the wrong slot and duplicate a movement).
-  Object.keys(S.swaps).forEach(function(sk){if(sk.indexOf(k+':')===0) delete S.swaps[sk];});
+  Object.keys(S.swaps).forEach(function(sk){if(sk.indexOf(swapPrefix(k))===0) delete S.swaps[sk];});
   // Preserve DONE sets only  --  remove all undone sets so buildGym
   // re-creates the correct number for the new intensity from scratch.
   var exData=gym.exercises||{};
@@ -7743,7 +7744,7 @@ function doSwap(idx,name,target){
   if((gym.exercises[idx]&&gym.exercises[idx].sets||[]).some(function(s){return s.done;})){showToast('Keep the logged exercise. Swap before logging its sets.');return;}
   if(!gym.swapOriginals)gym.swapOriginals={};if(!gym.swapOriginals[idx])gym.swapOriginals[idx]=Object.assign({},cur);
   if(gym.exList)gym.exList[idx]=Object.assign({},cur,{n:name,t:target});
-  S.swaps[k+':'+idx]=Object.assign({},cur,{n:name,t:target});
+  S.swaps[swapKeyOf(k,idx)]=Object.assign({},cur,{n:name,t:target});
   GS(k).exercises[idx]={sets:[]};
   saveS();
   closeModal('swapModal');
@@ -7754,7 +7755,7 @@ function undoSwap(idx){
   var k=dKey(vDate),g=GS(k);
   if((g.exercises[idx]&&g.exercises[idx].sets||[]).some(function(s){return s.done;})){showToast('Keep the logged exercise.');return;}
   if(g.swapOriginals&&g.swapOriginals[idx]&&g.exList){g.exList[idx]=g.swapOriginals[idx];delete g.swapOriginals[idx];}
-  delete S.swaps[k+':'+idx];g.exercises[idx]={sets:[]};saveS();closeModal('swapModal');buildTodayWorkout();showToast('Reset exercise');
+  delete S.swaps[swapKeyOf(k,idx)];g.exercises[idx]={sets:[]};saveS();closeModal('swapModal');buildTodayWorkout();showToast('Reset exercise');
 }
 function checkVolAlert(k,dow){var alertEl=el('volAlert');if(!alertEl||cMode!=='gym')return;var tplKey=wkTpl(k),focus=(WTPL[tplKey]||{}).focus;var lastSame=S.history.filter(function(h){return h.type==='gym'&&h.focus===focus&&h.split===tplKey;}).slice(-1)[0];if(!lastSame){alertEl.innerHTML='';return;}var gymSess=GS(k),curr=gymSess?Object.values(gymSess.exercises||{}).reduce(function(a,ex){return a+(ex.sets||[]).filter(function(s){return s.done;}).reduce(function(b,s){return b+(parseFloat(s.weight)||0)*(parseFloat(s.reps)||0);},0);},0):0;if(!curr){alertEl.innerHTML='';return;}var diff=curr-(lastSame.volume||0);var _wuVA=getWeightUnit(),_diffD2=toDisplayWeight(Math.abs(diff));if(diff>0)alertEl.innerHTML='<div class="alert alert-up">📈 Up '+toDisplayWeight(Math.round(diff))+' '+_wuVA+' vs last '+focus+'!</div>';else if(diff<-50)alertEl.innerHTML='<div class="alert alert-dn">📉 Volume down '+Math.round(_diffD2)+' '+_wuVA+' vs last session.</div>';else alertEl.innerHTML='';}
 // One completed-cardio contract for Today, save previews and persisted history.
@@ -7796,7 +7797,7 @@ function updateStats(){try{refreshDiscardBtn();}catch(e){}
       var ei=parseInt(entry[0]), exD=entry[1];
       if(exD.skipped) return;
       // Look up swap first, then template  --  uses actual exercise key not loop counter
-      var exName=(S.swaps[k+':'+ei]&&S.swaps[k+':'+ei].n)||(exs[ei]&&exs[ei].n)||'';
+      var exName=(S.swaps[swapKeyOf(k,ei)]&&S.swaps[swapKeyOf(k,ei)].n)||(exs[ei]&&exs[ei].n)||'';
       var exType=getExType(exName);
       var met=(exType==='compound'||exType==='plate_machine')?5.0:
               (exType==='cable'||exType==='bodyweight')?4.0:3.5;
@@ -7890,7 +7891,7 @@ function updateLiveVolumeCard(k){
   Object.entries(sess[wkKey(k)].exercises||{}).forEach(function(entry){
     var ei=parseInt(entry[0]), exD=entry[1];
     if(exD.skipped) return;
-    var exName=(S.swaps[k+':'+ei]&&S.swaps[k+':'+ei].n)||(exs[ei]&&exs[ei].n)||'';
+    var exName=(S.swaps[swapKeyOf(k,ei)]&&S.swaps[swapKeyOf(k,ei)].n)||(exs[ei]&&exs[ei].n)||'';
     if(!exName) return;
     var mg=getMG(exName)||'Other';
     (exD.sets||[]).forEach(function(s){
@@ -7985,7 +7986,7 @@ function getRenderedExList(k){
   if(it==='quick')exs=exs.filter(function(e){return e.p<=1;}).map(function(e){return Object.assign({},e,{sets:Math.max(MIN_WORK_SETS,e.sets-1)});});
   else if(it==='standard')exs=exs.filter(function(e){return e.p<=2;});
   if((S.weekFocus||'general')==='power'&&it!=='full')exs=exs.filter(function(e){return e.p<=1;});
-  return exs.map(function(ex,i){return S.swaps[k+':'+i]||ex;});
+  return exs.map(function(ex,i){return S.swaps[swapKeyOf(k,i)]||ex;});
 }
 function doSaveWorkout(rating,notes){var k=dKey(vDate),dtype=getDayType(k),sess=S.sessions[k];if(!sess){showToast('Nothing to save');return;}var saved=false;var _wt=(cMode==='home')?'home':'gym';if((cMode==='gym'&&(dtype==='gym'||dtype==='both'))||cMode==='home'){if(!GS(k)){showToast('Nothing to save');return;}var tplKey=wkTpl(k),gym=GS(k),tpl=WTPL[tplKey],it=gym.intensity||'standard',exs=getRenderedExList(k);var vol=0,sc=0,mins=0,exLogs=[];
 // Snapshot S.pbs BEFORE the exLogs loop overwrites it  --  needed for accurate PR detection below
@@ -8157,6 +8158,9 @@ function wkKey(k){ return (cMode==='home'&&k===dKey(vDate))?'home':'gym'; }
 // Home Workout module).
 function wkTpl(k){ return (wkKey(k)==='home'&&typeof homeSplitFor==='function')?homeSplitFor(k):getEffTpl(k); }
 function GS(k){ var d=S.sessions&&S.sessions[k]; return d?d[wkKey(k)]:undefined; }
+// Exercise swaps are keyed by list position, so the home workout keeps its own.
+function swapPrefix(k){ return (wkKey(k)==='home'?'home:':'')+k+':'; }
+function swapKeyOf(k,i){ return swapPrefix(k)+i; }
 function isHomeMode(k){ return wkKey(k||dKey(vDate))==='home'; }
 function sessionHasActivity(gym){
   return !!gym&&(Object.values(gym.exercises||{}).some(function(e){return (e.sets||[]).some(function(s){return s.done;});})||
@@ -14274,7 +14278,7 @@ function getWorkingWeight(ei){
   // Use the actual exercise at ei, with swaps applied
   var ex=tpl.exercises[ei];
   if(!ex) return 0;
-  var exName=S.swaps[k+':'+ei]?S.swaps[k+':'+ei].n:ex.n;
+  var exName=S.swaps[swapKeyOf(k,ei)]?S.swaps[swapKeyOf(k,ei)].n:ex.n;
   var fp=getFocusParams();
   var wPct=focusLoadFactor(getWorkoutFocus(),ex.reps);
   var prog=getProgression(exName, ex.reps||[8,12], ex.sets||3, wPct);
@@ -16302,7 +16306,7 @@ function discardWorkout(){
     _wTimerActive=false;_wTimerPaused=false;_wTimerElapsed=0;_wTimerStart=null;
     try{stopTimer();}catch(e){}
     try{clearAllCardioTimers();}catch(e){}
-    Object.keys(S.swaps||{}).forEach(function(sk){if(sk.indexOf((key==='home'?'home:':'')+k+':')===0) delete S.swaps[sk];});
+    Object.keys(S.swaps||{}).forEach(function(sk){if(sk.indexOf(swapPrefix(k))===0) delete S.swaps[sk];});
     sess[key]={exercises:{},cardio:{},cardioBlocks:{},intensity:g.intensity||(S.setup&&S.setup.defaultIntensity)||'standard'};
     saveS();
     try{refreshWakeLock();}catch(e){}
@@ -25815,7 +25819,7 @@ function getWorkoutCalsBurned(){
   Object.entries(sess[wkKey(k)].exercises||{}).forEach(function(entry){
     var ei=parseInt(entry[0]), exD=entry[1];
     if(exD.skipped)return;
-    var exName=(S.swaps[k+':'+ei]&&S.swaps[k+':'+ei].n)||(exs[ei]&&exs[ei].n)||'';
+    var exName=(S.swaps[swapKeyOf(k,ei)]&&S.swaps[swapKeyOf(k,ei)].n)||(exs[ei]&&exs[ei].n)||'';
     var exType = getExType(exName);
     var met = (exType==='compound'||exType==='plate_machine') ? 5.0 :
               (exType==='cable'||exType==='bodyweight') ? 4.0 : 3.5;
@@ -29695,7 +29699,7 @@ function applyWorkoutTemplate(id){
   // Install the template as today's PINNED workout: buildGym renders sess.exList
   // verbatim instead of running the duration engine, so the saved exercises, order,
   // set structure, weights, and supersets all come back exactly as captured.
-  Object.keys(S.swaps).forEach(function(sk){if(sk.indexOf(k+':')===0) delete S.swaps[sk];});
+  Object.keys(S.swaps).forEach(function(sk){if(sk.indexOf(swapPrefix(k))===0) delete S.swaps[sk];});
   if(!S.sessions[k]) S.sessions[k]={};
   if(!GS(k)) S.sessions[k][wkKey(k)]={exercises:{},intensity:wkKey(k)==='home'?'quick':'standard'};
   var gym=GS(k);
@@ -29730,7 +29734,7 @@ function resetToAutoWorkout(){
   showConfirm('Switch back to the auto-generated workout? Sets logged today will be cleared.',function(){
     g.exListPinned=false; g.fromTemplateName=null; g.exList=null;
     g.exercises={}; g.exOrder=null; g.supersets={}; g.activeSuperset=undefined;
-    Object.keys(S.swaps).forEach(function(sk){if(sk.indexOf(k+':')===0) delete S.swaps[sk];});
+    Object.keys(S.swaps).forEach(function(sk){if(sk.indexOf(swapPrefix(k))===0) delete S.swaps[sk];});
     saveS(); buildTodayWorkout(); showToast('↩ Auto workout restored');
   });
 }

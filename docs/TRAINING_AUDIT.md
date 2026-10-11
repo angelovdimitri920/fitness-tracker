@@ -32,7 +32,7 @@ The optional combined focus rotates full-body sessions at up to three gym days, 
 - **Training guidance:** removed automatic advanced-set prescriptions, mandatory hypertrophy pyramids and unsupported guarantees about soreness, meal timing and cardio. Added RIR/RPE/e1RM definitions, assistance-load guidance and last-seven-day primary-muscle set/day counts. These counts are descriptive, not a fully individualized volume optimizer.
 - **Named programs:** StrongLifts, Starting Strength, GZCLP and nSuns cards are educational references; their incomplete implementations cannot override Today. The remaining 5/3/1-style main-lift override is explicitly labeled an adaptation, not a complete implementation of Wendler's schedule and assistance programming.
 - **Persistence and calculations:** malformed backup structure is rejected before overwrite; storage failures no longer report a successful save. Rest timers retain their deadline after restoration. Cardio totals do not include the entire lifting-session duration. Calorie calculation uses the rendered exercise snapshot. Bodyweight units and added-plate input remain stored in pounds. Calories, recovery scores, duration and estimated maxima are still estimates.
-- **Development server:** serves only the six public app assets, preventing accidental access to local key files, Git metadata or backups. Service-worker shell cache advanced to v8.
+- **Development server:** serves only the six public app assets, preventing accidental access to local key files, Git metadata or backups. Service-worker shell cache advanced to v8 (v9 with the October 11 addendum).
 
 Legacy history without a gym or training-focus identifier cannot retrospectively be assigned a verified gym or focus. It remains usable for compatibility. The changes do not rewrite the user's private browser data during development.
 
@@ -95,3 +95,29 @@ The new regressions were observed failing before the fixes and passing afterward
 - No software test can establish ideal exercise form, personal recovery, adherence, an optimal program, or future physiological results. Evaluate actual performance trends and adjust training accordingly.
 - Data remains primarily browser-local. JSON export is still important; storage can be cleared by the browser or device. This change does not introduce cloud synchronization.
 - Repository changes do not automatically update a separately hosted site or an installed phone copy. Merge/deploy the reviewed changes and accept the PWA update before expecting the corrected behavior there.
+
+## October 11, 2026 addendum: live re-planning, specialty sets, loads, organisation, home workout
+
+These changes were made at the user's explicit request. Where they reverse earlier decisions above, this section takes precedence.
+
+- **Live sessions follow the plan.** A session is *live* while its day is today or later and it is not saved to history, or while its workout clock is still running. Changing the split (Plan page or Today switcher), the focus, the intensity or the gym re-plans a live session even mid-workout. Logged sets are carried over by exercise identity. An exercise already worked on that the new plan drops stays at the top, marked as done under the earlier plan. Unlogged suggestions are re-derived. Index-keyed state (swaps, supersets, order) is reset. Saved and past sessions keep their snapshot, as before. This replaces "started workouts keep their exercise list when the default focus changes".
+- **Repeated split switches.** The first Today switch moves the skipped workout to the next gym day. Later switches undo that shift first, so the week is never shifted twice, and switching back to the planned split restores it.
+- **End without saving.** `discardWorkout()` clears the day's logged work and clock. History is never touched.
+- **Specialty sets reinstated, as extras.** Each focus gets an automatic technique matched to its goal, always as an extra set after the work sets. The three-work-set floor and the three-straight-sets progression rule are untouched, and the extra set never counts toward records or progression.
+
+  | Focus | Specialty set | Evidence |
+  | --- | --- | --- |
+  | Build Strength | One cluster set on the main lift | Clusters preserve velocity and force within a session ([Latella et al. 2019](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6851217/)). Chronic strength gains match straight sets (Jukic et al. 2021; [Davies et al. 2021](https://edisciplinas.usp.br/pluginfile.php/8499875/mod_resource/content/0/intervalo_entre_repeticoes_forca_hipertrofia_davies_2021.pdf)). |
+  | Muscle + Strength | Cluster on the main lift; rest-pause on an accessory | As above |
+  | Build Muscle | Drop set on the last isolation / machine exercises; one set to technical failure on a machine isolation | Drop sets match normal sets for hypertrophy in less time ([Sødal et al. 2023](https://doaj.org/article/21e0b210caf1433594359186eee617b9)). Failure adds a trivial-to-small benefit ([Refalo et al. 2023](https://pmc.ncbi.nlm.nih.gov/articles/PMC9935748)). Never on free-weight compounds. |
+  | Lose & Tone | Drop sets on two isolation exercises | Time-efficient volume while cutting (Sødal 2023) |
+  | Endurance | Rest-pause on accessories | Greater local muscular endurance than straight sets ([Prestes et al. 2019](https://pubmed.ncbi.nlm.nih.gov/28617715/)) |
+  | General Fitness | One drop set on the final isolation exercise | — |
+
+  Specialty sets have their own switch (Settings → Specialty sets, or the ✨ chip on Today), independent of supersets. Supersets remain antagonist-paired and are no longer gated on the specialty-set switch ([Zhang et al. 2025](https://eprints.leedsbeckett.ac.uk/id/eprint/11908)).
+- **Work-set doses.** Main lifts get 4 sets for Strength, Muscle + Strength and Build Muscle, and 3 for General, Tone and Endurance. This follows the NSCA ranges: strength 2–6, hypertrophy 3–6, general and endurance 2–3. Accessories stay at 3.
+- **Profile starting loads.** The flat `weightPct` multiplier was replaced. `focusLoadFactor` converts the profile's 7-rep working weight to the load that leaves the focus's planned reps in reserve at the prescribed reps (Epley). That puts Strength at about 88 % of 1RM, Muscle about 79 %, Tone and General about 72 %, and Endurance about 63 %. The old ×1.15 strength factor put 3×4 above a true 4-rep max.
+- **Organisation.** `exerciseCategory` sorts every exercise into one of six groups: Calisthenics, Dumbbell/Barbell, Plate-Loaded, Pin-Select (including cables), Bands/Springs & Functional, or Cardio. `equipmentCategory` does the same for every piece of equipment. Exercises are also sorted into seven body areas. `getExType` now uses the category instead of defaulting unknown exercises to a selectorized stack; 432 of 719 library exercises previously fell through.
+- **Home workout.** See [HOME_EQUIPMENT.md](HOME_EQUIPMENT.md). Home sessions are `type:'home'` in history. They count toward the streak, calories, muscle recovery, weekly coverage and records, which are tracked per exercise. Progression history is kept per location.
+
+Verification: 134 browser checks pass, adding regression tests for each item above. The tests cover all four home splits × six focuses × two lengths, and all six gym focuses × eight gym splits × three lengths.
