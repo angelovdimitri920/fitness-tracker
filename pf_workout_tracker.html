@@ -2008,7 +2008,16 @@ canvas{width:100%!important;display:block}
 <div class="mo" id="swapModal"><div class="md"><div class="mh"></div><button class="mc" onclick="closeModal('swapModal')">✕</button><div class="mt">🔄 SWAP EXERCISE</div><div style="font-size:12px;color:var(--mu);margin-bottom:8px" id="swapHint"></div>
 <input id="swapFilter" type="search" class="ex-note-inp" placeholder="Search alternatives…" oninput="renderSwapList(this.value)" style="width:100%;padding:9px 11px;font-size:13px;margin-bottom:8px">
 <button id="swapBusyBtn" onclick="toggleSwapBusyFilter()" title="Someone's on the machine? Show only alternatives that use different equipment." style="width:100%;padding:7px 11px;margin-bottom:10px;border-radius:8px;border:1px solid var(--b2);background:var(--s3);color:var(--mu);font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.5px;cursor:pointer">🚧 Machine busy?</button>
+<div id="swapCatChips" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px"></div>
 <div id="swapList"></div></div></div>
+
+<div class="mo" id="exLibModal"><div class="md"><div class="mh"></div><button class="mc" onclick="closeModal('exLibModal')">✕</button><div class="mt" id="exLibTitle">📚 EXERCISE LIBRARY</div>
+<div style="font-size:11px;color:var(--mu);margin-bottom:8px" id="exLibHint"></div>
+<input id="exLibSearch" type="search" class="ex-note-inp" placeholder="Search exercises…" oninput="renderExerciseLibrary()" style="width:100%;padding:9px 11px;font-size:13px;margin-bottom:8px">
+<div id="exLibCats" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px"></div>
+<div id="exLibAreas" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px"></div>
+<label style="display:flex;align-items:center;gap:7px;font-size:11px;color:var(--mu);margin:2px 0 10px;cursor:pointer"><input type="checkbox" id="exLibAvailOnly" onchange="renderExerciseLibrary()" checked> Only what this gym has</label>
+<div id="exLibList"></div></div></div>
 
 <div class="mo" id="intervalTimerModal"><div class="md"><div class="mh"></div><button class="mc" onclick="ivtReset(true);closeModal('intervalTimerModal')">✕</button><div class="mt">⏱️ INTERVAL TIMER</div>
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
@@ -4282,7 +4291,94 @@ if(['Side Plank','Dead Bug','Bicycle Crunch','Pike Push-Up','Diamond Push-Up','A
 if(/dumbbell|kettlebell/i.test(name)) return 'compound_db';
 if(/barbell/i.test(name)) return 'compound';
 if(/cable/i.test(name)) return 'cable';
-return 'machine';
+// Everything else follows its equipment category. Previously anything unlisted fell
+// through to 'machine' — push-ups, TRX, bands, EZ-bar curls and plate-loaded variants
+// were all treated as a selectorized stack and given a stack-weight suggestion.
+var cat=exerciseCategory(name);
+if(cat==='calisthenics'||cat==='bands') return 'bodyweight';
+if(cat==='cardio') return 'cardio';
+if(cat==='freeweight') return /medicine ball|slam ball|wall ball|sandbag|concentration curl|spider curl|zottman|renegade|farmer|plate front raise/i.test(name)?'compound_db':'compound';
+if(cat==='plate') return /smith machine/i.test(name)?'compound':'plate_machine';
+return /cable|face pull|rope/i.test(name)?'cable':'machine';
+}
+
+// ── EXERCISE & EQUIPMENT ORGANISATION ──────────────────────────────────────
+// Every exercise and every piece of equipment sits in exactly one category — how it is
+// loaded — and every exercise in one body area. Used by the exercise library, the swap
+// list, "Add exercise" on Today and the Equipment page.
+var EX_CATEGORIES=[
+  {id:'calisthenics',em:'🤸',lb:'Calisthenics',sb:'Bodyweight — your body is the load (incl. TRX, bars, stability balls)'},
+  {id:'freeweight',  em:'🏋️',lb:'Dumbbell / Barbell',sb:'Free weights — dumbbells, barbells, EZ / trap bars, kettlebells, med balls'},
+  {id:'plate',       em:'🔩',lb:'Plate-Loaded Machines',sb:'Load 45 / 25 / 10 / 5 lb plates onto the machine (incl. Smith, hack squat)'},
+  {id:'pin',         em:'📍',lb:'Pin-Select Machines',sb:'Move the pin to the weight — selectorized stacks and cable stations'},
+  {id:'bands',       em:'🎗️',lb:'Bands & Functional',sb:'Resistance bands, sleds, battle ropes'},
+  {id:'cardio',      em:'🏃',lb:'Cardio',sb:'Treadmill, bike, rower, stepper…'}
+];
+var BODY_AREAS=[
+  {id:'chest',lb:'Chest',groups:['chest']},
+  {id:'back',lb:'Back',groups:['back','lowerback']},
+  {id:'shoulders',lb:'Shoulders',groups:['shoulders']},
+  {id:'arms',lb:'Arms',groups:['biceps','triceps']},
+  {id:'legs',lb:'Legs & Glutes',groups:['quads','hamstrings','glutes','calves']},
+  {id:'core',lb:'Core',groups:['core']},
+  {id:'fullbody',lb:'Full Body & Conditioning',groups:['functional','turfstrength','bodyweight']}
+];
+function bodyAreaOf(group){
+  for(var i=0;i<BODY_AREAS.length;i++) if(BODY_AREAS[i].groups.indexOf(group)>=0) return BODY_AREAS[i].id;
+  return 'fullbody';
+}
+var _exCatCache={};
+function exerciseCategory(name){
+  if(!name) return 'pin';
+  if(_exCatCache[name]) return _exCatCache[name];
+  var n=String(name), c=null;
+  var CARDIO_RE=/^(treadmill|elliptical|rowing machine|stationary bike|upright|recumbent|spin bike|fan bike|stair stepper|stepmill|arc trainer|ski erg|jacob|versaclimber|curved manual|upper body ergometer)|cycling intervals|spin intervals|sprint intervals|power row intervals|interval elliptical|incline walk$/i;
+  if(CARDIO_RE.test(n)) c='cardio';
+  else if(/^(band |resistance band |banded (?!leg press))|figure-8 resistance band|mini loop|long loop|power bands|hip circle/i.test(n)) c='bands';
+  else if(/sled (push|pull)|battle rope|tire flip|moveable fitness tank/i.test(n)) c='bands';
+  else if(/^trx |bodyweight|inverted row|^ghd (machine|sit-up)|^reverse hyperextension/i.test(n)) c='calisthenics';
+  else if(/landmine/i.test(n)) c='freeweight';
+  else if(/smith machine|plate-loaded|iso-lateral|hammer strength|hack squat|pendulum squat|belt squat|squat \/ lunge machine|t-bar row station|leg press calf raise|^standard leg press|foot placement press|^single-leg press|stance press$|^reverse hyper$/i.test(n)) c='plate';
+  else if(/^cable |cable |machine|^assisted |assist machine|chin\/dip|chin \/ dip|pec deck|rope tricep|pull-?down station/i.test(n)) c='pin';
+  else if(/weighted|dip belt/i.test(n)) c='freeweight';
+  else if(/medicine ball|slam ball|wall ball|sandbag|kettlebell|dumbbell|barbell|ez bar|ez curl|trap bar|hex bar|log press|log bar|axle|atlas stone|yoke|farmer|plate front raise|concentration curl|spider curl|zottman|renegade row|rack pull|pendlay|yates row|sumo deadlift|^deadlifts?|bench press|floor press|pin press|good morning|^t-bar row|jefferson|skull crusher|^hammer curls|goblet|step-up with dumbbell|preacher curl bench/i.test(n)) c='freeweight';
+  else if(/bosu|stability ball|swiss ball|ab wheel|ab roller|push-?up|pull-?up|chin-?up|plank|sit-?up|leg raise|knee raise|dead bug|bird dog|superman|hollow|dragon flag|windshield|flutter|scissor|mountain climber|burpee|jump|high knees|butt kicks|crab walk|wall walk|handstand|l-sit|skin-the-cat|muscle-up|nordic|natural glute-ham|sissy|pistol|cossack|shrimp squat|skater squat|prisoner squat|frog pump|clamshell|donkey kick|fire hydrant|walking lunges|curtsy lunge|side lunge|forward lunge|^reverse lunge$|copenhagen|boat pose|v-up|toe touch|bicycle crunch|^reverse crunch|^crunch|rope climb|pegboard|wall sit|^dips?$|bench dips|parallette|sliding leg curl|single-leg calf raise|single-leg (glute bridge|hip thrust|rdl|box squat)|^glute bridge|glute bridge march|^step-ups?$|split squat|agility|roman chair|hyperextension|back extension bench|captain|target abs|decline bench sit-up|russian twist$|elevate (row|core|pull-up)|^push-up handles|^plyometric box|^decline bench$|^lying leg raise|^hanging/i.test(n)) c='calisthenics';
+  else if(/fly machine|abductor|adductor|leg extension|leg curl|chest press|shoulder press|row machine|lat pull-?down|pullover|ab coaster|rotary|abdominal|leg press|neck|shrug/i.test(n)) c='pin';
+  if(!c){
+    var deps=(typeof EXERCISE_DEPS!=='undefined'&&EXERCISE_DEPS[n])||[];
+    for(var i=0;i<deps.length&&!c;i++){ if(deps[i]!==n) c=exerciseCategory(deps[i]); }
+  }
+  if(!c) c='pin';
+  _exCatCache[name]=c;
+  return c;
+}
+// Category of a piece of EQUIPMENT (an Equipment-page item), from its name and the
+// catalogue section it lives in.
+function equipmentCategory(itemName,sectionId){
+  if(sectionId==='cardio') return 'cardio';
+  if(sectionId==='cables') return 'pin';
+  if(/pull-up bar|dip station|parallel bars|parallettes|pegboard|climbing rope|plyometric box|plyo hurdles|agility ladder|trx|bosu|stability ball|ab wheel|ab roller|roman chair|hyperextension|back extension bench|captain|target abs|elevate (core|row)|ghd|true stretch|connexus|multi-station|jump rope/i.test(itemName)) return 'calisthenics';
+  if(/resistance bands|turf|sled|moveable fitness tank|battle rope|tire flip/i.test(itemName)) return 'bands';
+  if(/plate-loaded|iso-lateral|hammer strength|smith machine|hack squat|pendulum|belt squat|squat \/ lunge|t-bar row station|reverse hyper/i.test(itemName)) return 'plate';
+  if(sectionId==='free_weight_stations'||/kettlebell|dumbbell|barbell|bench|bar\b|medicine ball|slam ball|wall ball|sandbag|farmer|landmine|log bar|axle|atlas|yoke|plates|weight storage|dip belt/i.test(itemName)) return 'freeweight';
+  return 'pin';
+}
+// Body area for an equipment item, read from its catalogue section / description.
+function equipmentBodyArea(item,sectionId){
+  var map={chest_machines:'chest',back_machines:'back',shoulder_machines:'shoulders',arm_machines:'arms',leg_machines:'legs',core_machines:'core'};
+  if(map[sectionId]) return map[sectionId];
+  function area(t){
+    if(/lateral raise|face pull|upright row|shrug|delt|shoulder|neck/i.test(t)) return 'shoulders';
+    if(/curl|tricep|push-?down|forearm|wrist|bicep|arm bike|ergometer/i.test(t)) return 'arms';
+    if(/kickback|leg|squat|calf|hip|glute|ham|quad|lunge|sled/i.test(t)) return 'legs';
+    if(/chest|pec|fly|bench|dip/i.test(t)) return 'chest';
+    if(/row|pull-?down|\blat\b|pull-up|rope climb|pegboard|deadlift|back/i.test(t)) return 'back';
+    if(/\bab|core|oblique|wood ?chop|torso|stability|bosu|captain/i.test(t)) return 'core';
+    return null;
+  }
+  var a=area((item&&item.n)||'')||area((item&&item.sub)||'');
+  if(a) return a;
+  return 'fullbody';
 }
 
 // Wrapper: whatever the progression logic below arrives at, a suggestion can never be
@@ -5797,6 +5893,13 @@ if((_started||hasLogged||isSessionComplete(k))&&sess.exList&&sess.exList.length&
     usedExNames.push(safe.n);
     return _pinned?safe:prescriptionForFocus(safe,getWorkoutFocus(k));
   }).filter(Boolean);
+  // Exercises the user added from the library ride along with every re-plan.
+  (sess.addedEx||[]).forEach(function(a){
+    if(!a||!a.n||exs.some(function(e){return e.n===a.n;})) return;
+    if(!isExerciseAvailable(a.n,getActiveGym().equipment)) return;
+    var _af=getWorkoutFocus(k), _ax=prescriptionForFocus({n:a.n,t:a.t||'',sets:MIN_WORK_SETS,reps:10,rest:75,p:3},_af);
+    _ax.sets=_focusSetCount(_ax,intensity,_af); _ax.added=true; exs.push(_ax);
+  });
   // Only carry editable state for the same exercise, never for a reused index.
   if(sess.exList){
     var oldData=sess.exercises||{}, remapped={};
@@ -5839,7 +5942,7 @@ sess.planKey=_planKey;
 // quick-fill): the duration engine above can pick different exercises/counts than
 // the legacy template re-filter those consumers used to rebuild, which silently
 // dropped or misattributed logged sets.
-sess.exList=exs.map(function(e){var o={n:e.n,t:e.t,sets:e.sets,reps:e.reps,rest:e.rest,p:e.p};if(e.carried)o.carried=true;return o;});
+sess.exList=exs.map(function(e){var o={n:e.n,t:e.t,sets:e.sets,reps:e.reps,rest:e.rest,p:e.p};if(e.carried)o.carried=true;if(e.added)o.added=true;return o;});
 // Warm-up cardio — only when the duration plan allocates warm-up time
 // (e.g. Power often skips it to preserve CNS freshness).
 // _usedCardio tracks machines already placed today (by canonical type, see cardioTypeKey)
@@ -6227,7 +6330,7 @@ html+='<div id="exCard_'+ei+'" class="exrow '+(isSwapped?'swapped':'')+'" data-e
 '<div class="fbet"><div style="min-width:0;flex:1;display:flex;align-items:flex-start;gap:6px">'+
 '<div class="ex-drag-handle" title="Drag to reorder">⠿</div>'+
 '<div style="min-width:0;flex:1">'+
-'<div class="exname">'+ex.n+(isSwapped?' <span class="badge bp" style="margin-left:5px">SWAPPED</span>':'')+badgeHtml+'</div>'+(getStrengthNote(ex.n)?'<div style="font-size:10px;color:#f97316;padding:2px 0 0;line-height:1.4">⚠️ '+getStrengthNote(ex.n)+'</div>':'')+
+'<div class="exname">'+ex.n+(isSwapped?' <span class="badge bp" style="margin-left:5px">SWAPPED</span>':'')+(ex.carried?' <span class="badge" style="margin-left:5px;background:rgba(148,163,184,.12);color:#94a3b8;border:1px solid rgba(148,163,184,.3)">DONE · EARLIER PLAN</span>':'')+(ex.added?' <span class="badge" style="margin-left:5px;background:rgba(34,211,238,.1);color:#22d3ee;border:1px solid rgba(34,211,238,.3)">ADDED</span>':'')+badgeHtml+'</div>'+(getStrengthNote(ex.n)?'<div style="font-size:10px;color:#f97316;padding:2px 0 0;line-height:1.4">⚠️ '+getStrengthNote(ex.n)+'</div>':'')+
 '<div class="extgt">'+ex.t+' · '+ex.sets+'×'+ex.reps+' · Rest '+ex.rest+'s</div>'+
 _baseWeightChip(ei,ex)+
 (!noWeight&&getBaseWeight(ex.n)===0?'<button class="btn btn-g bsm" onclick="editExerciseLoading('+ei+')">Load increments / limit</button>':'')+
@@ -6281,6 +6384,8 @@ if(_sn&&_sess3&&_sess3.gym&&_sess3.gym.smartNote&&!_sess3.gym.smartNoteDismissed
   var _db=_sn.querySelector('button[data-dismiss]');
   if(_db)_db.setAttribute('onclick',"dismissSmartNote('"+k+"')");
 }else if(_sn){_sn.style.display='none';}
+// Pick any exercise this gym has, organised by category and body area.
+if(isLiveSession(k)) html+='<button class="btn bfw mt8" onclick="openExerciseLibrary(\'add\')" style="font-size:12px;background:rgba(34,211,238,.08);color:#22d3ee;border:1px solid rgba(34,211,238,.3)">➕ Add Exercise · browse by type &amp; body area</button>';
 // CARDIO FINISHER - uses unified cardio block system
 html+='<div class="slbl mt16">🏃 CARDIO FINISHER</div>';
 tpl.cardio.forEach(function(c,ci){
@@ -7405,10 +7510,110 @@ function openSwap(idx,name){
   listEl._idx=idx;
   listEl._current=name;
   listEl._busy=false;
+  listEl._cat='all';
   renderSwapList('');
   var sf=el('swapFilter'); if(sf){ sf.value=''; }
   openModal('swapModal');
 }
+function setSwapCat(c){ var l=el('swapList'); if(!l) return; l._cat=c; renderSwapList((el('swapFilter')||{}).value||''); }
+
+// ── EXERCISE LIBRARY ─────────────────────────────────────────────────────────
+// Every exercise in the app, organised by category (how it is loaded) and body area.
+// mode 'add'    → tap to add the exercise to the workout on screen (gym or home)
+// mode 'browse' → tap for the form guide
+var _exLib={mode:'browse',cat:'all',area:'all'};
+function allLibraryExercises(){
+  var seen={}, out=[];
+  Object.keys(ELIB).forEach(function(g){ (ELIB[g]||[]).forEach(function(e){ if(seen[e.n]) return; seen[e.n]=1; out.push({n:e.n,t:e.t,p:e.p,g:g,cat:exerciseCategory(e.n),area:bodyAreaOf(g)}); }); });
+  return out;
+}
+function openExerciseLibrary(mode,presetCat){
+  _exLib.mode=mode||'browse'; _exLib.cat=presetCat||'all'; _exLib.area='all';
+  var srch=el('exLibSearch'); if(srch) srch.value='';
+  var t=el('exLibTitle'); if(t) t.textContent=_exLib.mode==='add'?'➕ ADD EXERCISE':'📚 EXERCISE LIBRARY';
+  renderExerciseLibrary();
+  openModal('exLibModal');
+}
+function setExLibCat(c){ _exLib.cat=c; renderExerciseLibrary(); }
+function setExLibArea(a){ _exLib.area=a; renderExerciseLibrary(); }
+function _exLibGymEquipment(){
+  if(_exLib.mode==='add'&&cMode==='home'&&typeof getHomeEquipment==='function') return {name:'Home',equipment:getHomeEquipment()};
+  var g=getActiveGym(); return {name:g.name,equipment:g.equipment};
+}
+function renderExerciseLibrary(){
+  var listEl=el('exLibList'); if(!listEl) return;
+  var q=String((el('exLibSearch')||{}).value||'').trim().toLowerCase();
+  var availOnly=!!((el('exLibAvailOnly')||{}).checked);
+  var gym=_exLibGymEquipment();
+  var k=dKey(vDate), used={};
+  if(_exLib.mode==='add'){ (getRenderedExList(k)||[]).forEach(function(e){ if(e&&e.n) used[e.n]=1; }); }
+  var all=allLibraryExercises().filter(function(e){ return e.cat!=='cardio'; });
+  var pool=all.filter(function(e){
+    if(q&&e.n.toLowerCase().indexOf(q)<0&&(e.t||'').toLowerCase().indexOf(q)<0) return false;
+    if(availOnly&&!isExerciseAvailable(e.n,gym.equipment)) return false;
+    return true;
+  });
+  var catCounts={}, areaCounts={};
+  pool.forEach(function(e){ catCounts[e.cat]=(catCounts[e.cat]||0)+1; if(_exLib.cat==='all'||e.cat===_exLib.cat) areaCounts[e.area]=(areaCounts[e.area]||0)+1; });
+  function chip(on,label,click){ return '<button onclick="'+click+'" style="padding:4px 9px;border-radius:999px;font-size:10px;cursor:pointer;'+(on?'border:1px solid var(--ye);background:rgba(245,196,0,.12);color:var(--ye)':'border:1px solid var(--b2);background:var(--s3);color:var(--mu)')+'">'+label+'</button>'; }
+  el('exLibCats').innerHTML=chip(_exLib.cat==='all','All · '+pool.length,"setExLibCat('all')")+EX_CATEGORIES.filter(function(c){return c.id!=='cardio'&&catCounts[c.id];}).map(function(c){return chip(_exLib.cat===c.id,c.em+' '+c.lb+' · '+catCounts[c.id],"setExLibCat('"+c.id+"')");}).join('');
+  el('exLibAreas').innerHTML=chip(_exLib.area==='all','All areas',"setExLibArea('all')")+BODY_AREAS.filter(function(a){return areaCounts[a.id];}).map(function(a){return chip(_exLib.area===a.id,a.lb+' · '+areaCounts[a.id],"setExLibArea('"+a.id+"')");}).join('');
+  var shown=pool.filter(function(e){ return (_exLib.cat==='all'||e.cat===_exLib.cat)&&(_exLib.area==='all'||e.area===_exLib.area); });
+  var hint=el('exLibHint');
+  if(hint) hint.textContent=(_exLib.mode==='add'?'Tap to add to '+(cMode==='home'?'today\'s home workout':'today\'s workout')+' · ':'Tap for the form guide · ')+shown.length+' exercise'+(shown.length===1?'':'s')+(availOnly?' at '+gym.name:'');
+  var html='', catOrder=EX_CATEGORIES.map(function(c){return c.id;});
+  catOrder.forEach(function(cid){
+    var inCat=shown.filter(function(e){return e.cat===cid;}); if(!inCat.length) return;
+    var cm=EX_CATEGORIES[catOrder.indexOf(cid)];
+    html+='<div style="font-size:11px;color:#fff;font-weight:700;margin:12px 0 2px">'+cm.em+' '+cm.lb+'</div><div style="font-size:9px;color:var(--mu);margin-bottom:4px">'+cm.sb+'</div>';
+    BODY_AREAS.forEach(function(a){
+      var inArea=inCat.filter(function(e){return e.area===a.id;}).sort(function(x,y){return x.n.localeCompare(y.n,undefined,{sensitivity:'base'});});
+      if(!inArea.length) return;
+      html+='<div style="font-size:9px;color:var(--ye);font-family:\'DM Mono\',monospace;letter-spacing:1px;text-transform:uppercase;margin:8px 0 3px">'+a.lb+' · '+inArea.length+'</div>';
+      inArea.forEach(function(e){
+        var avail=isExerciseAvailable(e.n,gym.equipment), inToday=!!used[e.n];
+        var nm=encodeURIComponent(e.n);
+        var action=_exLib.mode==='add'
+          ?(inToday?'<span style="font-size:9px;color:var(--gr);flex-shrink:0">✓ in workout</span>':(avail?'<button class="exlib-add" data-n="'+nm+'" style="flex-shrink:0;padding:4px 10px;border-radius:7px;border:1px solid rgba(34,197,94,.4);background:rgba(34,197,94,.1);color:var(--gr);font-size:11px;cursor:pointer">＋ Add</button>':'<span style="font-size:9px;color:var(--mu);flex-shrink:0">🔒 not here</span>'))
+          :'<button class="exlib-info" data-n="'+nm+'" style="flex-shrink:0;width:28px;height:28px;border-radius:8px;border:1px solid var(--b2);background:var(--s3);color:#94a3b8;font-size:13px;cursor:pointer">ℹ️</button>';
+        html+='<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--b1)'+(avail?'':';opacity:.55')+'">'
+          +'<div style="flex:1;min-width:0"><div style="font-size:13px;color:#fff;overflow-wrap:anywhere">'+escapeHtml(e.n)+'</div><div style="font-size:10px;color:var(--mu);overflow-wrap:anywhere">'+escapeHtml(e.t||'')+'</div></div>'+action+'</div>';
+      });
+    });
+  });
+  if(!html) html='<div style="padding:16px;text-align:center;font-size:12px;color:var(--mu)">No exercises match. '+(availOnly?'Untick “Only what this gym has” to see everything.':'')+'</div>';
+  listEl.innerHTML=html;
+  if(!listEl._wired){
+    listEl._wired=true;
+    listEl.addEventListener('click',function(ev){
+      var b=findClosest(ev.target,'.exlib-add'); if(b){ addExerciseToToday(decodeURIComponent(b.dataset.n)); return; }
+      var i=findClosest(ev.target,'.exlib-info'); if(i){ try{openExInfo(decodeURIComponent(i.dataset.n));}catch(e){} }
+    });
+  }
+}
+// Add a chosen exercise to the viewed day's workout. It is remembered on the session
+// (addedEx) so a re-plan — a focus or split change — keeps it.
+function addExerciseToToday(name){
+  var k=dKey(vDate), key=(cMode==='home')?'home':'gym';
+  if(!S.sessions[k]) S.sessions[k]={};
+  var g=S.sessions[k][key]; if(!g){showToast('Open today\'s workout first');return;}
+  if(!isLiveSession(k)&&key==='gym'){showToast('This workout is saved — add exercises to a current workout');return;}
+  if((getRenderedExList(k)||[]).some(function(e){return e.n===name;})){showToast('Already in this workout');return;}
+  if(!isExerciseAvailable(name,_exLibGymEquipment().equipment)){showToast(name+' needs equipment this gym doesn\'t have');return;}
+  var meta=allLibraryExercises().find(function(e){return e.n===name;})||{n:name,t:''};
+  if(!g.addedEx) g.addedEx=[];
+  if(!g.addedEx.some(function(e){return e.n===name;})) g.addedEx.push({n:name,t:meta.t||''});
+  // A started workout keeps its list as-is, so append directly as well.
+  if(g.exList&&g.exList.length&&sessionHasActivity(g)){
+    var focus=key==='home'?getHomeFocus():getWorkoutFocus(k);
+    var ex=prescriptionForFocus({n:name,t:meta.t||'',sets:MIN_WORK_SETS,reps:10,rest:75,p:3},focus);
+    ex.sets=_focusSetCount(ex,g.intensity||'standard',focus);
+    g.exList.push({n:ex.n,t:ex.t,sets:ex.sets,reps:ex.reps,rest:ex.rest,p:ex.p,added:true});
+  }
+  saveS(); buildTodayWorkout(); renderExerciseLibrary();
+  showToast('➕ Added '+name);
+}
+
 // Toggle: only show alternatives that use DIFFERENT equipment, for when the machine
 // you wanted is occupied.
 function toggleSwapBusyFilter(){
@@ -7424,6 +7629,16 @@ function renderSwapList(q){
   q=String(q||'').trim().toLowerCase();
   var shown=list;
   if(busy&&current) shown=shown.filter(function(e){ return !sharesEquipment(current,e.n); });
+  // Category chips (Calisthenics / Dumbbell-Barbell / Plate-Loaded / Pin-Select …)
+  var catSel=listEl._cat||'all', chipsEl=el('swapCatChips');
+  if(chipsEl){
+    var counts={}; shown.forEach(function(e){var c=exerciseCategory(e.n);counts[c]=(counts[c]||0)+1;});
+    chipsEl.innerHTML=[{id:'all',em:'',lb:'All'}].concat(EX_CATEGORIES).filter(function(c){return c.id==='all'||counts[c.id];}).map(function(c){
+      var on=catSel===c.id;
+      return '<button onclick="setSwapCat(\''+c.id+'\')" style="padding:4px 9px;border-radius:999px;font-size:10px;cursor:pointer;'+(on?'border:1px solid var(--ye);background:rgba(245,196,0,.12);color:var(--ye)':'border:1px solid var(--b2);background:var(--s3);color:var(--mu)')+'">'+(c.em?c.em+' ':'')+c.lb+(c.id==='all'?' · '+shown.length:' · '+counts[c.id])+'</button>';
+    }).join('');
+  }
+  if(catSel!=='all') shown=shown.filter(function(e){return exerciseCategory(e.n)===catSel;});
   if(q) shown=shown.filter(function(e){
     return e.n.toLowerCase().indexOf(q)>=0 || (e.t||'').toLowerCase().indexOf(q)>=0;
   });
@@ -7437,12 +7652,18 @@ function renderSwapList(q){
     busyBtn.style.background=busy?'rgba(249,115,22,.12)':'var(--s3)';
     busyBtn.style.color=busy?'var(--or)':'var(--mu)';
   }
+  // Group by category so like-for-like options sit together, A→Z inside each group.
+  var _order={}; EX_CATEGORIES.forEach(function(c,i){_order[c.id]=i;});
+  shown=shown.slice().sort(function(a,b){return (_order[exerciseCategory(a.n)]-_order[exerciseCategory(b.n)])||a.n.localeCompare(b.n,undefined,{sensitivity:'base'});});
+  var _lastCat=null;
   var html=shown.map(function(e){
     var li=list.indexOf(e);
+    var _c=exerciseCategory(e.n), _hdr='';
+    if(_c!==_lastCat){ _lastCat=_c; var _cm=EX_CATEGORIES[_order[_c]]||{em:'',lb:_c}; _hdr='<div style="font-size:9px;color:var(--ye);font-family:\'DM Mono\',monospace;letter-spacing:1px;text-transform:uppercase;margin:8px 0 4px">'+_cm.em+' '+_cm.lb+'</div>'; }
     var blurb=exerciseBlurb(e.n,e.t);
     var base=getBaseWeight(e.n);
     var baseTag=base>0?'<span style="color:var(--ye);font-family:\'DM Mono\',monospace;font-size:9px"> · starts at '+toDisplayWeight(base)+' '+getWeightUnit()+'</span>':'';
-    return '<div class="sopt" data-ei="'+idx+'" data-n="'+li+'" onclick="doSwapIdx('+idx+','+li+')">'
+    return _hdr+'<div class="sopt" data-ei="'+idx+'" data-n="'+li+'" onclick="doSwapIdx('+idx+','+li+')">'
       +'<div class="sname">'+escapeHtml(e.n)+'</div>'
       +'<div class="starget">'+escapeHtml(blurb)+baseTag+'</div>'
       +'</div>';
@@ -26693,6 +26914,40 @@ function buildGymProfileCard(){
   wrap.innerHTML=h;
 }
 
+// One equipment row (name, description, usage, info + on/off toggle). Shared by the
+// "by section" and "by type" views; click handling is delegated via data attributes.
+function _eqItemRow(item, cat, gym, _equipUsage, _equipLastUsed){
+  var html='';
+      var on = gym.equipment.indexOf(item.n)>=0;
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--b2)">';
+      html += '<div style="min-width:0;flex:1;margin-right:10px">';
+      html += '<div style="display:flex;align-items:center;justify-content:space-between">'+
+        '<div style="font-size:13px;color:#fff;font-weight:500">'+item.n+'</div>'+
+        (item.isCustom?'<button class="eq-delete-custom-btn" data-exname="'+encodeURIComponent(item.n)+'" data-catid="'+cat.id+'" style="background:none;border:none;color:rgba(239,68,68,.5);font-size:11px;cursor:pointer;padding:0 2px;line-height:1">✕</button>':'')+
+      '</div>';
+      html += '<div style="font-size:10px;color:var(--mu);font-family:\'DM Mono\',monospace">'+item.sub+(item.note?' · '+item.note:'')+'</div>';
+      // Usage count from history
+      if(on){
+        var useCount = _equipUsage[item.n]||0;
+        var lastUsed = _equipLastUsed[item.n]||'';
+        if(useCount>0){
+          html += '<div style="font-size:9px;color:var(--mu);margin-top:1px;font-family:\'DM Mono\',monospace">Used '+useCount+'× · last '+fmtDate(lastUsed)+'</div>';
+        } else {
+          html += '<div style="font-size:9px;color:var(--b2);margin-top:1px;font-family:\'DM Mono\',monospace">Not yet used in a logged workout</div>';
+        }
+      }
+      html += '</div>';
+      // Info button - safe via data attribute
+      html += '<button class="eq-info-btn" data-exname="'+encodeURIComponent(item.n)+'" style="width:28px;height:28px;border-radius:8px;border:1px solid var(--b2);background:var(--s3);color:#94a3b8;font-size:13px;cursor:pointer;flex-shrink:0;margin-right:8px">ℹ️</button>';
+      // Toggle switch - safe via data attribute
+      html += '<div class="eq-toggle-btn" data-exname="'+encodeURIComponent(item.n)+'" style="cursor:pointer;width:44px;height:24px;border-radius:12px;background:'+(on?'var(--gr)':'var(--b2)')+';position:relative;flex-shrink:0;transition:background .2s">';
+      html += '<div style="position:absolute;top:2px;'+(on?'right:2px':'left:2px')+';width:20px;height:20px;border-radius:50%;background:#fff;transition:all .2s"></div>';
+      html += '</div>';
+      html += '</div>';
+  return html;
+}
+function setEquipView(v){ if(!S.prefs) S.prefs={}; S.prefs.equipView=v; saveS(); buildEquipmentPage(); }
+
 function buildEquipmentPage(){
   var gym = getActiveGym();
   // Intro line (matches the Exercises / Accessories sections)
@@ -26721,63 +26976,61 @@ function buildEquipmentPage(){
     });
   });
 
-  // ── Equipment sections ────────────────────────────────────────────
-  EQUIPMENT_CATALOGUE.forEach(function(cat){
-    var catItems = cat.items;
-    var enabledCount = catItems.filter(function(item){return gym.equipment.indexOf(item.n)>=0;}).length;
-
-    // Count how many ELIB exercises this category enables (use Set to avoid double-counting)
-    var catExSet = {};
-    Object.keys(ELIB).forEach(function(grp){
-      ELIB[grp].forEach(function(ex){
-        if(!catExSet[ex.n] && catItems.some(function(ci){
-          return ex.n===ci.n || (EXERCISE_DEPS[ex.n]&&EXERCISE_DEPS[ex.n].some(function(d){return catItems.some(function(ci2){return ci2.n===d;});}));
-        }) && isExerciseAvailable(ex.n, gym.equipment)){
-          catExSet[ex.n] = true;
-        }
+  // ── View switch: by catalogue section (default) or by how the equipment is loaded
+  var _eqView=(S.prefs&&S.prefs.equipView)||'type';
+  html += '<div style="display:flex;gap:6px;margin:0 0 10px">'
+    +'<button onclick="setEquipView(\'type\')" style="flex:1;padding:6px 8px;border-radius:8px;font-size:10px;font-family:\'DM Mono\',monospace;cursor:pointer;'+(_eqView==='type'?'border:1px solid var(--ye);background:rgba(245,196,0,.12);color:var(--ye)':'border:1px solid var(--b2);background:var(--s3);color:var(--mu)')+'">BY TYPE</button>'
+    +'<button onclick="setEquipView(\'section\')" style="flex:1;padding:6px 8px;border-radius:8px;font-size:10px;font-family:\'DM Mono\',monospace;cursor:pointer;'+(_eqView!=='type'?'border:1px solid var(--ye);background:rgba(245,196,0,.12);color:var(--ye)':'border:1px solid var(--b2);background:var(--s3);color:var(--mu)')+'">BY SECTION</button>'
+    +'<button onclick="openExerciseLibrary(\'browse\')" style="flex:1.3;padding:6px 8px;border-radius:8px;font-size:10px;font-family:\'DM Mono\',monospace;cursor:pointer;border:1px solid rgba(34,211,238,.4);background:rgba(34,211,238,.08);color:#22d3ee">📚 EXERCISES</button>'
+    +'</div>';
+  if(_eqView==='type'){
+    EX_CATEGORIES.forEach(function(ec){
+      var members=[];
+      EQUIPMENT_CATALOGUE.forEach(function(cat){ cat.items.forEach(function(item){ if(equipmentCategory(item.n,cat.id)===ec.id) members.push({item:item,cat:cat}); }); });
+      if(!members.length) return;
+      var onCount=members.filter(function(m){return gym.equipment.indexOf(m.item.n)>=0;}).length;
+      html += '<div class="card" style="margin-bottom:12px">';
+      html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px"><div style="flex:1;min-width:0"><div class="slbl" style="margin:0">'+ec.em+' '+ec.lb+'</div>'
+        +'<div style="font-size:9px;color:var(--mu);font-family:\'DM Mono\',monospace;margin-top:2px">'+ec.sb+'</div></div>'
+        +'<div style="font-size:10px;color:var(--mu);font-family:\'DM Mono\',monospace;flex-shrink:0;margin-left:8px">'+onCount+'/'+members.length+' on</div></div>';
+      BODY_AREAS.forEach(function(ba){
+        var sub=members.filter(function(m){return equipmentBodyArea(m.item,m.cat.id)===ba.id;});
+        if(!sub.length) return;
+        html += '<div style="font-size:9px;color:var(--ye);font-family:\'DM Mono\',monospace;letter-spacing:1px;text-transform:uppercase;margin:10px 0 2px">'+(ba.id==='fullbody'?'Multi-use & Full Body':ba.lb)+' · '+sub.length+'</div>';
+        sub.forEach(function(m){ html += _eqItemRow(m.item, m.cat, gym, _equipUsage, _equipLastUsed); });
       });
-    });
-    var catExCount = Object.keys(catExSet).length;
-
-    html += '<div class="card" style="margin-bottom:12px">';
-    html += _eqSectionHeader(cat.label, enabledCount, catItems.length,
-      'class="eq-selall-btn" data-catid="'+cat.id+'" data-action="on"',
-      'class="eq-selall-btn" data-catid="'+cat.id+'" data-action="off"',
-      'class="eq-add-custom-btn" data-catid="'+cat.id+'"',
-      catExCount>0 ? '<span style="color:var(--gr)">'+catExCount+' exercises unlocked</span>' : '');
-
-    catItems.forEach(function(item){
-      var on = gym.equipment.indexOf(item.n)>=0;
-      html += '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--b2)">';
-      html += '<div style="min-width:0;flex:1;margin-right:10px">';
-      html += '<div style="display:flex;align-items:center;justify-content:space-between">'+
-        '<div style="font-size:13px;color:#fff;font-weight:500">'+item.n+'</div>'+
-        (item.isCustom?'<button class="eq-delete-custom-btn" data-exname="'+encodeURIComponent(item.n)+'" data-catid="'+cat.id+'" style="background:none;border:none;color:rgba(239,68,68,.5);font-size:11px;cursor:pointer;padding:0 2px;line-height:1">✕</button>':'')+
-      '</div>';
-      html += '<div style="font-size:10px;color:var(--mu);font-family:\'DM Mono\',monospace">'+item.sub+(item.note?' · '+item.note:'')+'</div>';
-      // Usage count from history
-      if(on){
-        var useCount = _equipUsage[item.n]||0;
-        var lastUsed = _equipLastUsed[item.n]||'';
-        if(useCount>0){
-          html += '<div style="font-size:9px;color:var(--mu);margin-top:1px;font-family:\'DM Mono\',monospace">Used '+useCount+'× · last '+fmtDate(lastUsed)+'</div>';
-        } else {
-          html += '<div style="font-size:9px;color:var(--b2);margin-top:1px;font-family:\'DM Mono\',monospace">Not yet used in a logged workout</div>';
-        }
-      }
-      html += '</div>';
-      // Info button - safe via data attribute
-      html += '<button class="eq-info-btn" data-exname="'+encodeURIComponent(item.n)+'" style="width:28px;height:28px;border-radius:8px;border:1px solid var(--b2);background:var(--s3);color:#94a3b8;font-size:13px;cursor:pointer;flex-shrink:0;margin-right:8px">ℹ️</button>';
-      // Toggle switch - safe via data attribute
-      html += '<div class="eq-toggle-btn" data-exname="'+encodeURIComponent(item.n)+'" style="cursor:pointer;width:44px;height:24px;border-radius:12px;background:'+(on?'var(--gr)':'var(--b2)')+';position:relative;flex-shrink:0;transition:background .2s">';
-      html += '<div style="position:absolute;top:2px;'+(on?'right:2px':'left:2px')+';width:20px;height:20px;border-radius:50%;background:#fff;transition:all .2s"></div>';
-      html += '</div>';
       html += '</div>';
     });
-
-    html += '</div>';
-  });
-
+  } else {
+  // ── Equipment sections ────────────────────────────────────────────
+    EQUIPMENT_CATALOGUE.forEach(function(cat){
+      var catItems = cat.items;
+      var enabledCount = catItems.filter(function(item){return gym.equipment.indexOf(item.n)>=0;}).length;
+  
+      // Count how many ELIB exercises this category enables (use Set to avoid double-counting)
+      var catExSet = {};
+      Object.keys(ELIB).forEach(function(grp){
+        ELIB[grp].forEach(function(ex){
+          if(!catExSet[ex.n] && catItems.some(function(ci){
+            return ex.n===ci.n || (EXERCISE_DEPS[ex.n]&&EXERCISE_DEPS[ex.n].some(function(d){return catItems.some(function(ci2){return ci2.n===d;});}));
+          }) && isExerciseAvailable(ex.n, gym.equipment)){
+            catExSet[ex.n] = true;
+          }
+        });
+      });
+      var catExCount = Object.keys(catExSet).length;
+  
+      html += '<div class="card" style="margin-bottom:12px">';
+      html += _eqSectionHeader(cat.label, enabledCount, catItems.length,
+        'class="eq-selall-btn" data-catid="'+cat.id+'" data-action="on"',
+        'class="eq-selall-btn" data-catid="'+cat.id+'" data-action="off"',
+        'class="eq-add-custom-btn" data-catid="'+cat.id+'"',
+        catExCount>0 ? '<span style="color:var(--gr)">'+catExCount+' exercises unlocked</span>' : '');
+  
+      catItems.forEach(function(item){ html += _eqItemRow(item, cat, gym, _equipUsage, _equipLastUsed); });
+      html += '</div>';
+    });
+  }
   el('equipContent').innerHTML = html;
   try{ reapplyEquipSearch('machines'); }catch(e){}
   var sub = el('equipSub');
