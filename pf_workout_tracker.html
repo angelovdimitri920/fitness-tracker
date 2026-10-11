@@ -211,6 +211,7 @@ canvas{width:100%!important;display:block}
 .mtab.active{background:var(--s3);color:#fff}
 .mtab.active.gym{color:var(--ye)}
 .mtab.active.run{color:var(--ru)}
+.mtab.active.home{color:#22d3ee}
 #toast{position:fixed;bottom:74px;left:50%;transform:translateX(-50%) translateY(20px);background:#1a1a1a;border:1px solid var(--b2);border-radius:9px;padding:9px 16px;font-size:12px;font-family:DM Mono,monospace;letter-spacing:.5px;opacity:0;transition:all .22s;z-index:500;white-space:nowrap;pointer-events:none}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 /* NEW PLAN CALENDAR */
@@ -639,7 +640,7 @@ canvas{width:100%!important;display:block}
 </div>
 <div style="margin-left:10px;text-align:center;flex-shrink:0"><div class="streak-ring" id="streakRing">0</div><div style="font-family:DM Mono,monospace;font-size:8px;color:var(--mu);letter-spacing:1px;margin-top:3px">DAY STREAK</div></div>
 </div>
-<div class="mtabs" id="modeTabs" style="display:none"><button class="mtab active gym" data-mode="gym" onclick="switchMode('gym')">🏋️ Gym</button><button class="mtab run" data-mode="run" onclick="switchMode('run')">🏃 Run</button></div>
+<div class="mtabs" id="modeTabs" style="display:none"><button class="mtab active gym" data-mode="gym" onclick="switchMode('gym')">🏋️ Gym</button><button class="mtab run" data-mode="run" onclick="switchMode('run')">🏃 Run</button><button class="mtab home" data-mode="home" onclick="switchMode('home')">🏠 Home</button></div>
 <div class="card" id="cmpCard"><div class="fbet" style="margin-bottom:7px"><div class="slbl" style="margin:0">Completion</div><span id="cmpPct" class="badge by">0%</span></div><div class="ctrk"><div class="cfill" id="cmpFill" style="width:0%"></div></div></div>
 
 <div id="workoutTimerBar" style="display:none" class="wtimer-bar">
@@ -1460,6 +1461,7 @@ canvas{width:100%!important;display:block}
   <div class="hfc active" data-hf="all" onclick="setHistFilter('all',this)">All</div>
   <div class="hfc" data-hf="gym" onclick="setHistFilter('gym',this)">🏋️ Gym</div>
   <div class="hfc" data-hf="run" onclick="setHistFilter('run',this)">🏃 Run</div>
+  <div class="hfc" data-hf="home" onclick="setHistFilter('home',this)">🏠 Home</div>
   <div class="hfc" data-hf="week" onclick="setHistFilter('week',this)">This Week</div>
   <div class="hfc" data-hf="month" onclick="setHistFilter('month',this)">This Month</div>
   <div class="hfc" data-hf="pr" onclick="setHistFilter('pr',this)">🏆 PRs</div>
@@ -3657,6 +3659,16 @@ function isExerciseAvailable(exName, gymEquipment){
     if(e === 'Landmine Attachment') return 'Landmine Station';
     return e;
   });
+  // A doorframe bar is a pull-up bar — but not for kipping, swinging or muscle-ups.
+  if(gymEquipment.indexOf('Pull-Up Bar (Doorframe)')>=0&&gymEquipment.indexOf('Pull-Up Bar')<0&&!gymEquipment.some(function(e){return /power rack|squat cage|half rack/i.test(e);})){
+    if(/muscle-up|skin-the-cat|around-the-world|kip|typewriter pull|l-sit pull/i.test(exName)) return false;
+    gymEquipment=gymEquipment.concat(['Pull-Up Bar']);
+  }
+  if(typeof EXERCISE_REQUIRES_ALL!=='undefined'&&EXERCISE_REQUIRES_ALL[exName]){
+    var _ra=EXERCISE_REQUIRES_ALL[exName];
+    for(var _ri=0;_ri<_ra.length;_ri++){ if(!_ra[_ri].split('|').some(function(d){return _equipSatisfies(d,gymEquipment);})) return false; }
+    return true;
+  }
   var hasBench=gymEquipment.some(function(e){return /bench/i.test(e);});
   var hasRack=gymEquipment.some(function(e){return /power rack|squat cage|squat rack/i.test(e);});
   if(/barbell/i.test(exName)&&/bench press|pin press/i.test(exName)&&(!hasBench||!hasRack)) return false;
@@ -3772,8 +3784,9 @@ function isStrengthRecordSet(s,name){
   return validCompletedSet(s)&&(s.type||'wk')==='wk'&&Number(s.weight)>0&&!isAssistanceExercise(name);
 }
 function priorGymHistory(){
-  var before=dKey(vDate), gymId=S.activeGymId;
-  return (S.history||[]).filter(function(h){return h.type==='gym'&&h.date<before&&(!h.gymId||h.gymId===gymId);})
+  var before=dKey(vDate), gymId=getActiveGym().id, t=isHomeMode()?'home':'gym';
+  // Progression compares like with like: the same place (gym profile, or home).
+  return (S.history||[]).filter(function(h){return h.type===t&&h.date<before&&(t==='home'||!h.gymId||h.gymId===gymId);})
     .sort(function(a,b){return b.date.localeCompare(a.date)||(b.id||0)-(a.id||0);});
 }
 function loggedLiftEstimate(key){
@@ -3809,19 +3822,24 @@ function exerciseProgressionRule(name,focus){
   if((focus==='power'||focus==='hybrid')&&name&&!isMainStrengthMovement(name)) return {floor:8,ceil:12,weightStep:5};
   return FOCUS_PROGRESSION[focus]||FOCUS_PROGRESSION.general;
 }
+// Isometric holds are prescribed and logged in seconds.
+function isTimedHold(n){ return /^(plank|side plank|dead hang|.*plank hold|.*static hold|wall sit|l-sit|boat pose hold|superman hold|pull-up hold)/i.test(n||''); }
+// Spring / hydraulic / band trainers have no trustworthy pound rating: they are logged
+// by the LEVEL (or setting) used, and never feed volume, 1RM or records.
+function isLevelExercise(n){ return /^(twister |power twister|push down bar|chest expander|hand gripper|finger extension|thigh trainer)/i.test(n||''); }
 function prescriptionForFocus(ex,focus){
   var fp=FOCUS_META[focus]||FOCUS_META.general, rule=exerciseProgressionRule(ex.n,focus);
   var copy=Object.assign({},ex), main=isMainStrengthMovement(ex.n);
   copy.reps=getExType(ex.n)==='bodyweight'?ex.reps:Math.round((rule.floor+rule.ceil)/2);
   copy.rest=focus==='hybrid'?(main?180:90):focus==='power'?(main?210:90):focus==='muscle'?(main?150:90):fp.rest;
   // Isometric holds are logged as seconds, never as a fictitious 1-rep max.
-  if(ex.n==='Plank'||ex.n==='Side Plank') copy.reps=30;
+  if(isTimedHold(ex.n)) copy.reps=30;
   return copy;
 }
 function weeklyMuscleSets(dateKey){
   var end=new Date(dateKey+'T12:00:00'),start=new Date(end);start.setDate(start.getDate()-6);
   var first=dKey(start),result={};
-  (S.history||[]).filter(function(h){return h.type==='gym'&&h.date>=first&&h.date<=dateKey;}).forEach(function(h){
+  (S.history||[]).filter(function(h){return (h.type==='gym'||h.type==='home')&&h.date>=first&&h.date<=dateKey;}).forEach(function(h){
     (h.exercises||[]).forEach(function(e){
       if(e.skipped)return;var g=getMG(e.name);if(!g)return;
       var count=(e.sets||[]).filter(function(s){return validCompletedSet(s)&&(s.type||'wk')!=='wu'&&(s.type||'wk')!=='ds'&&(s.type||'wk')!=='rp';}).length;
@@ -4011,7 +4029,7 @@ function renderProgramDetail(id){
 // recomputes on rebuild. Preserves any exercise that already has a logged set.
 function _refreshTodayPrescription(){
   try{
-    var k=dKey(vDate), gym=S.sessions[k]&&S.sessions[k].gym;
+    var k=dKey(vDate), gym=GS(k);
     if(gym&&gym.exercises){
       Object.keys(gym.exercises).forEach(function(ei){
         var sets=gym.exercises[ei].sets||[];
@@ -4311,7 +4329,7 @@ var EX_CATEGORIES=[
   {id:'freeweight',  em:'🏋️',lb:'Dumbbell / Barbell',sb:'Free weights — dumbbells, barbells, EZ / trap bars, kettlebells, med balls'},
   {id:'plate',       em:'🔩',lb:'Plate-Loaded Machines',sb:'Load 45 / 25 / 10 / 5 lb plates onto the machine (incl. Smith, hack squat)'},
   {id:'pin',         em:'📍',lb:'Pin-Select Machines',sb:'Move the pin to the weight — selectorized stacks and cable stations'},
-  {id:'bands',       em:'🎗️',lb:'Bands & Functional',sb:'Resistance bands, sleds, battle ropes'},
+  {id:'bands',       em:'🎗️',lb:'Bands, Springs & Functional',sb:'Resistance bands, spring / hydraulic trainers (logged by level), sleds, battle ropes'},
   {id:'cardio',      em:'🏃',lb:'Cardio',sb:'Treadmill, bike, rower, stepper…'}
 ];
 var BODY_AREAS=[
@@ -4335,7 +4353,9 @@ function exerciseCategory(name){
   var CARDIO_RE=/^(treadmill|elliptical|rowing machine|stationary bike|upright|recumbent|spin bike|fan bike|stair stepper|stepmill|arc trainer|ski erg|jacob|versaclimber|curved manual|upper body ergometer)|cycling intervals|spin intervals|sprint intervals|power row intervals|interval elliptical|incline walk$/i;
   if(CARDIO_RE.test(n)) c='cardio';
   else if(/^(band |resistance band |banded (?!leg press))|figure-8 resistance band|mini loop|long loop|power bands|hip circle/i.test(n)) c='bands';
-  else if(/sled (push|pull)|battle rope|tire flip|moveable fitness tank/i.test(n)) c='bands';
+  else if(/sled (push|pull)|battle rope|tire flip|moveable fitness tank/i.test(n)||isLevelExercise(n)) c='bands';
+  else if(/wrist roller|ankle weight/i.test(n)) c='freeweight';
+  else if(/^gmwd /i.test(n)) c='plate';
   else if(/^trx |bodyweight|inverted row|^ghd (machine|sit-up)|^reverse hyperextension/i.test(n)) c='calisthenics';
   else if(/landmine/i.test(n)) c='freeweight';
   else if(/smith machine|plate-loaded|iso-lateral|hammer strength|hack squat|pendulum squat|belt squat|squat \/ lunge machine|t-bar row station|leg press calf raise|^standard leg press|foot placement press|^single-leg press|stance press$|^reverse hyper$/i.test(n)) c='plate';
@@ -4358,7 +4378,10 @@ function equipmentCategory(itemName,sectionId){
   if(sectionId==='cardio') return 'cardio';
   if(sectionId==='cables') return 'pin';
   if(/pull-up bar|dip station|parallel bars|parallettes|pegboard|climbing rope|plyometric box|plyo hurdles|agility ladder|trx|bosu|stability ball|ab wheel|ab roller|roman chair|hyperextension|back extension bench|captain|target abs|elevate (core|row)|ghd|true stretch|connexus|multi-station|jump rope/i.test(itemName)) return 'calisthenics';
-  if(/resistance bands|turf|sled|moveable fitness tank|battle rope|tire flip/i.test(itemName)) return 'bands';
+  if(/resistance bands|turf|sled|moveable fitness tank|battle rope|tire flip|twister|push down bar|chest expander|hand grip|thigh trainer/i.test(itemName)) return 'bands';
+  if(/gmwd/i.test(itemName)) return 'plate';
+  if(/ab mat|push-up board|push-up handles|doorframe|yoga mat|exercise mat/i.test(itemName)) return 'calisthenics';
+  if(/weighted vest|ankle weights|wrist roller/i.test(itemName)) return 'freeweight';
   if(/plate-loaded|iso-lateral|hammer strength|smith machine|hack squat|pendulum|belt squat|squat \/ lunge|t-bar row station|reverse hyper/i.test(itemName)) return 'plate';
   if(sectionId==='free_weight_stations'||/kettlebell|dumbbell|barbell|bench|bar\b|medicine ball|slam ball|wall ball|sandbag|farmer|landmine|log bar|axle|atlas|yoke|plates|weight storage|dip belt/i.test(itemName)) return 'freeweight';
   return 'pin';
@@ -4459,6 +4482,15 @@ if(allCompleted && lastW > 0){
 
 }
 
+// Step 2b: the GMWD home press has no comparable gym lift — start conservatively from
+// the bench / overhead-press working weights and let the first logged session take over.
+if(/^GMWD /.test(exName)){
+  var _gb=S.strength.bench||135,_go=S.strength.ohp||75;
+  var _gw=/Shoulder/.test(exName)?_go*0.9:/Incline/.test(exName)?_gb*0.45:/Single-Arm/.test(exName)?_gb*0.25:_gb*0.55;
+  return {weight:applyMult(_gw),reps:targetReps,sets:targetSets,badge:'est',msg:'conservative start — adjust after the first set'};
+}
+// Step 2b: wearable / fixed home implements — start at the lightest setting.
+if(/^(weighted vest|ankle weight|bumper plate)/i.test(exName)){var _lo=getExerciseLoading(exName);return {weight:_lo.min||null,reps:targetReps,sets:targetSets,badge:'est',msg:'start at the lightest setting'};}
 // Step 2: No history - estimate from strength profile
 var directKey = getStrKey(exName);        // direct match (barbell → same key)
 var refKey = directKey || EX_TO_STRENGTH[exName];  // fallback to closest ref
@@ -4973,7 +5005,7 @@ function autoSplitFor(k,_depth){
   }
   return (_autoSplitCache[k]=AUTO_SPLIT_POOL[(idx+1)%AUTO_SPLIT_POOL.length]);
 }
-function getEffTpl(k){var gym=S.sessions[k]&&S.sessions[k].gym;if(gym&&gym.split&&sessionHasActivity(gym)&&!isLiveSession(k))return gym.split;var c=S.dayConfig[k];if(c&&c.split&&c.split!=='auto')return c.split;if(S.prefs&&S.prefs.autoRotateSplits)return autoSplitFor(k);var d=new Date(k+'T12:00:00'),dow=d.getDay();return S.daySched[dow]||'upper';}
+function getEffTpl(k){var gym=S.sessions[k]&&S.sessions[k].gym;if(gym&&gym.split&&sessionHasActivity(gym)&&!isLiveSession(k,'gym'))return gym.split;var c=S.dayConfig[k];if(c&&c.split&&c.split!=='auto')return c.split;if(S.prefs&&S.prefs.autoRotateSplits)return autoSplitFor(k);var d=new Date(k+'T12:00:00'),dow=d.getDay();return S.daySched[dow]||'upper';}
 function getDayType(k){var c=S.dayConfig[k];if(c&&c.type){var _ct=c.type;if((S.prefs&&S.prefs.runMode===false)&&(_ct==='run'))return'rest';if((S.prefs&&S.prefs.runMode===false)&&(_ct==='both'))return'gym';return _ct;}var d=new Date(k+'T12:00:00'),dow=d.getDay(),isG=S.setup.gymDays.includes(dow),isR=S.setup.runDays.includes(dow)&&(S.prefs?S.prefs.runMode!==false:true);if(isG&&isR)return'both';if(isG)return'gym';if(isR)return'run';return'rest';}
 var vDate=new Date(),cMode='gym',timerInt=null,timerSecs=0,ciMood=0,ciSleep='',editDK=null,mDayType='rest',mDaySplit='auto',_originalDtype='rest';
 function dKey(d){
@@ -5411,10 +5443,17 @@ function buildTodayWorkout(){
 var _itl=el('intervalTimerLaunch'); if(_itl) _itl.style.display=(dtype==='rest')?'none':'flex';
 // Always hide swap banner; buildGym will show it if appropriate
 var _swb=el('swapWorkoutBanner'); if(_swb) _swb.style.display='none';
-if(!S.sessions[k])S.sessions[k]={};if(isG&&!S.sessions[k].gym)S.sessions[k].gym={exercises:{},cardio:{},intensity:S.setup.defaultIntensity||'standard'};if(isR&&!S.sessions[k].run)S.sessions[k].run={};var tabs=el('modeTabs');if(isG&&isR){tabs.style.display='flex';document.querySelectorAll('.mtab').forEach(function(t){t.classList.toggle('active',t.dataset.mode===cMode);});}else{tabs.style.display='none';cMode=isG?'gym':isR?'run':'gym';}if(!isG&&!isR){el('todaySub').textContent='REST DAY · Recovery & Mobility';el('intCard').style.display='none';el('cmpCard').style.display='none';el('timerWrap').classList.remove('active');var _wtb=el('workoutTimerBar');if(_wtb)_wtb.style.display='none';var _nw=el('todayNotesWrap');if(_nw)_nw.style.display='none';var recovHTML=buildRestDayRecovery();
+if(!S.sessions[k])S.sessions[k]={};if(isG&&!S.sessions[k].gym)S.sessions[k].gym={exercises:{},cardio:{},intensity:S.setup.defaultIntensity||'standard'};if(isR&&!S.sessions[k].run)S.sessions[k].run={};var tabs=el('modeTabs');
+// Gym / Run tabs follow the day's plan; the Home tab is there every day (the home
+// workout is an extra session on top of the plan).
+if(cMode==='run'&&!isR)cMode='gym';if(cMode==='gym'&&!isG&&isR)cMode='run';
+if(cMode==='home'&&!S.sessions[k].home)S.sessions[k].home={exercises:{},cardio:{},cardioBlocks:{},intensity:'quick'};
+tabs.style.display='flex';
+document.querySelectorAll('.mtab').forEach(function(t){var m=t.dataset.mode;t.style.display=(m==='gym'?(isG||!isR):m==='run'?isR:true)?'':'none';if(m==='gym')t.innerHTML=isG?'🏋️ Gym':'😴 Rest';t.classList.toggle('active',m===cMode);});
+if(!isG&&!isR&&cMode!=='home'){el('todaySub').textContent='REST DAY · Recovery & Mobility';el('intCard').style.display='none';el('cmpCard').style.display='none';el('timerWrap').classList.remove('active');var _wtb=el('workoutTimerBar');if(_wtb)_wtb.style.display='none';var _nw=el('todayNotesWrap');if(_nw)_nw.style.display='none';var recovHTML=buildRestDayRecovery();
 el('wContent').innerHTML='<div class="card"><div class="fbet" style="margin-bottom:8px"><div><h3 style="color:#a78bfa">😴 REST DAY</h3><div style="font-size:10px;color:var(--mu);font-family:\'DM Mono\',monospace;letter-spacing:1px;margin-top:2px">ACTIVE RECOVERY</div></div><button class="btn btn-g bsm" onclick="openSettings()">⚙️ Schedule</button></div>'+recovHTML+'</div>'+
 buildRestDayActivityCard(k)+
-buildWeeklyMuscleStatusCard();var _eawRest=el('extraActivitiesWrap');if(_eawRest)_eawRest.innerHTML=buildExtraActivitiesCard(k);el('saveBtn').style.display='none';var _dbR=el('discardBtn');if(_dbR)_dbR.style.display='none';el('volAlert').innerHTML='';updateStats();return;}var _alreadySaved=S.history.some(function(h){return h.date===k&&h.type===(cMode==='run'?'run':'gym');});
+buildWeeklyMuscleStatusCard();var _eawRest=el('extraActivitiesWrap');if(_eawRest)_eawRest.innerHTML=buildExtraActivitiesCard(k);el('saveBtn').style.display='none';var _dbR=el('discardBtn');if(_dbR)_dbR.style.display='none';el('volAlert').innerHTML='';updateStats();return;}var _alreadySaved=S.history.some(function(h){return h.date===k&&h.type===(cMode==='run'?'run':cMode==='home'?'home':'gym');});
 var _saveBtnEl=el('saveBtn');
 if(_saveBtnEl){
   if(_alreadySaved){
@@ -5434,7 +5473,7 @@ refreshDiscardBtn();
 // Load the VIEWED day's workout clock (it lives in that day's session), so paging
 // between days never shows another day's elapsed time.
 try{syncWorkoutTimerFromState();}catch(e){console.warn('syncWorkoutTimerFromState failed:',e);}
-renderTimerBar();showTodayNotes();if(cMode==='gym'&&isG)buildGym(k,dow);else if(cMode==='run'&&isR)buildRun(k,dow);var _eaw=el('extraActivitiesWrap');if(_eaw){if(isG||isR)_eaw.innerHTML=buildExtraActivitiesCard(k);else _eaw.innerHTML='';}updateStats();checkVolAlert(k,dow);}
+renderTimerBar();showTodayNotes();if(cMode==='home')buildGym(k,dow);else if(cMode==='gym'&&isG)buildGym(k,dow);else if(cMode==='run'&&isR)buildRun(k,dow);var _eaw=el('extraActivitiesWrap');if(_eaw){if(isG||isR)_eaw.innerHTML=buildExtraActivitiesCard(k);else _eaw.innerHTML='';}updateStats();checkVolAlert(k,dow);}
 function switchMode(m){cMode=m;document.querySelectorAll('.mtab').forEach(function(t){t.classList.toggle('active',t.dataset.mode===m);});buildTodayWorkout();}
 var _bgPass2=false;
 
@@ -5604,11 +5643,16 @@ function selectWorkoutForDuration(tplExercises, intensity, fp, recent48, tplKey,
   // Exercise time budget = target minus reserved cardio (warm-up + nominal mid + base
   // finisher) and minus the fixed session overhead (arriving, changing, water, phone).
   var overheadMin = TIME_MODEL.sessionOverheadMin;
+  // At home there is no drive, locker room or walking between machines: shorter
+  // overhead and cardio so the 30–45 min goes to lifting.
+  var _isHomeTpl=!!(tplKey&&WTPL[tplKey]&&WTPL[tplKey].home);
+  if(_isHomeTpl){ overheadMin=Math.min(overheadMin,2); warmupMin=Math.min(warmupMin,4); baseFin=Math.min(baseFin,6); minFin=Math.min(minFin,5); }
   var exBudget = targetMid - (warmupMin + midCards.length*midEach) - baseFin - overheadMin;
   // Count bounds scale with the SPLIT's own size (so different days differ) and intensity;
   // the time budget is still the real driver between min and max.
   var n = (typeof WTPL!=='undefined' && tplKey && WTPL[tplKey]) ? WTPL[tplKey].exercises.length : ((tplExercises&&tplExercises.length)||7);
   var minCount = (intensity==='quick'?3:intensity==='standard'?4:5);
+  if(tplKey&&WTPL[tplKey]&&WTPL[tplKey].home) minCount+=1;
   if(tplKey==='fullbody')minCount=Math.max(4,minCount);
   var maxCount = (intensity==='quick' ? Math.max(3, Math.round(n*0.6)) : intensity==='standard' ? n : Math.min(12, n+3));
   // High-rest focuses (Power: 3–4 min rests, 5-set compounds) fit far fewer in the band.
@@ -5706,7 +5750,7 @@ function _renderIntEstLine(k,sel,exs,intensity,pinned,fp,tplKey){
   var focus=S.weekFocus||'general';
   var ssSaved=_supersetSavingMinutes(k,exs,intensity,fp,focus), saved=ssSaved;
   // Specialty extras are short (a drop or cluster runs ~1–2 min) but real time.
-  var _spN=0; try{Object.values((S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.exercises)||{}).forEach(function(d){_spN+=((d&&d.sets)||[]).filter(function(x){return x.spec;}).length;});}catch(e){}
+  var _spN=0; try{Object.values((GS(k)&&GS(k).exercises)||{}).forEach(function(d){_spN+=((d&&d.sets)||[]).filter(function(x){return x.spec;}).length;});}catch(e){}
   saved-=_spN*1.5;
   var lo=Math.max(5,Math.round((sel.estLowMin||sel.estMin)-saved));
   var hi=Math.round((sel.estHighMin||sel.estMin)-saved);
@@ -5720,13 +5764,13 @@ function _renderIntEstLine(k,sel,exs,intensity,pinned,fp,tplKey){
   // Superset switch, right here rather than buried in Settings — it changes the plan
   // and the time, so it belongs next to the estimate.
   var ssOn=!(S.prefs&&S.prefs.autoSuperset===false);
-  var ssCount=Object.keys((S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.supersets)||{}).length/2;
+  var ssCount=Object.keys((GS(k)&&GS(k).supersets)||{}).length/2;
   var ssChip='<button onclick="toggleSupersetsToday()" style="margin-top:7px;padding:5px 11px;border-radius:999px;cursor:pointer;font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:.5px;'
     +(ssOn?'border:1px solid rgba(167,139,250,.45);background:rgba(124,58,237,.14);color:#a78bfa'
           :'border:1px solid var(--b2);background:var(--s3);color:var(--mu)')+'">'
     +'🔗 SUPERSETS '+(ssOn?('ON'+(ssCount>=1?' · '+Math.round(ssCount)+' pair'+(ssCount>1?'s':''):' · none today')):'OFF')+'</button>';
   var spOn=specialtySetsOn(), spCount=0;
-  try{Object.values((S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.exercises)||{}).forEach(function(d){spCount+=((d&&d.sets)||[]).filter(function(x){return x.spec;}).length;});}catch(e){}
+  try{Object.values((GS(k)&&GS(k).exercises)||{}).forEach(function(d){spCount+=((d&&d.sets)||[]).filter(function(x){return x.spec;}).length;});}catch(e){}
   var spChip='<button onclick="toggleSpecialtyToday()" style="margin:7px 0 0 6px;padding:5px 11px;border-radius:999px;cursor:pointer;font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:.5px;'
     +(spOn?'border:1px solid rgba(34,211,238,.45);background:rgba(34,211,238,.1);color:#22d3ee'
           :'border:1px solid var(--b2);background:var(--s3);color:var(--mu)')+'">'
@@ -5744,7 +5788,7 @@ function _renderIntEstLine(k,sel,exs,intensity,pinned,fp,tplKey){
 // pair runs ~SUPERSET_TIME_SAVING quicker than doing them back to back.
 function _supersetSavingMinutes(k, exs, intensity, fp, focus){
   try{
-    var sess=S.sessions[k]&&S.sessions[k].gym;
+    var sess=GS(k);
     var ss=sess&&sess.supersets; if(!ss) return 0;
     var seen={}, saved=0;
     Object.keys(ss).map(Number).forEach(function(a){
@@ -5825,9 +5869,9 @@ function buildGym(k,dow){el('intCard').style.display='block';el('cmpCard').style
 // Reset completion bar color (may be teal from a previous run view)
 var _cf=el('cmpFill'); if(_cf) _cf.style.background='';
 // Show split switcher banner (before sets are logged)
-try{buildSwapWorkoutBanner(k);}catch(e){console.warn('buildSwapWorkoutBanner failed:',e);}
+try{if(isHomeMode(k))buildHomeBanner(k);else buildSwapWorkoutBanner(k);}catch(e){console.warn('workout banner failed:',e);}
 // Show saved banner if this gym session is already in history
-var _savedGym=S.history.find(function(h){return h.date===k&&h.type==='gym';});
+var _savedGym=S.history.find(function(h){return h.date===k&&h.type===(isHomeMode(k)?'home':'gym');});
 // Inject banner into wContent header (will be overwritten by full build below, prepended)
 var _gymSavedBanner=_savedGym
   ?'<div class="card" style="background:rgba(245,196,0,.06);border-color:rgba(245,196,0,.3);margin-bottom:10px">'
@@ -5844,7 +5888,7 @@ var _gymSavedBanner=_savedGym
   :'';
 // [smart set types applied after set loop - see below]
 // [smart note updated after set loop below]
-var sess=S.sessions[k].gym,intensity=sess.intensity||'standard';
+var sess=GS(k),intensity=sess.intensity||'standard';
 var _started=sessionHasActivity(sess);
 // Re-plan a live session whenever what it was generated from changed (split, focus,
 // intensity or gym) — including mid-workout. Logged work is carried across.
@@ -5852,9 +5896,9 @@ var _live=isLiveSession(k), _planKey=sessionPlanKey(k);
 if(sess.exList&&!sess.planKey) sess.planKey=_planKey; // legacy session: adopt, don't re-plan
 var _replan=!!(_live&&sess.exList&&sess.exList.length&&sess.planKey!==_planKey);
 if(_replan) _replanSession(k,sess);
-if(!_started||_live){sess.gymId=S.activeGymId;sess.trainingFocus=S.weekFocus;sess.split=getEffTpl(k);}
+if(!_started||_live){sess.gymId=getActiveGym().id;sess.trainingFocus=S.weekFocus;sess.split=wkTpl(k);}
 document.querySelectorAll('#intCard .ibtn').forEach(function(b){b.classList.toggle('active',b.dataset.int===intensity);});
-var tplKey=getEffTpl(k),tpl=WTPL[tplKey]||WTPL.upper;
+var tplKey=wkTpl(k),tpl=WTPL[tplKey]||WTPL.upper;
 var fp=getFocusParams();
 var focusLabel=fp?(' · '+(FOCUS_META[getWorkoutFocus(k)]||{lb:''}).lb):'';
 // Set the page subtitle for gym days (rest/run paths set their own). Without this it
@@ -6127,6 +6171,14 @@ if(_apEx){
   suggLine='<div class="sugg">📐 '+_apEx.program.name+' · Wk'+(_apEx.week+1)+': '+_pgParts.join(' → ')+' '+_wuPg+' <span style="font-size:9px;color:var(--mu)">(last set AMRAP if shown +)</span></div>';
 }
 
+// Home gear: GMWD per-arm bumper breakdown; level-based trainers show the last level.
+if(typeof gmwdPlateHint==='function'&&suggWeight) suggLine+=gmwdPlateHint(ex.n,suggWeight);
+if(isLevelExercise(ex.n)){
+  var _lvLast=null;
+  try{ var _lvS=getLastExSessionSets(ex.n); if(_lvS&&_lvS.sets){ _lvS.sets.forEach(function(x){ if(x.done&&x.level) _lvLast=x.level; }); } }catch(e){}
+  var _lvR=exerciseProgressionRule(ex.n,getWorkoutFocus(k));
+  suggLine='<div class="sugg">🎚 Log the level / setting used'+(_lvLast?' · last time: level '+escapeHtml(String(_lvLast)):'')+' · hit '+_lvR.ceil+' reps on every set, then go up one level</div>';
+}
 var fprog3=exerciseProgressionRule(ex.n);
 var isComp=isCompound(ex.n), progW=prog.weight||0;
 var warmups=(isComp&&progW&&(S.prefs?S.prefs.showWarmups!==false:true))?getWarmupSets(progW,ex.n):[];
@@ -6150,7 +6202,7 @@ if(_lsData&&_lsData.sets&&_lsData.sets.length){
 var _rpeOn=!!(S.prefs&&S.prefs.trackRPE);
 var _cardAddedMode=(!noWeight&&getBaseWeight(ex.n)>0&&getWeightEntryMode(ex.n)==='added');
 var _cardBase=_cardAddedMode?getBaseWeight(ex.n):0;
-var sH='<div class="sgrid" style="grid-template-columns:20px 50px 1fr 1fr 55px 28px"><div class="sh">#</div><div class="sh">TYPE</div><div class="sh">'+(_cardAddedMode?'+'+getWeightUnit().toUpperCase():getWeightUnit().toUpperCase())+'</div><div class="sh">'+((ex.n==='Plank'||ex.n==='Side Plank')?'SEC':'REPS')+'</div><div class="sh">PREV</div><div class="sh">✓</div>';
+var sH='<div class="sgrid" style="grid-template-columns:20px 50px 1fr 1fr 55px 28px"><div class="sh">#</div><div class="sh">TYPE</div><div class="sh">'+(isLevelExercise(ex.n)?'LEVEL':_cardAddedMode?'+'+getWeightUnit().toUpperCase():getWeightUnit().toUpperCase())+'</div><div class="sh">'+(isTimedHold(ex.n)?'SEC':'REPS')+'</div><div class="sh">PREV</div><div class="sh">✓</div>';
 // Warmup rows
 warmups.forEach(function(wu,wi){
 var wuDone=exD.warmups&&exD.warmups[wi];
@@ -6232,7 +6284,9 @@ sH+='<div class="snum">'+(s+1)+'</div>'+
 ((_advSuggestEnabled||setType==='ds')?'<option value="ds"'+(setType==="ds"?' selected':'')+'>Drop Set</option>':'')+((_advSuggestEnabled||setType==='fl')?'<option value="fl"'+(setType==="fl"?' selected':'')+'>Failure</option>':'')+((_advSuggestEnabled||setType==='rp')?'<option value="rp"'+(setType==="rp"?' selected':'')+'>Rest-Pause</option>':'')+((_advSuggestEnabled||setType==='cl')?'<option value="cl"'+(setType==="cl"?' selected':'')+'>Cluster</option>':'')+
 '</select>'+
 '</div>'+
-'<input class="sinp" type="number" inputmode="decimal" placeholder="'+(noWeight?'bw':(_addedMode?'+plates':(suggWeight?toDisplayWeight(suggWeight):getWeightUnit())))+'" value="'+(_addedMode?_displayWEntry:displayW)+'" oninput="updateSet('+ei+','+s+',\'weight\',this.value)"'+(noWeight?' disabled style="opacity:.4"':'')+'>'+
+(isLevelExercise(ex.n)
+  ?'<input class="sinp" type="number" inputmode="numeric" placeholder="lvl" value="'+_safeAttr(set.level||'')+'" oninput="updateSet('+ei+','+s+',\'level\',this.value)" title="Resistance level / setting used">'
+  :'<input class="sinp" type="number" inputmode="decimal" placeholder="'+(noWeight?'bw':(_addedMode?'+plates':(suggWeight?toDisplayWeight(suggWeight):getWeightUnit())))+'" value="'+(_addedMode?_displayWEntry:displayW)+'" oninput="updateSet('+ei+','+s+',\'weight\',this.value)"'+(noWeight?' disabled style="opacity:.4"':'')+'>')+
 repInputHTML+'<div class="sprev">'+prevDisp+'</div>'+
 '<button class="sdone '+(set.done?'chk':'')+'" onclick="toggleSet('+ei+','+s+',this)">✓</button>';
 // AMRAP top set (strength program "+" set) — prompt the user to push & log actual reps
@@ -6325,7 +6379,7 @@ sH+='</div>';
 // The partner's name must come from the RENDERED list (exs), not from the raw template:
 // the duration engine picks exercises from a pool, so template index _ssP is usually a
 // different movement — the card was naming the wrong partner.
-var _ss=S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.supersets||{};var _isSS=_ss[ei]!==undefined;var _ssP=_ss[ei];var _ssPName='';if(_isSS&&exs[_ssP])_ssPName=exs[_ssP].n;
+var _ss=GS(k)&&GS(k).supersets||{};var _isSS=_ss[ei]!==undefined;var _ssP=_ss[ei];var _ssPName='';if(_isSS&&exs[_ssP])_ssPName=exs[_ssP].n;
 html+='<div id="exCard_'+ei+'" class="exrow '+(isSwapped?'swapped':'')+'" data-ei="'+ei+'" data-renderpos="'+renderPos+'" draggable="true" ondragstart="onExDragStart(event,'+renderPos+')" ondragover="onExDragOver(event)" ondragleave="onExDragLeave(event)" ondrop="onExDrop(event,'+renderPos+')" ondragend="onExDragEnd(event)">'+
 '<div class="fbet"><div style="min-width:0;flex:1;display:flex;align-items:flex-start;gap:6px">'+
 '<div class="ex-drag-handle" title="Drag to reorder">⠿</div>'+
@@ -6344,7 +6398,7 @@ _lastSessLine+'</div></div><div style="display:flex;gap:6px"><button class="ex-i
 '<button onclick="toggleSkipExercise('+ei+')" title="Skip this exercise today" style="background:none;border:none;cursor:pointer;font-size:15px;padding:2px 4px;line-height:1;color:#475569">&#x2298;</button>'+
 '</div></div>'+
 (_isSS&&_ssPName?'<div style="font-size:10px;color:#a78bfa;padding:2px 12px 4px">SUPERSET WITH: '+_ssPName+'</div>':'')+
-sH+'<div class="ex-note-row"><input type="text" class="ex-note-inp" placeholder="Note for this exercise..." value="'+_safeAttr((S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.exNotes&&S.sessions[k].gym.exNotes[ei])||'')+'" oninput="saveExNote('+ei+',this.value)"></div>'+// Add Set picker (inline, shown on button tap)
+sH+'<div class="ex-note-row"><input type="text" class="ex-note-inp" placeholder="Note for this exercise..." value="'+_safeAttr((GS(k)&&GS(k).exNotes&&GS(k).exNotes[ei])||'')+'" oninput="saveExNote('+ei+',this.value)"></div>'+// Add Set picker (inline, shown on button tap)
 '<div id="addSetPicker_'+ei+'" style="display:none;flex-wrap:wrap;gap:6px;padding:8px 12px 4px;border-top:1px solid var(--b2);margin-top:4px">'+
 '<span style="font-size:10px;color:var(--mu);width:100%;margin-bottom:2px">ADD SET TYPE:</span>'+
 (_advSuggestEnabled?['wk','wu','ds','fl','rp','cl']:['wk','wu']).map(function(t){
@@ -6369,11 +6423,11 @@ if(mcObj)_cardioBySlot['mid-'+mci]=mcObj.n;
 try{applySmartSetTypes(k);}catch(e){console.warn('applySmartSetTypes failed:',e);}
 // Initialize superset active state if not set
 try{
-  var _gymSS2=S.sessions[k].gym.supersets||{};
+  var _gymSS2=GS(k).supersets||{};
   var _ssKeys=Object.keys(_gymSS2);
-  if(_ssKeys.length>0&&S.sessions[k].gym.activeSuperset===undefined){
+  if(_ssKeys.length>0&&GS(k).activeSuperset===undefined){
     // Always activate the lower-index card of the first pair
-    S.sessions[k].gym.activeSuperset=Math.min.apply(null,_ssKeys.map(Number));
+    GS(k).activeSuperset=Math.min.apply(null,_ssKeys.map(Number));
   }
 }catch(e){console.warn('superset active init failed:',e);}
 // Update smart note display
@@ -6419,7 +6473,7 @@ if(mrc&&mrg){
 mrc.style.display='block';
 mrg.innerHTML=buildMuscleRecovery();
 // Warn if today's workout overlaps recently trained muscles
-var _ovList=getRenderedExList(k)||(WTPL[getEffTpl(k)]||WTPL.upper).exercises;
+var _ovList=getRenderedExList(k)||(WTPL[wkTpl(k)]||WTPL.upper).exercises;
 var todayMG={};
 _ovList.forEach(function(ex){var g=getMG(ex.n);if(g)todayMG[g]=1;});
 var recent48=getRecentMuscles(48);
@@ -6461,7 +6515,7 @@ if(field==='weight'&&storedVal!==''){
     if(_nW) storedVal=String(entryToTotalLbs(_nW,parseFloat(storedVal)||0));
   }catch(e){}
 }
-var _ex=S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.exercises[ei];if(!_ex||!_ex.sets||!_ex.sets[si])return;var _set=_ex.sets[si];_set[field]=storedVal;if(field==='weight')_set.auto=false;if(field==='reps')_set.autoR=false;saveS();updateStats();
+var _ex=GS(k)&&GS(k).exercises[ei];if(!_ex||!_ex.sets||!_ex.sets[si])return;var _set=_ex.sets[si];_set[field]=storedVal;if(field==='weight')_set.auto=false;if(field==='reps')_set.autoR=false;saveS();updateStats();
 // Refresh the "= total" readout next to the input without rebuilding the page.
 if(field==='weight'){try{_refreshTotalHint(ei,si);}catch(e){}}
 }
@@ -6472,7 +6526,7 @@ function _refreshTotalHint(ei,si){
   var k=dKey(vDate);
   var exs=getRenderedExList(k)||[];
   var n=exs[ei]&&exs[ei].n; if(!n) return;
-  var set=S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.exercises[ei]&&S.sessions[k].gym.exercises[ei].sets[si];
+  var set=GS(k)&&GS(k).exercises[ei]&&GS(k).exercises[ei].sets[si];
   var tot=set?(parseFloat(set.weight)||0):0;
   var base=getBaseWeight(n);
   elh.innerHTML=tot>0
@@ -6481,7 +6535,7 @@ function _refreshTotalHint(ei,si){
 }
 function toggleSet(ei,si,btn){
   var k=dKey(vDate);
-  var gym=S.sessions[k]&&S.sessions[k].gym;
+  var gym=GS(k);
   if(!gym||!gym.exercises[ei]||!gym.exercises[ei].sets||!gym.exercises[ei].sets[si])return;
   var set=gym.exercises[ei].sets[si];
   if(!set.done&&(!isFinite(Number(set.reps))||Number(set.reps)<=0)){showToast('Enter the reps or seconds actually completed first');return;}
@@ -6599,8 +6653,8 @@ function checkOverloadAlert(ei, k, gym, exs){
 
 function toggleWarmup(ei,wi,btn){
   var k=dKey(vDate);
-  if(!S.sessions[k]||!S.sessions[k].gym) return;
-  var exD=S.sessions[k].gym.exercises[ei];
+  if(!S.sessions[k]||!GS(k)) return;
+  var exD=GS(k).exercises[ei];
   if(!exD) return;
   if(!exD.warmups) exD.warmups={};
   exD.warmups[wi]=!exD.warmups[wi];
@@ -6660,7 +6714,7 @@ function updateRun(field,val){
 }
 function setIntensity(lvl){
   var k=dKey(vDate);
-  var gym=S.sessions[k].gym;
+  var gym=GS(k);
   var prev=gym.intensity||'standard';
   if(prev===lvl) return;
   if(Object.values(gym.exercises||{}).some(function(e){return (e.sets||[]).some(function(s){return s.done;});})||Object.values(gym.cardioBlocks||{}).some(function(c){return c.done||c.timer&&c.timer.running;})){
@@ -7277,7 +7331,7 @@ var RPE_MEANING={6:'4+ left',7:'3 left',8:'2 left',9:'1 left',10:'nothing left'}
 function _rpeColor(v){ return v>=10?'var(--re)':v>=9?'var(--or)':v>=8?'var(--ye)':'var(--gr)'; }
 function setSetRPE(ei,si,val){
   var k=dKey(vDate);
-  var exD=S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.exercises[ei];
+  var exD=GS(k)&&GS(k).exercises[ei];
   if(!exD||!exD.sets||!exD.sets[si]) return;
   // Tapping the current value clears it — no way to un-rate otherwise.
   exD.sets[si].rpe=(parseFloat(exD.sets[si].rpe)===val)?'':String(val);
@@ -7397,7 +7451,7 @@ function applyDeload(ei){
     +'(down from '+toDisplayWeight(st.topWeight)+' — '+st.sessions+' sessions without progress). '
     +'Same reps, lighter bar: build back up from there.',
     function(){
-      var exD=S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.exercises[ei];
+      var exD=GS(k)&&GS(k).exercises[ei];
       if(!exD){ showToast('Nothing to change'); return; }
       (exD.sets||[]).forEach(function(s){
         if(s.done) return;                       // never rewrite a logged set
@@ -7685,24 +7739,24 @@ function doSwap(idx,name,target){
   var k=dKey(vDate);
   var rendered=getRenderedExList(k)||[];
   var cur=rendered[idx]||{};
-  var gym=S.sessions[k].gym;
+  var gym=GS(k);
   if((gym.exercises[idx]&&gym.exercises[idx].sets||[]).some(function(s){return s.done;})){showToast('Keep the logged exercise. Swap before logging its sets.');return;}
   if(!gym.swapOriginals)gym.swapOriginals={};if(!gym.swapOriginals[idx])gym.swapOriginals[idx]=Object.assign({},cur);
   if(gym.exList)gym.exList[idx]=Object.assign({},cur,{n:name,t:target});
   S.swaps[k+':'+idx]=Object.assign({},cur,{n:name,t:target});
-  S.sessions[k].gym.exercises[idx]={sets:[]};
+  GS(k).exercises[idx]={sets:[]};
   saveS();
   closeModal('swapModal');
   buildTodayWorkout();
   showToast('🔄 Swapped to '+name);
 }
 function undoSwap(idx){
-  var k=dKey(vDate),g=S.sessions[k].gym;
+  var k=dKey(vDate),g=GS(k);
   if((g.exercises[idx]&&g.exercises[idx].sets||[]).some(function(s){return s.done;})){showToast('Keep the logged exercise.');return;}
   if(g.swapOriginals&&g.swapOriginals[idx]&&g.exList){g.exList[idx]=g.swapOriginals[idx];delete g.swapOriginals[idx];}
   delete S.swaps[k+':'+idx];g.exercises[idx]={sets:[]};saveS();closeModal('swapModal');buildTodayWorkout();showToast('Reset exercise');
 }
-function checkVolAlert(k,dow){var alertEl=el('volAlert');if(!alertEl||cMode!=='gym')return;var tplKey=getEffTpl(k),focus=(WTPL[tplKey]||{}).focus;var lastSame=S.history.filter(function(h){return h.type==='gym'&&h.focus===focus&&h.split===tplKey;}).slice(-1)[0];if(!lastSame){alertEl.innerHTML='';return;}var gymSess=S.sessions[k]&&S.sessions[k].gym,curr=gymSess?Object.values(gymSess.exercises||{}).reduce(function(a,ex){return a+(ex.sets||[]).filter(function(s){return s.done;}).reduce(function(b,s){return b+(parseFloat(s.weight)||0)*(parseFloat(s.reps)||0);},0);},0):0;if(!curr){alertEl.innerHTML='';return;}var diff=curr-(lastSame.volume||0);var _wuVA=getWeightUnit(),_diffD2=toDisplayWeight(Math.abs(diff));if(diff>0)alertEl.innerHTML='<div class="alert alert-up">📈 Up '+toDisplayWeight(Math.round(diff))+' '+_wuVA+' vs last '+focus+'!</div>';else if(diff<-50)alertEl.innerHTML='<div class="alert alert-dn">📉 Volume down '+Math.round(_diffD2)+' '+_wuVA+' vs last session.</div>';else alertEl.innerHTML='';}
+function checkVolAlert(k,dow){var alertEl=el('volAlert');if(!alertEl||cMode!=='gym')return;var tplKey=wkTpl(k),focus=(WTPL[tplKey]||{}).focus;var lastSame=S.history.filter(function(h){return h.type==='gym'&&h.focus===focus&&h.split===tplKey;}).slice(-1)[0];if(!lastSame){alertEl.innerHTML='';return;}var gymSess=GS(k),curr=gymSess?Object.values(gymSess.exercises||{}).reduce(function(a,ex){return a+(ex.sets||[]).filter(function(s){return s.done;}).reduce(function(b,s){return b+(parseFloat(s.weight)||0)*(parseFloat(s.reps)||0);},0);},0):0;if(!curr){alertEl.innerHTML='';return;}var diff=curr-(lastSame.volume||0);var _wuVA=getWeightUnit(),_diffD2=toDisplayWeight(Math.abs(diff));if(diff>0)alertEl.innerHTML='<div class="alert alert-up">📈 Up '+toDisplayWeight(Math.round(diff))+' '+_wuVA+' vs last '+focus+'!</div>';else if(diff<-50)alertEl.innerHTML='<div class="alert alert-dn">📉 Volume down '+Math.round(_diffD2)+' '+_wuVA+' vs last session.</div>';else alertEl.innerHTML='';}
 // One completed-cardio contract for Today, save previews and persisted history.
 function completedCardioBlocks(gym){
   return Object.values(gym.cardioBlocks||{}).concat(Object.values(gym.cardio||{}))
@@ -7731,14 +7785,14 @@ function updateStats(){try{refreshDiscardBtn();}catch(e){}
   var bw=(S.weights&&S.weights.length)?S.weights[S.weights.length-1].w:200;
   var bwKg=bw/2.205;
 
-  if(sess.gym){
+  if(sess[wkKey(k)]){
     // Lifting calories: per done set using actual weight x reps x MET
     // MET values: compound=5.0, plate_machine=5.0, cable=4.0, machine=3.5, bodyweight=4.0, other=3.5
     // Formula: sets * avg_time_per_set_mins / 60 * MET * bwKg
     // Average set time: ~45s active effort + rest handled separately, we use ~1.5 min per set slot
     var exs=getRenderedExList(k);
 
-    Object.entries(sess.gym.exercises||{}).forEach(function(entry){
+    Object.entries(sess[wkKey(k)].exercises||{}).forEach(function(entry){
       var ei=parseInt(entry[0]), exD=entry[1];
       if(exD.skipped) return;
       // Look up swap first, then template  --  uses actual exercise key not loop counter
@@ -7759,8 +7813,8 @@ function updateStats(){try{refreshDiscardBtn();}catch(e){}
     });
 
     // Cardio calories: read from cardioBlocks (warmup/mid/finisher) which is the live state
-    // Also include the legacy sess.gym.cardio if present (older sessions)
-    completedCardioBlocks(sess.gym).forEach(function(c){
+    // Also include the legacy sess[wkKey(k)].cardio if present (older sessions)
+    completedCardioBlocks(sess[wkKey(k)]).forEach(function(c){
       mins+=c.duration;
       cardioCals+=completedCardioCalories(c,bwKg);
     });
@@ -7788,12 +7842,12 @@ function updateStats(){try{refreshDiscardBtn();}catch(e){}
   if(paceEl){
     if(cMode==='run'&&sess.run&&sess.run.pace){
       paceEl.textContent=sess.run.pace; if(paceLblEl)paceLblEl.textContent='Pace/mi';
-    } else if(cMode==='gym'&&sess.gym){
+    } else if((cMode==='gym'||cMode==='home')&&sess[wkKey(k)]){
       var _exsP=getRenderedExList(k);
       var _totP=0,_doneP=0;
       var _showWuP=S.prefs?S.prefs.showWarmups!==false:true;
       _exsP.forEach(function(ex,ei){
-        var exD=sess.gym.exercises&&sess.gym.exercises[ei]||{sets:[]};
+        var exD=sess[wkKey(k)].exercises&&sess[wkKey(k)].exercises[ei]||{sets:[]};
         if(exD.skipped) return;
         var _nSP=Math.max(ex.sets||0,(exD.sets||[]).length);
         for(var s=0;s<_nSP;s++){_totP++;if(exD.sets[s]&&exD.sets[s].done)_doneP++;}
@@ -7813,13 +7867,13 @@ function updateStats(){try{refreshDiscardBtn();}catch(e){}
     if(_pct>=100){ _saveBtn.classList.add('complete-pulse'); _saveBtn.innerHTML='&#x1F389; Workout Complete! Tap to Save'; }
     else {
       _saveBtn.classList.remove('complete-pulse');
-      var _isUpd=S.history.some(function(h){return h.date===k&&h.type===(cMode==='run'?'run':'gym');});
+      var _isUpd=S.history.some(function(h){return h.date===k&&h.type===(cMode==='run'?'run':cMode==='home'?'home':'gym');});
       _saveBtn.innerHTML=_isUpd?'&#x1F4BE; Update Saved Workout':'&#x1F4BE; Save Workout';
       if(_isUpd){_saveBtn.style.background='rgba(245,196,0,.15)';_saveBtn.style.border='1px solid rgba(245,196,0,.4)';_saveBtn.style.color='var(--ye)';}
       else {_saveBtn.style.background='';_saveBtn.style.border='';_saveBtn.style.color='';}
     }
   }
-  var dtype=getDayType(k);if((dtype==='gym'||dtype==='both')&&cMode==='gym'){var gym=sess.gym||{exercises:{}},exs=getRenderedExList(k);var total=0,done=0;var _showWu=S.prefs?S.prefs.showWarmups!==false:true;
+  var dtype=getDayType(k);if(((dtype==='gym'||dtype==='both')&&cMode==='gym')||cMode==='home'){var gym=sess[wkKey(k)]||{exercises:{}},exs=getRenderedExList(k);var total=0,done=0;var _showWu=S.prefs?S.prefs.showWarmups!==false:true;
 exs.forEach(function(ex,ei){var exD=gym.exercises[ei]||{sets:[]};if(exD.skipped)return;var _nSC=Math.max(ex.sets||0,(exD.sets||[]).length);for(var s=0;s<_nSC;s++){total++;if(exD.sets[s]&&exD.sets[s].done)done++;}if(_showWu){var warmups=exD.warmups||{};Object.keys(warmups).forEach(function(wi){total++;if(warmups[wi])done++;});}});var pct=total>0?Math.round(done/total*100):0;el('cmpPct').textContent=pct+'%';el('cmpFill').style.width=pct+'%';}
   updateLiveVolumeCard(k);
 }
@@ -7828,12 +7882,12 @@ function updateLiveVolumeCard(k){
   var card=el('liveVolumeCard'), grid=el('liveVolumeGrid');
   if(!card||!grid||cMode!=='gym') return;
   var sess=S.sessions[k];
-  if(!sess||!sess.gym){card.style.display='none';return;}
+  if(!sess||!sess[wkKey(k)]){card.style.display='none';return;}
   var exs=getRenderedExList(k);
 
   // Accumulate volume per muscle group from done work sets
   var mgVol={}, mgSets={};
-  Object.entries(sess.gym.exercises||{}).forEach(function(entry){
+  Object.entries(sess[wkKey(k)].exercises||{}).forEach(function(entry){
     var ei=parseInt(entry[0]), exD=entry[1];
     if(exD.skipped) return;
     var exName=(S.swaps[k+':'+ei]&&S.swaps[k+':'+ei].n)||(exs[ei]&&exs[ei].n)||'';
@@ -7875,9 +7929,9 @@ function getPrevBest(name,si){var recent=S.history.slice(-8).reverse();for(var i
 // exercises render as a slim undo card and are excluded from stats and the save.
 function toggleSkipExercise(ei){
   var k=dKey(vDate);
-  if(!S.sessions[k]||!S.sessions[k].gym) return;
-  if(!S.sessions[k].gym.exercises[ei]) S.sessions[k].gym.exercises[ei]={sets:[]};
-  var exD=S.sessions[k].gym.exercises[ei];
+  if(!S.sessions[k]||!GS(k)) return;
+  if(!GS(k).exercises[ei]) GS(k).exercises[ei]={sets:[]};
+  var exD=GS(k).exercises[ei];
   exD.skipped=!exD.skipped;
   saveS(); buildTodayWorkout();
   showToast(exD.skipped?'⊘ Exercise skipped today':'↩ Exercise restored');
@@ -7905,8 +7959,8 @@ function quickFillExercise(ei){
   if(!lsData||!lsData.sets||!lsData.sets.length){showToast('No previous session found');return;}
   var wkSets=lsData.sets.filter(function(s){return s.done&&(s.type||'wk')==='wk';});
   if(!wkSets.length){showToast('No logged sets found');return;}
-  if(!S.sessions[k].gym.exercises[ei]) S.sessions[k].gym.exercises[ei]={sets:[]};
-  var exD=S.sessions[k].gym.exercises[ei];
+  if(!GS(k).exercises[ei]) GS(k).exercises[ei]={sets:[]};
+  var exD=GS(k).exercises[ei];
   wkSets.forEach(function(s,si){
     if(!exD.sets[si]) exD.sets[si]={weight:'',reps:'',done:false,type:'wk'};
     if(!exD.sets[si].done){
@@ -7924,24 +7978,24 @@ function quickFillExercise(ei){
 // this — NOT a re-derived template filter, which can diverge from the duration engine.
 // Falls back to the legacy filter for sessions created before the snapshot existed.
 function getRenderedExList(k){
-  var g=S.sessions[k]&&S.sessions[k].gym;
+  var g=GS(k);
   if(g&&Array.isArray(g.exList)) return g.exList;
-  var tpl=WTPL[getEffTpl(k)]||WTPL.upper, it=(g&&g.intensity)||'standard';
+  var tpl=WTPL[wkTpl(k)]||WTPL.upper, it=(g&&g.intensity)||'standard';
   var exs=tpl.exercises.slice();
   if(it==='quick')exs=exs.filter(function(e){return e.p<=1;}).map(function(e){return Object.assign({},e,{sets:Math.max(MIN_WORK_SETS,e.sets-1)});});
   else if(it==='standard')exs=exs.filter(function(e){return e.p<=2;});
   if((S.weekFocus||'general')==='power'&&it!=='full')exs=exs.filter(function(e){return e.p<=1;});
   return exs.map(function(ex,i){return S.swaps[k+':'+i]||ex;});
 }
-function doSaveWorkout(rating,notes){var k=dKey(vDate),dtype=getDayType(k),sess=S.sessions[k];if(!sess){showToast('Nothing to save');return;}var saved=false;if(cMode==='gym'&&(dtype==='gym'||dtype==='both')){var tplKey=getEffTpl(k),gym=sess.gym,tpl=WTPL[tplKey],it=gym.intensity||'standard',exs=getRenderedExList(k);var vol=0,sc=0,mins=0,exLogs=[];
+function doSaveWorkout(rating,notes){var k=dKey(vDate),dtype=getDayType(k),sess=S.sessions[k];if(!sess){showToast('Nothing to save');return;}var saved=false;var _wt=(cMode==='home')?'home':'gym';if((cMode==='gym'&&(dtype==='gym'||dtype==='both'))||cMode==='home'){if(!GS(k)){showToast('Nothing to save');return;}var tplKey=wkTpl(k),gym=GS(k),tpl=WTPL[tplKey],it=gym.intensity||'standard',exs=getRenderedExList(k);var vol=0,sc=0,mins=0,exLogs=[];
 // Snapshot S.pbs BEFORE the exLogs loop overwrites it  --  needed for accurate PR detection below
-var _historyWithToday=S.history;S.history=S.history.filter(function(h){return !(h.date===k&&h.type==='gym');});recomputePBs();S.history=_historyWithToday;
+var _historyWithToday=S.history;S.history=S.history.filter(function(h){return !(h.date===k&&h.type===_wt);});recomputePBs();S.history=_historyWithToday;
 var _pbsSnapshot={};Object.keys(S.pbs).forEach(function(k2){_pbsSnapshot[k2]=S.pbs[k2].vol;});
-exs.forEach(function(ex,ei){var actual=ex,exD=gym.exercises[ei]||{sets:[]},setLogs=[];if(exD.skipped)return;var _nS=Math.max(ex.sets||0,(exD.sets||[]).length);for(var s=0;s<_nS;s++){var set=exD.sets[s]||{};if(set.done&&(set.type||'wk')!=='wu'){sc++;vol+=(parseFloat(set.weight)||0)*(parseFloat(set.reps)||0);}setLogs.push({weight:set.weight||'',reps:set.reps||'',done:!!set.done,type:set.type||'wk',rpe:set.rpe||''});}// allDoneEx: all WORK sets done (warmup sets are informational, not required for progression)
+exs.forEach(function(ex,ei){var actual=ex,exD=gym.exercises[ei]||{sets:[]},setLogs=[];if(exD.skipped)return;var _nS=Math.max(ex.sets||0,(exD.sets||[]).length);for(var s=0;s<_nS;s++){var set=exD.sets[s]||{};if(set.done&&(set.type||'wk')!=='wu'){sc++;vol+=(parseFloat(set.weight)||0)*(parseFloat(set.reps)||0);}setLogs.push({weight:set.weight||'',reps:set.reps||'',done:!!set.done,type:set.type||'wk',rpe:set.rpe||'',level:set.level||''});}// allDoneEx: all WORK sets done (warmup sets are informational, not required for progression)
 var workSummary=summarizeWorkSets(setLogs,gym.trainingFocus||S.weekFocus,actual.n)||{allCompleted:false,ceilingHit:false,weight:0};
 exLogs.push({name:actual.n,target:actual.t,sets:setLogs,allCompleted:workSummary.allCompleted,ceilingHit:workSummary.ceilingHit,weight:workSummary.weight});setLogs.forEach(function(s,si){if(isStrengthRecordSet(s,actual.n)){var pbKey=actual.n+'_'+si,nv=(parseFloat(s.weight)||0)*(parseFloat(s.reps)||0);if(!S.pbs[pbKey]||nv>S.pbs[pbKey].vol)S.pbs[pbKey]={exercise:actual.n,weight:s.weight,reps:s.reps,vol:nv,date:k};}});});var cLogs=completedCardioBlocks(gym);mins=cLogs.reduce(function(total,c){return total+c.duration;},0);var durMins=0;
 if(_wTimerElapsed>0) durMins=Math.round(_wTimerElapsed/60000);
-else if(S.sessions[k].gym.startTime) durMins=Math.round((Date.now()-S.sessions[k].gym.startTime)/60000);
+else if(GS(k).startTime) durMins=Math.round((Date.now()-GS(k).startTime)/60000);
 // Use getWorkoutCalsBurned()  --  matches live Cals counter and save prompt exactly
 var totalCals=getWorkoutCalsBurned();
 // Detect PRs: use pre-save snapshot so we compare against old values, not the ones just written
@@ -7950,7 +8004,7 @@ exs.forEach(function(ex,ei){var actual=ex,exD=gym.exercises[ei]||{sets:[]};if(ex
 // Compute completion %  --  warmups stored as object {wi: bool}, not array
 var _saveShowWu=S.prefs?S.prefs.showWarmups!==false:true;
 var totalSets=0,doneSets=0;exs.forEach(function(ex,ei){var exD=gym.exercises[ei]||{sets:[]};if(exD.skipped)return;if(_saveShowWu)Object.keys(exD.warmups||{}).forEach(function(wi){totalSets++;if(exD.warmups[wi])doneSets++;});var _nS3=Math.max(ex.sets||0,(exD.sets||[]).length);for(var s=0;s<_nS3;s++){totalSets++;var set=exD.sets[s]||{};if(set.done)doneSets++;}});var compPct=totalSets>0?Math.round(doneSets/totalSets*100):0;
-var entry={id:Date.now(),date:k,type:'gym',gymId:gym.gymId||S.activeGymId,trainingFocus:gym.trainingFocus||S.weekFocus,day:vDate.toLocaleDateString('en-US',{weekday:'long'}),focus:tpl.focus,split:tplKey,intensity:it,volume:vol,sets:sc,cardioMins:mins,calories:totalCals,exercises:exLogs,cardio:cLogs,duration:durMins,rating:rating||0,notes:notes||'',prs:newPRs};S.history=S.history.filter(function(h){return!(h.date===k&&h.type==='gym');});S.history.push(entry);saved=true;
+var entry={id:Date.now(),date:k,type:_wt,gymId:_wt==='home'?'home':(gym.gymId||S.activeGymId),trainingFocus:gym.trainingFocus||S.weekFocus,day:vDate.toLocaleDateString('en-US',{weekday:'long'}),focus:tpl.focus,split:tplKey,intensity:it,volume:vol,sets:sc,cardioMins:mins,calories:totalCals,exercises:exLogs,cardio:cLogs,duration:durMins,rating:rating||0,notes:notes||'',prs:newPRs};S.history=S.history.filter(function(h){return!(h.date===k&&h.type===_wt);});S.history.push(entry);saved=true;
 // Store summary data for post-save screen
 var progressions=[];var fprogSum=FOCUS_PROGRESSION[S.weekFocus||'general']||FOCUS_PROGRESSION.general;exLogs.forEach(function(ex){if(ex.ceilingHit&&ex.weight>0&&!getActiveProgramFor(ex.name)){var nextW=snapToLoadable(ex.name,ex.weight+(fprogSum.weightStep||5),'up');if(nextW<=ex.weight)return;progressions.push({exercise:ex.name,lastW:ex.weight,nextW:nextW});}});window._lastSummary={type:'gym',sets:sc,volume:vol,calories:totalCals,duration:durMins,compPct:compPct,prs:newPRs,progressions:progressions,rating:rating||0,notes:notes||'',focus:tpl.focus,intensity:it,cardioMins:mins};
 }if(cMode==='run'&&(dtype==='run'||dtype==='both')){var r=sess.run;if(!r.distance&&!r.duration){showToast('Enter distance or time first');return;}var wk=Math.min(24,Math.max(1,mWeekNum(vDate))),phase=getPhase(wk),rentry={id:Date.now()+1,date:k,type:'run',runType:(_runCards&&_runCards[0]?_runCards[0].type:'EASY'),day:vDate.toLocaleDateString('en-US',{weekday:'long'}),week:wk,phase:phase.name,distance:parseFloat(r.distance)||0,duration:parseFloat(r.duration)||0,pace:r.pace||'',hr:r.hr||'',calories:parseFloat(r.calories)||0,rpe:r.rpe||'',cadence:r.cadence||'',elevation:parseFloat(r.elevation)||0,injuryTag:r.injuryTag||'',notes:r.notes||'',status:r.status||'completed',splits:r.splits||[]};S.history=S.history.filter(function(h){return!(h.date===k&&h.type==='run');});S.history.push(rentry);saved=true;
@@ -8095,6 +8149,15 @@ var FOCUS_PROGRESSION={
 };
 
 
+// The workout on screen is either the day's gym session or its home session
+// (S.sessions[k].home). Every Today-workout function reads it through GS(k) so the
+// same engine, logging, timers and saving serve both. Only the VIEWED day maps to home.
+function wkKey(k){ return (cMode==='home'&&k===dKey(vDate))?'home':'gym'; }
+// The split of the workout on screen: the gym plan, or the home rotation (see the
+// Home Workout module).
+function wkTpl(k){ return (wkKey(k)==='home'&&typeof homeSplitFor==='function')?homeSplitFor(k):getEffTpl(k); }
+function GS(k){ var d=S.sessions&&S.sessions[k]; return d?d[wkKey(k)]:undefined; }
+function isHomeMode(k){ return wkKey(k||dKey(vDate))==='home'; }
 function sessionHasActivity(gym){
   return !!gym&&(Object.values(gym.exercises||{}).some(function(e){return (e.sets||[]).some(function(s){return s.done;});})||
     Object.values(gym.cardioBlocks||{}).concat(Object.values(gym.cardio||{})).some(function(c){return c.done;})||
@@ -8102,7 +8165,7 @@ function sessionHasActivity(gym){
 }
 function getWorkoutFocus(k){
   k=k||dKey(vDate);
-  var gym=S.sessions[k]&&S.sessions[k].gym;
+  var gym=GS(k);
   return gym&&gym.trainingFocus&&sessionHasActivity(gym)&&!isLiveSession(k)?gym.trainingFocus:(S.weekFocus||'general');
 }
 // A "live" session is one that still follows the plan: today or later, not yet saved
@@ -8110,18 +8173,18 @@ function getWorkoutFocus(k){
 // split, focus, intensity or gym re-plans a live session even mid-workout — logged sets
 // are carried over (see _replanSession). Saved and past sessions keep their snapshot,
 // so editing history never reshuffles what was actually done.
-function isLiveSession(k){
-  k=k||dKey(vDate);
-  if(isSessionComplete(k)) return false;
+function isLiveSession(k,key){
+  k=k||dKey(vDate); key=key||wkKey(k);
+  if(isSessionComplete(k,key)) return false;
   if(k>=dKey(new Date())) return true;
-  var gym=S.sessions[k]&&S.sessions[k].gym;
+  var gym=S.sessions[k]&&S.sessions[k][key];
   return !!(gym&&gym.wTimer&&gym.wTimer.active);
 }
 // Everything a workout is generated from. When it changes on a live session the
 // exercise list is rebuilt.
 function sessionPlanKey(k){
-  var gym=S.sessions[k]&&S.sessions[k].gym;
-  return [getEffTpl(k),getWorkoutFocus(k),(gym&&gym.intensity)||'standard',S.activeGymId||''].join('|');
+  var gym=GS(k);
+  return [wkTpl(k),getWorkoutFocus(k),(gym&&gym.intensity)||'standard',getActiveGym().id||''].join('|');
 }
 function getFocusParams(){
   var f=getWorkoutFocus();if(f==='auto')f='general';
@@ -8129,8 +8192,9 @@ function getFocusParams(){
 }
 
 // Returns true if a date key has a completed gym session (protect from overwrite)
-function isSessionComplete(k){
-  return S.history.some(function(h){return h.date===k&&h.type==='gym';});
+function isSessionComplete(k,key){
+  var t=(key||wkKey(k))==='home'?'home':'gym';
+  return S.history.some(function(h){return h.date===k&&h.type===t;});
 }
 // restLabel: human-readable rest range shown in UI
 
@@ -8621,8 +8685,8 @@ function setWeeklyFocus(g){
   _autoSplitCache={};
   // Use vDate consistently  --  all operations target the currently viewed day
   var k=dKey(vDate);
-  if(S.sessions[k]&&S.sessions[k].gym&&!sessionHasActivity(S.sessions[k].gym)){
-    var gym=S.sessions[k].gym;
+  if(GS(k)&&!sessionHasActivity(GS(k))){
+    var gym=GS(k);
     // Clear auto-seeded supersets so they re-evaluate for the new focus
     gym.supersets={};
     gym.activeSuperset=undefined;
@@ -10847,7 +10911,7 @@ function buildActivityTab(){
   // Calories burned last 30 days
   var cbEl = el('calBurnChart');
   if(cbEl){
-    var gymWithCals = S.history.filter(function(h){return h.type==='gym'&&h.calories>0;}).slice(-30);
+    var gymWithCals = S.history.filter(function(h){return (h.type==='gym'||h.type==='home')&&h.calories>0;}).slice(-30);
     if(!gymWithCals.length){cbEl.innerHTML='<div style="font-size:11px;color:var(--mu)">Save workouts to track calorie burn.</div>';}
     else{
       var maxC = Math.max.apply(null, gymWithCals.map(function(h){return h.calories;}));
@@ -11440,6 +11504,7 @@ function renderHistory(){
   var sessions=allSessions.filter(function(s){
     // Type/time filter
     if(_histFilter==='gym') { if(s.type!=='gym') return false; }
+    else if(_histFilter==='home') { if(s.type!=='home') return false; }
     else if(_histFilter==='run') { if(s.type!=='run') return false; }
     else if(_histFilter==='week') { if(s.date<wkStr) return false; }
     else if(_histFilter==='month') { if(s.date<monthStr) return false; }
@@ -11490,8 +11555,8 @@ function renderHistory(){
     var prBadge=s.prs&&s.prs.length?'<span class="badge by" style="margin-left:5px">🏆 '+s.prs.length+' PR'+(s.prs.length>1?'s':'')+'</span>':'';
     var topExercises='';
     var _wuHL=getWeightUnit(), _sVD=toDisplayWeight(s.volume||0);
-    if(s.exercises&&s.exercises.length){var doneEx=s.exercises.filter(function(e){return e.sets&&e.sets.some(function(x){return x.done;});});if(doneEx.length){topExercises='<div style="font-size:10px;color:var(--mu);margin-top:4px;font-family:\'DM Mono\',monospace">'+doneEx.slice(0,3).map(function(e){var maxW=Math.max.apply(null,e.sets.filter(function(x){return x.done&&x.weight;}).map(function(x){return parseFloat(x.weight)||0;}));return e.name+(maxW?': '+toDisplayWeight(maxW)+' '+_wuHL:'');}).join(' · ')+(doneEx.length>3?' +more':'')+'</div>';}}
-    return'<div class="hitem gym" onclick="openHistDetail('+s.id+')"><div class="fbet"><div><div class="hdate">'+fmtDate(s.date)+(s.duration?'<span class="dur-badge" style="margin-left:6px">⏱ '+s.duration+'m</span>':'')+'</div><div class="htitle">🏋️ '+s.day+' · '+s.focus+prBadge+'</div></div><span class="badge bg">✓ '+(s.intensity||'std')+'</span></div><div class="hstats"><div class="hst">Vol: <span>'+(_sVD>999?Math.round(_sVD/1000)+'k':Math.round(_sVD))+'</span></div><div class="hst">Sets: <span>'+s.sets+'</span></div><div class="hst">Cardio: <span>'+Math.round(s.cardioMins||0)+'m</span></div>'+(stars?'<div class="hst"><span>'+stars+'</span></div>':'')+'</div>'+topExercises+(s.notes?'<div style="font-size:11px;color:var(--mu);margin-top:4px;font-style:italic">📝 '+escapeHtml(s.notes)+'</div>':'')+'</div>';
+    if(s.exercises&&s.exercises.length){var doneEx=s.exercises.filter(function(e){return e.sets&&e.sets.some(function(x){return x.done;});});if(doneEx.length){topExercises='<div style="font-size:10px;color:var(--mu);margin-top:4px;font-family:\'DM Mono\',monospace">'+doneEx.slice(0,3).map(function(e){var _ws=e.sets.filter(function(x){return x.done&&x.weight;}).map(function(x){return parseFloat(x.weight)||0;}),maxW=_ws.length?Math.max.apply(null,_ws):0;var _lv=e.sets.filter(function(x){return x.done&&x.level;}).map(function(x){return x.level;});return e.name+(maxW>0?': '+toDisplayWeight(maxW)+' '+_wuHL:_lv.length?': level '+_lv[_lv.length-1]:'');}).join(' · ')+(doneEx.length>3?' +more':'')+'</div>';}}
+    return'<div class="hitem gym" onclick="openHistDetail('+s.id+')"><div class="fbet"><div><div class="hdate">'+fmtDate(s.date)+(s.duration?'<span class="dur-badge" style="margin-left:6px">⏱ '+s.duration+'m</span>':'')+'</div><div class="htitle">'+(s.type==='home'?'🏠 ':'🏋️ ')+s.day+' · '+s.focus+prBadge+'</div></div><span class="badge bg">✓ '+(s.intensity||'std')+'</span></div><div class="hstats"><div class="hst">Vol: <span>'+(_sVD>999?Math.round(_sVD/1000)+'k':Math.round(_sVD))+'</span></div><div class="hst">Sets: <span>'+s.sets+'</span></div><div class="hst">Cardio: <span>'+Math.round(s.cardioMins||0)+'m</span></div>'+(stars?'<div class="hst"><span>'+stars+'</span></div>':'')+'</div>'+topExercises+(s.notes?'<div style="font-size:11px;color:var(--mu);margin-top:4px;font-style:italic">📝 '+escapeHtml(s.notes)+'</div>':'')+'</div>';
   }).join('');
 }
 function openHistDetail(id){
@@ -11551,7 +11616,7 @@ openModal('histModal');
 function recomputePBs(){
   var pbs={};
   (S.history||[]).forEach(function(h){
-    if(h.type!=='gym'||!h.exercises) return;
+    if((h.type!=='gym'&&h.type!=='home')||!h.exercises) return;
     h.exercises.forEach(function(ex){
       (ex.sets||[]).forEach(function(s,si){
         if(isStrengthRecordSet(s,ex.name)){
@@ -11720,7 +11785,7 @@ function toggleAutoSuperset(){
 // unsaved — a session already in history is a record and is left alone).
 function applySupersetPrefToSession(){
   var k=dKey(vDate);
-  var sess=S.sessions[k]&&S.sessions[k].gym;
+  var sess=GS(k);
   if(!sess) return;
   if(S.history.some(function(h){return h.date===k&&h.type==='gym';})) return;
   if(S.prefs.autoSuperset===false){
@@ -13255,7 +13320,12 @@ function rateTip(idx, rating, btn, encodedTip){
     showToast('👍 Glad it helped!');
   }
 }
+var _homeParked=false;
 function switchPage(id,btn){
+  // The Home tab is a Today-page mode. Park it while another page is open (so Equipment,
+  // Plan etc. always see the real gym profile) and bring it back on return.
+  if(id!=='today'&&cMode==='home'){_homeParked=true;cMode='gym';}
+  else if(id==='today'&&_homeParked){cMode='home';_homeParked=false;}
   document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
   document.querySelectorAll('.nb').forEach(function(b){b.classList.remove('active');});
   var _pg=el('page-'+id); if(_pg)_pg.classList.add('active'); if(btn&&btn.classList)btn.classList.add('active');
@@ -13585,6 +13655,16 @@ function snapToLoadable(exName, targetLbs, dir){
   var base=getBaseWeight(exName);
   if(!(base>0)){
     var loading=getExerciseLoading(exName),step=loading.step,min=loading.min;
+    if(loading.values&&loading.values.length){
+      var vals=loading.values.slice().sort(function(a,b){return a-b;}), pickV=vals[0];
+      for(var vi=0;vi<vals.length;vi++){
+        var v=vals[vi];
+        if(dir==='up'){ if(v>=targetLbs-1e-9){pickV=v;break;} pickV=v; }
+        else if(dir==='down'){ if(v<=targetLbs+1e-9) pickV=v; }
+        else if(Math.abs(v-targetLbs)<Math.abs(pickV-targetLbs)) pickV=v;
+      }
+      return pickV;
+    }
     var n=(targetLbs-min)/step;
     var rounded=dir==='up'?Math.ceil(n-1e-8):dir==='down'?Math.floor(n+1e-8):Math.round(n);
     var maxStep=isFinite(loading.max)?Math.floor((loading.max-min)/step+1e-8):Infinity;
@@ -13605,7 +13685,9 @@ function snapToLoadable(exName, targetLbs, dir){
 }
 function getExerciseLoading(name){
   var gym=getActiveGym(),config=gym.loading&&gym.loading[name];
+  if(config&&config.values&&config.values.length)return {min:Math.min.apply(null,config.values),step:5,max:Math.max.apply(null,config.values),values:config.values};
   if(config&&config.step>0&&config.min>=0&&config.max>=config.min)return config;
+  if(gym.loadingRules){ for(var _li=0;_li<gym.loadingRules.length;_li++){ var _lr=gym.loadingRules[_li]; if(new RegExp(_lr.re,'i').test(name)) return _lr.values?{min:Math.min.apply(null,_lr.values),step:5,max:Math.max.apply(null,_lr.values),values:_lr.values}:{min:_lr.min,step:_lr.step,max:_lr.max}; } }
   var max=Infinity;
   if(/dumbbell/i.test(name)){
     var limits=(gym.equipment||[]).filter(function(e){return /dumbbell/i.test(e);}).map(function(e){var m=e.match(/(\d+)\s*-\s*(\d+)/);return m?Number(m[2]):Infinity;});
@@ -14177,8 +14259,8 @@ function getWorkingWeight(ei){
   var k=dKey(vDate);
   var sess=S.sessions[k];
   // First: check session state for any Work set with a logged weight
-  if(sess&&sess.gym&&sess.gym.exercises[ei]){
-    var sets=sess.gym.exercises[ei].sets||[];
+  if(sess&&sess[wkKey(k)]&&sess[wkKey(k)].exercises[ei]){
+    var sets=sess[wkKey(k)].exercises[ei].sets||[];
     for(var i=0;i<sets.length;i++){
       if((!sets[i].type||sets[i].type==='wk')&&sets[i].weight&&parseFloat(sets[i].weight)>0){
         return parseFloat(sets[i].weight);
@@ -14186,7 +14268,7 @@ function getWorkingWeight(ei){
     }
   }
   // Second: use the progression system (uses history + S.strength as source of truth)
-  var tplKey=getEffTpl(k);
+  var tplKey=wkTpl(k);
   var tpl=WTPL[tplKey];
   if(!tpl) return 0;
   // Use the actual exercise at ei, with swaps applied
@@ -14203,8 +14285,8 @@ function getPrevSetWeight(ei, si){
   // Returns weight from the set just before index si
   var k=dKey(vDate);
   var sess=S.sessions[k];
-  if(!sess||!sess.gym||!sess.gym.exercises[ei]) return 0;
-  var sets=sess.gym.exercises[ei].sets||[];
+  if(!sess||!sess[wkKey(k)]||!sess[wkKey(k)].exercises[ei]) return 0;
+  var sets=sess[wkKey(k)].exercises[ei].sets||[];
   for(var i=si-1;i>=0;i--){
     if(sets[i]&&sets[i].weight) return parseFloat(sets[i].weight)||0;
   }
@@ -14214,8 +14296,8 @@ function getPrevSetWeight(ei, si){
 function autoFillSetType(ei, si, newType){
   var k=dKey(vDate);
   var sess=S.sessions[k];
-  if(!sess||!sess.gym||!sess.gym.exercises[ei]) return;
-  var sets=sess.gym.exercises[ei].sets;
+  if(!sess||!sess[wkKey(k)]||!sess[wkKey(k)].exercises[ei]) return;
+  var sets=sess[wkKey(k)].exercises[ei].sets;
   if(!sets[si]) sets[si]={weight:'',reps:'',done:false};
 
   var focus=S.weekFocus||'general';
@@ -14271,10 +14353,10 @@ function autoFillSetType(ei, si, newType){
 function removeDropSet(ei, si){
   var k=dKey(vDate);
   var sess=S.sessions[k];
-  if(!sess||!sess.gym||!sess.gym.exercises[ei]) return;
-  var sets=sess.gym.exercises[ei].sets;
+  if(!sess||!sess[wkKey(k)]||!sess[wkKey(k)].exercises[ei]) return;
+  var sets=sess[wkKey(k)].exercises[ei].sets;
   if(!sets[si]||sets[si].type!=='ds') return;
-  if(sets[si].spec) sess.gym.exercises[ei].specRemoved='ds';
+  if(sets[si].spec) sess[wkKey(k)].exercises[ei].specRemoved='ds';
   sets.splice(si, 1);
   saveS();
   buildTodayWorkout();
@@ -14284,8 +14366,8 @@ function removeDropSet(ei, si){
 function removeExtraSet(ei, si){
   var k=dKey(vDate);
   var sess=S.sessions[k];
-  if(!sess||!sess.gym||!sess.gym.exercises[ei]) return;
-  var sets=sess.gym.exercises[ei].sets;
+  if(!sess||!sess[wkKey(k)]||!sess[wkKey(k)].exercises[ei]) return;
+  var sets=sess[wkKey(k)].exercises[ei].sets;
   if(!sets[si]) return;
   if(sets[si].done){ showToast('Cannot remove a completed set'); return; }
   // HARD RULE: three work sets minimum, whatever the focus, intensity, weight or reps.
@@ -14295,7 +14377,7 @@ function removeExtraSet(ei, si){
     showToast('⛔ '+MIN_WORK_SETS+' work sets is the minimum on every exercise');
     return;
   }
-  if(sets[si].spec) sess.gym.exercises[ei].specRemoved=sets[si].type;
+  if(sets[si].spec) sess[wkKey(k)].exercises[ei].specRemoved=sets[si].type;
   sets.splice(si, 1);
   saveS();
   buildTodayWorkout();
@@ -14305,8 +14387,8 @@ function removeExtraSet(ei, si){
 function addContinueDrop(ei, si){
   var k=dKey(vDate);
   var sess=S.sessions[k];
-  if(!sess||!sess.gym||!sess.gym.exercises[ei]) return;
-  var sets=sess.gym.exercises[ei].sets;
+  if(!sess||!sess[wkKey(k)]||!sess[wkKey(k)].exercises[ei]) return;
+  var sets=sess[wkKey(k)].exercises[ei].sets;
   var currentW=sets[si]?parseFloat(sets[si].weight)||0:0;
   if(currentW<=0){ showToast('Enter weight first'); return; }
   var focus=S.weekFocus||'general';
@@ -14321,9 +14403,9 @@ function addContinueDrop(ei, si){
 
 function updateSetType(ei,si,val,sel){
 var k=dKey(vDate);
-if(!S.sessions[k]||!S.sessions[k].gym) return;
-if(!S.sessions[k].gym.exercises[ei]) S.sessions[k].gym.exercises[ei]={sets:[]};
-var sets=S.sessions[k].gym.exercises[ei].sets;
+if(!S.sessions[k]||!GS(k)) return;
+if(!GS(k).exercises[ei]) GS(k).exercises[ei]={sets:[]};
+var sets=GS(k).exercises[ei].sets;
 if(!sets[si]) sets[si]={weight:'',reps:'',done:false};
 sets[si].type=val;
 var ok=autoFillSetType(ei,si,val);
@@ -14373,8 +14455,8 @@ var durEl=el('durationDisp'), durVal=el('durationVal');
 var _durMins=0;
 if(_wTimerElapsed>0){ _durMins=Math.round(_wTimerElapsed/60000); }
 else if(_wTimerActive){ _durMins=Math.round((Date.now()-_wTimerStart)/60000); }
-else if(S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.startTime){
-  _durMins=Math.round((Date.now()-S.sessions[k].gym.startTime)/60000);
+else if(GS(k)&&GS(k).startTime){
+  _durMins=Math.round((Date.now()-GS(k).startTime)/60000);
 }
 if(_durMins>0&&durEl&&durVal){durEl.style.display='block';durVal.textContent=_durMins+' min';}
 else if(durEl){durEl.style.display='none';}
@@ -14628,8 +14710,8 @@ function fallbackCopy(txt){
 // ═══ FEATURE 10: WORKOUT DURATION - record start time ════════════
 function ensureStartTime(k){
 if(!S.sessions[k]) return;
-if(S.sessions[k].gym&&!S.sessions[k].gym.startTime){
-S.sessions[k].gym.startTime=Date.now();
+if(GS(k)&&!GS(k).startTime){
+GS(k).startTime=Date.now();
 saveS();
 }
 }
@@ -14794,7 +14876,7 @@ lowerback:{em:'🔩',nm:'Lower Back'}
 function getRecentMuscles(hoursBack){
 var anchor=new Date(dKey(vDate)+'T12:00:00').getTime(),cutoff=anchor-hoursBack*3600000;
 var trained={};
-S.history.filter(function(h){var t=new Date(h.date+'T12:00:00').getTime();return h.type==='gym'&&t>=cutoff&&t<anchor;}).forEach(function(h){
+S.history.filter(function(h){var t=new Date(h.date+'T12:00:00').getTime();return (h.type==='gym'||h.type==='home')&&t>=cutoff&&t<anchor;}).forEach(function(h){
 (h.exercises||[]).forEach(function(ex){
 if(ex.skipped||!(ex.sets||[]).some(function(s){return validCompletedSet(s)&&(s.type||'wk')!=='wu';}))return;
 var g=getMG(ex.name); if(g) trained[g]=(trained[g]||0)+1;
@@ -16030,8 +16112,8 @@ unit:getWeightUnit()
 var _wTimerInterval=null, _wTimerStart=null, _wTimerPaused=false, _wTimerElapsed=0, _wTimerActive=false;
 
 function _wTimerStateFor(k,create){
-  if(!S.sessions[k]||!S.sessions[k].gym) return null;
-  var g=S.sessions[k].gym;
+  if(!S.sessions[k]||!GS(k)) return null;
+  var g=GS(k);
   if(!g.wTimer&&create) g.wTimer={startedAt:null,accumMs:0,running:false,active:false};
   return g.wTimer||null;
 }
@@ -16114,7 +16196,7 @@ function renderTimerBar(){
 // non-skipped cardio block is done.
 function isWorkoutFullyComplete(k){
   k=k||dKey(vDate);
-  var sess=S.sessions[k]&&S.sessions[k].gym;
+  var sess=GS(k);
   if(!sess) return false;
   var exs=(typeof getRenderedExList==='function')?(getRenderedExList(k)||[]):[];
   if(!exs.length) return false;
@@ -16141,7 +16223,7 @@ function startWorkoutTimer(){
   if(_wTimerInterval) clearInterval(_wTimerInterval);
   _wTimerInterval=setInterval(tickWorkoutTimer,1000);
   var k=dKey(vDate);
-  if(S.sessions[k]&&S.sessions[k].gym&&!S.sessions[k].gym.startTime) S.sessions[k].gym.startTime=Date.now();
+  if(GS(k)&&!GS(k).startTime) GS(k).startTime=Date.now();
   _wTimerSave();
   renderTimerBar();
   refreshWakeLock();
@@ -16182,7 +16264,7 @@ function endWorkoutTimer(){
   var remaining=0;
   try{
     var exs=getRenderedExList(k)||[];
-    var sess=S.sessions[k]&&S.sessions[k].gym;
+    var sess=GS(k);
     exs.forEach(function(_,i){
       var exD=sess&&sess.exercises&&sess.exercises[i];
       if(exD&&exD.skipped) return;
@@ -16236,9 +16318,9 @@ function _stopWorkoutClock(k){
   if(!_wTimerPaused&&_wTimerStart) _wTimerElapsed=Date.now()-_wTimerStart;
   var finalMs=_wTimerElapsed||0;
   _wTimerPaused=false; _wTimerActive=false;
-  if(S.sessions[k]&&S.sessions[k].gym){
-    S.sessions[k].gym.startTime=Date.now()-finalMs;
-    S.sessions[k].gym.wTimer={startedAt:null,accumMs:finalMs,running:false,active:false};
+  if(GS(k)){
+    GS(k).startTime=Date.now()-finalMs;
+    GS(k).wTimer={startedAt:null,accumMs:finalMs,running:false,active:false};
     saveS();
   }
   var disp=el('wTimerDisplay');
@@ -18806,6 +18888,9 @@ function buildNutritionPage(){
   var activityBurn = 0;
   var todayGymEntry = S.history.filter(function(h){return h.date===k&&h.type==='gym';}).slice(-1)[0];
   var todayRunEntry = S.history.filter(function(h){return h.date===k&&h.type==='run';}).slice(-1)[0];
+  // The home workout is an extra session: its calories add to the day as well.
+  var todayHomeEntry = S.history.filter(function(h){return h.date===k&&h.type==='home';}).slice(-1)[0];
+  if(todayHomeEntry && todayHomeEntry.calories) activityBurn += todayHomeEntry.calories;
   if(todayGymEntry && todayGymEntry.calories){
     // Saved session: use stored calories
     activityBurn += todayGymEntry.calories;
@@ -21137,9 +21222,9 @@ function deleteShoe(id){
 // ── Per-exercise notes ────────────────────────────────────────────
 function saveExNote(ei, val){
   var k=dKey(vDate);
-  if(!S.sessions[k]||!S.sessions[k].gym) return;
-  if(!S.sessions[k].gym.exNotes) S.sessions[k].gym.exNotes={};
-  S.sessions[k].gym.exNotes[ei]=val;
+  if(!S.sessions[k]||!GS(k)) return;
+  if(!GS(k).exNotes) GS(k).exNotes={};
+  GS(k).exNotes[ei]=val;
   saveS();
 }
 
@@ -25524,7 +25609,7 @@ function buildRecoveryCheckin(dk){
 
   if(hasData){
     // Get today's workout context
-    var _tplKey=getEffTpl(k);
+    var _tplKey=wkTpl(k);
     var _tpl=WTPL[_tplKey]||WTPL.upper;
     var _focus=S.weekFocus||'general';
     var _splitName=_tpl.focus||_tplKey;
@@ -25717,17 +25802,17 @@ function getWorkoutCalsBurned(){
   // Mirrors updateStats() logic exactly so save prompt matches the live Cals counter
   var k = dKey(vDate);
   var sess = S.sessions[k];
-  if(!sess || !sess.gym) return 0;
+  if(!sess || !sess[wkKey(k)]) return 0;
 
   var bw = (S.weights && S.weights.length) ? S.weights[S.weights.length-1].w : 200;
   var bwKg = bw / 2.205;
-  var tplKey = getEffTpl(k);
+  var tplKey = wkTpl(k);
   var tpl = WTPL[tplKey];
   var exs = getRenderedExList(k);
 
   // Lifting calories: count actual done sets (same MET logic as updateStats)
   var liftingCals = 0;
-  Object.entries(sess.gym.exercises||{}).forEach(function(entry){
+  Object.entries(sess[wkKey(k)].exercises||{}).forEach(function(entry){
     var ei=parseInt(entry[0]), exD=entry[1];
     if(exD.skipped)return;
     var exName=(S.swaps[k+':'+ei]&&S.swaps[k+':'+ei].n)||(exs[ei]&&exs[ei].n)||'';
@@ -25743,7 +25828,7 @@ function getWorkoutCalsBurned(){
 
   // Cardio calories: read cardioBlocks (live storage), same done-gate as updateStats
   var cardioCals = 0;
-  completedCardioBlocks(sess.gym).forEach(function(c){cardioCals+=completedCardioCalories(c,bwKg);});
+  completedCardioBlocks(sess[wkKey(k)]).forEach(function(c){cardioCals+=completedCardioCalories(c,bwKg);});
 
   return Math.round(liftingCals + cardioCals);
 }
@@ -25755,7 +25840,7 @@ function getWorkoutCalsBurned(){
 
 
 function applySmartSetTypes(k){
-  var gym=S.sessions[k]&&S.sessions[k].gym;
+  var gym=GS(k);
   if(!gym) return;
   // Normal work sets are the default. User-selected techniques stay exactly as logged.
   gym.smartNote=null;
@@ -25796,7 +25881,7 @@ function planSpecialtySets(exs,focus,intensity,exData){
   function ok(i){
     var e=exs[i], d=exData&&exData[i];
     if(!e||e.carried||plan[i]||(d&&d.skipped)) return false;
-    if(e.n==='Plank'||e.n==='Side Plank'||/hold|hang|carry|walk/i.test(e.n)) return false; // timed / loaded-carry work
+    if(isTimedHold(e.n)||isLevelExercise(e.n)||/hold|hang|carry|walk/i.test(e.n)) return false; // timed, level-based or loaded-carry work
     if(isAssistanceExercise(e.n)) return false;
     return true;
   }
@@ -25810,6 +25895,7 @@ function planSpecialtySets(exs,focus,intensity,exData){
       var cand=idxs.filter(function(i){
         var n=exs[i].n, t=getExType(n);
         if(r.type==='ds'&&t==='bodyweight') return false;          // nothing to drop
+        if(r.type==='ds'){ var _ld=getExerciseLoading(n); if((_ld.values&&_ld.values.length<3)||/weighted vest|ankle weight|medicine ball|kettlebell/i.test(n)) return false; } // a single fixed implement can't drop
         if(r.pick==='iso') return !multiJoint(i);
         if(r.pick==='isoMachine') return !multiJoint(i)&&machineLike(n);
         return !freeCompound(n)&&!(exs[i].p!=null&&exs[i].p<=1);   // 'acc'
@@ -25860,9 +25946,9 @@ function specialtySetTarget(type,ex,workLbs,focus){
 
 function dismissSmartNote(k){
   var key = (k && typeof k === 'string') ? k : dKey(vDate);
-  if(S.sessions[key] && S.sessions[key].gym){
-    S.sessions[key].gym.smartNoteDismissed = true;
-    S.sessions[key].gym.smartNote = null;
+  if(S.sessions[key] && GS(key)){
+    GS(key).smartNoteDismissed = true;
+    GS(key).smartNote = null;
     saveS();
     var noteEl = el('smartWorkoutNote');
     if(noteEl) noteEl.style.display = 'none';
@@ -25872,7 +25958,7 @@ function dismissSmartNote(k){
 
 function linkSuperset(ei,partnerEi){
   var k=dKey(vDate);
-  if(!S.sessions[k]||!S.sessions[k].gym) return;
+  if(!S.sessions[k]||!GS(k)) return;
   // Power focus warning  --  show confirm modal instead of linking immediately
   if(S.weekFocus==='power'){
     _pendingSupersetEi=ei; _pendingSupersetPartner=partnerEi;
@@ -25883,11 +25969,11 @@ function linkSuperset(ei,partnerEi){
 }
 function _doLinkSuperset(ei,partnerEi){
   var k=dKey(vDate);
-  if(!S.sessions[k]||!S.sessions[k].gym) return;
-  if(!S.sessions[k].gym.supersets) S.sessions[k].gym.supersets={};
-  S.sessions[k].gym.supersets[ei]=partnerEi;
-  S.sessions[k].gym.supersets[partnerEi]=ei;
-  S.sessions[k].gym.activeSuperset=Math.min(ei,partnerEi);
+  if(!S.sessions[k]||!GS(k)) return;
+  if(!GS(k).supersets) GS(k).supersets={};
+  GS(k).supersets[ei]=partnerEi;
+  GS(k).supersets[partnerEi]=ei;
+  GS(k).activeSuperset=Math.min(ei,partnerEi);
   saveS(); buildTodayWorkout();
   showToast('Superset linked!');
 }
@@ -25905,16 +25991,16 @@ function cancelPowerSuperset(){
 var _pendingSupersetEi, _pendingSupersetPartner;
 function setSupersetRest(val){
   var k=dKey(vDate);
-  if(!S.sessions[k]||!S.sessions[k].gym) return;
+  if(!S.sessions[k]||!GS(k)) return;
   var v=parseInt(val)||0;
-  if(v>=10&&v<=300) S.sessions[k].gym.supersetRestOverride=v;
+  if(v>=10&&v<=300) GS(k).supersetRestOverride=v;
   saveS();
 }
 
 function unlinkSuperset(ei){
   var k=dKey(vDate);
-  if(!S.sessions[k]||!S.sessions[k].gym) return;
-  var gym=S.sessions[k].gym;
+  if(!S.sessions[k]||!GS(k)) return;
+  var gym=GS(k);
   if(!gym.supersets) gym.supersets={};
   var partner=gym.supersets[ei];
   delete gym.supersets[ei];
@@ -25927,8 +26013,8 @@ function unlinkSuperset(ei){
   buildTodayWorkout();
   showToast('Superset unlinked');
 }
-function openLinkModal(ei){var k=dKey(vDate);var exs=getRenderedExList(k);if(!exs.length)return;var ss=S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.supersets||{};var cp=ss[ei];var modal=el('supersetLinkModal'),body=el('supersetLinkBody'),ttl=el('supersetLinkTitle');if(!modal||!body)return;var myName=exs[ei]?exs[ei].n:'Exercise';if(ttl)ttl.textContent='Superset: '+myName;if(cp!==undefined){var pn=exs[cp]?exs[cp].n:'Exercise';body.innerHTML='<div style="text-align:center;padding:8px 0"><div style="font-size:13px;color:#e2e8f0;margin-bottom:12px">Supersetted with <strong style="color:#a78bfa">'+escapeHtml(pn)+'</strong></div><button onclick="unlinkSuperset('+ei+')" class="btn btn-d bsm bfw" style="width:100%">Unlink Superset</button></div>';}else{var opts='';exs.forEach(function(ex,li){if(li===ei||ss[li]!==undefined)return;var en=ex.n;opts+='<div onclick="linkSuperset('+ei+','+li+')" style="padding:10px 12px;border:1px solid var(--b2);border-radius:9px;margin-bottom:6px;cursor:pointer;background:var(--s2)"><div style="font-size:13px;color:#e2e8f0">'+escapeHtml(en)+'</div></div>';});var fp=getFocusParams(); var defRest=Math.round((fp.rest||60)/2);
-  var curOverride=S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.supersetRestOverride;
+function openLinkModal(ei){var k=dKey(vDate);var exs=getRenderedExList(k);if(!exs.length)return;var ss=GS(k)&&GS(k).supersets||{};var cp=ss[ei];var modal=el('supersetLinkModal'),body=el('supersetLinkBody'),ttl=el('supersetLinkTitle');if(!modal||!body)return;var myName=exs[ei]?exs[ei].n:'Exercise';if(ttl)ttl.textContent='Superset: '+myName;if(cp!==undefined){var pn=exs[cp]?exs[cp].n:'Exercise';body.innerHTML='<div style="text-align:center;padding:8px 0"><div style="font-size:13px;color:#e2e8f0;margin-bottom:12px">Supersetted with <strong style="color:#a78bfa">'+escapeHtml(pn)+'</strong></div><button onclick="unlinkSuperset('+ei+')" class="btn btn-d bsm bfw" style="width:100%">Unlink Superset</button></div>';}else{var opts='';exs.forEach(function(ex,li){if(li===ei||ss[li]!==undefined)return;var en=ex.n;opts+='<div onclick="linkSuperset('+ei+','+li+')" style="padding:10px 12px;border:1px solid var(--b2);border-radius:9px;margin-bottom:6px;cursor:pointer;background:var(--s2)"><div style="font-size:13px;color:#e2e8f0">'+escapeHtml(en)+'</div></div>';});var fp=getFocusParams(); var defRest=Math.round((fp.rest||60)/2);
+  var curOverride=GS(k)&&GS(k).supersetRestOverride;
   var restField='<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--b1)">'+
     '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mu);letter-spacing:1px;margin-bottom:6px">SUPERSET REST (SECONDS)</div>'+
     '<div style="display:flex;align-items:center;gap:8px">'+
@@ -25941,7 +26027,7 @@ function openLinkModal(ei){var k=dKey(vDate);var exs=getRenderedExList(k);if(!ex
     '</div>';
   body.innerHTML=(opts||'<div style="color:var(--mu);text-align:center;padding:12px">No exercises available</div>')+restField;}openModal('supersetLinkModal');}
 function updateSupersetHighlight(k){
-  var gym=S.sessions[k]&&S.sessions[k].gym;
+  var gym=GS(k);
   if(!gym) return;
   var ss=gym.supersets||{};
   var ssKeys=Object.keys(ss).map(Number);
@@ -25988,7 +26074,7 @@ function updateSupersetHighlight(k){
 }
 
 function reorderSupersetCards(k){
-  var ss=S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.supersets||{};
+  var ss=GS(k)&&GS(k).supersets||{};
   var ssKeys=Object.keys(ss).map(Number);
   var wc=el('wContent');
   if(!wc) return;
@@ -26036,7 +26122,7 @@ function reorderSupersetCards(k){
 
 function updateSetTypeBadgesInDOM(k){
   // After applySmartSetTypes runs, sync set type badges in the rendered DOM.
-  var sess=S.sessions[k]; if(!sess||!sess.gym) return;
+  var sess=S.sessions[k]; if(!sess||!sess[wkKey(k)]) return;
   // Must index by the RENDERED list: the card ids are exCard_<index-into-exList>, and a
   // re-derived template filter has not matched those indices since the duration engine
   // started choosing from a pool.
@@ -26044,7 +26130,7 @@ function updateSetTypeBadgesInDOM(k){
   exs.forEach(function(ex,ei){
     var card=document.getElementById('exCard_'+ei);
     if(!card) return;
-    var sets=sess.gym.exercises[ei]&&sess.gym.exercises[ei].sets||[];
+    var sets=sess[wkKey(k)].exercises[ei]&&sess[wkKey(k)].exercises[ei].sets||[];
     var warmupCount=0;
     sets.forEach(function(s,si){
       if(s.type==='wu'){warmupCount++;return;}
@@ -26064,9 +26150,9 @@ function updateSetTypeBadgesInDOM(k){
 
 function addExtraSet(ei, typeCode){
   var k=dKey(vDate);
-  if(!S.sessions[k]||!S.sessions[k].gym) return;
-  if(!S.sessions[k].gym.exercises[ei]) S.sessions[k].gym.exercises[ei]={sets:[]};
-  var exData=S.sessions[k].gym.exercises[ei];
+  if(!S.sessions[k]||!GS(k)) return;
+  if(!GS(k).exercises[ei]) GS(k).exercises[ei]={sets:[]};
+  var exData=GS(k).exercises[ei];
   var newSi=exData.sets.length;
   exData.sets.push({weight:'',reps:'',type:typeCode,done:false});
   // autoFillSetType returns false when the set type is invalid here (e.g. a drop/failure set
@@ -28005,7 +28091,7 @@ function buildCardioBlock(type, cardioObj, stateObj, idx, tplKey){
 
   var fp=getFocusParams();
   // Intensity multiplier: quick mode halves finisher to honour the ~30 min estimate
-  var _kQuick=dKey(vDate);var _sessI=S.sessions[_kQuick]&&S.sessions[_kQuick].gym&&S.sessions[_kQuick].gym.intensity||'standard';
+  var _kQuick=dKey(vDate);var _sessI=GS(_kQuick)&&GS(_kQuick).intensity||'standard';
   var intensityCardioMult=(_sessI==='quick')?0.5:1.0;
   var adjustedDur=cardioObj.dur;
   if(type==='finisher') adjustedDur=Math.max(5,Math.round(cardioObj.dur*(fp?fp.cardurMult:1.0)*intensityCardioMult));
@@ -28013,7 +28099,7 @@ function buildCardioBlock(type, cardioObj, stateObj, idx, tplKey){
   // mid-workout cardio also not scaled
   // Duration-aware engine override: the workout builder computes cardio minutes that
   // fill the time band (extended finisher when lifting is short, etc.).
-  var _pl=S.sessions[_kQuick]&&S.sessions[_kQuick].gym&&S.sessions[_kQuick].gym._cardioPlan;
+  var _pl=GS(_kQuick)&&GS(_kQuick)._cardioPlan;
   if(_pl){
     if(type==='warmup'&&_pl.warmupMin!=null) adjustedDur=_pl.warmupMin;
     else if(type==='mid'&&_pl.midEachMin!=null) adjustedDur=_pl.midEachMin;
@@ -28079,8 +28165,8 @@ function buildCardioBlock(type, cardioObj, stateObj, idx, tplKey){
 
 // ── State management for all cardio blocks ────────────────────────
 function getCardioState(k, type, idx){
-  if(!S.sessions[k]||!S.sessions[k].gym) return {duration:'',calories:'',metric:'',notes:'',done:false};
-  var sess=S.sessions[k].gym;
+  if(!S.sessions[k]||!GS(k)) return {duration:'',calories:'',metric:'',notes:'',done:false};
+  var sess=GS(k);
   if(!sess.cardioBlocks) sess.cardioBlocks={};
   var key=type+'-'+idx;
   if(!sess.cardioBlocks[key]) sess.cardioBlocks[key]={duration:'',calories:'',metric:'',notes:'',done:false};
@@ -28089,8 +28175,8 @@ function getCardioState(k, type, idx){
 
 function updateCardioBlock(type, idx, field, val){
   var k=dKey(vDate);
-  if(!S.sessions[k]||!S.sessions[k].gym) return;
-  var sess=S.sessions[k].gym;
+  if(!S.sessions[k]||!GS(k)) return;
+  var sess=GS(k);
   if(!sess.cardioBlocks) sess.cardioBlocks={};
   var key=type+'-'+idx;
   if(!sess.cardioBlocks[key]) sess.cardioBlocks[key]={duration:'',calories:'',metric:'',notes:'',done:false};
@@ -28101,8 +28187,8 @@ function updateCardioBlock(type, idx, field, val){
 
 function toggleCardioBlock(type, idx, btn){
   var k=dKey(vDate);
-  if(!S.sessions[k]||!S.sessions[k].gym) return;
-  var sess=S.sessions[k].gym;
+  if(!S.sessions[k]||!GS(k)) return;
+  var sess=GS(k);
   if(!sess.cardioBlocks) sess.cardioBlocks={};
   var key=type+'-'+idx;
   if(!sess.cardioBlocks[key]) sess.cardioBlocks[key]={duration:'',calories:'',metric:'',notes:'',done:false};
@@ -28118,8 +28204,8 @@ function toggleCardioBlock(type, idx, btn){
 // ═══════════════════════════════════════════════════════════════
 function toggleCardioSkip(type, idx, btn){
   var k=dKey(vDate);
-  if(!S.sessions[k]||!S.sessions[k].gym) return;
-  var sess=S.sessions[k].gym;
+  if(!S.sessions[k]||!GS(k)) return;
+  var sess=GS(k);
   if(!sess.cardioBlocks) sess.cardioBlocks={};
   var key=type+'-'+idx;
   if(!sess.cardioBlocks[key]) sess.cardioBlocks[key]={duration:'',calories:'',metric:'',notes:'',done:false,skipped:false};
@@ -28157,7 +28243,7 @@ window.addEventListener('focus',function(){ resyncAllTimers(); });
 // in the session state instead, so elapsed time is always Date.now() arithmetic and is
 // correct after backgrounding, a reload, or the PWA being evicted and relaunched.
 //
-// Timer state lives at S.sessions[k].gym.cardioBlocks['<type>-<idx>'].timer:
+// Timer state lives at GS(k).cardioBlocks['<type>-<idx>'].timer:
 //   {total: seconds, endAt: epoch-ms (running), leftMs: ms (paused), running: bool,
 //    startedAt: epoch-ms, day: 'YYYY-MM-DD'}
 // A single shared ticker repaints every visible block, so rebuilding the Today page
@@ -28181,8 +28267,8 @@ function _clearStaleCardioTimer(type,idx){
 function _cardioTimerKey(type,idx){ return type+'-'+idx; }
 function _cardioTimerState(type,idx,create){
   var k=dKey(vDate);
-  if(!S.sessions[k]||!S.sessions[k].gym) return null;
-  var sess=S.sessions[k].gym;
+  if(!S.sessions[k]||!GS(k)) return null;
+  var sess=GS(k);
   if(!sess.cardioBlocks) sess.cardioBlocks={};
   var key=_cardioTimerKey(type,idx);
   if(!sess.cardioBlocks[key]){
@@ -28214,7 +28300,7 @@ function _ensureCardioTicker(){
 // (including while the app was in the background).
 function _cardioTickAll(){
   var k=dKey(vDate);
-  var sess=S.sessions[k]&&S.sessions[k].gym;
+  var sess=GS(k);
   if(!sess||!sess.cardioBlocks){ clearAllCardioTimers(); return; }
   var anyActive=false;
   Object.keys(sess.cardioBlocks).forEach(function(key){
@@ -28254,7 +28340,7 @@ function _renderCardioTimerUI(type,idx){
 // Today page is rebuilt and whenever the app comes back to the foreground.
 function restoreCardioTimers(){
   var k=dKey(vDate);
-  var sess=S.sessions[k]&&S.sessions[k].gym;
+  var sess=GS(k);
   if(!sess||!sess.cardioBlocks) return;
   Object.keys(sess.cardioBlocks).forEach(function(key){
     var t=sess.cardioBlocks[key]&&sess.cardioBlocks[key].timer;
@@ -28317,7 +28403,7 @@ function _completeCardioTimer(type, idx, silent){
   var mins=Math.max(1,Math.round((t.total||0)/60));
   t.running=false; t.endAt=null; t.leftMs=0; t.startedAt=null;
   updateCardioBlock(type,idx,'duration',String(mins));
-  var sess=S.sessions[k]&&S.sessions[k].gym;
+  var sess=GS(k);
   if(sess){
     var b=sess.cardioBlocks[_cardioTimerKey(type,idx)];
     if(b) b.done=true;
@@ -28390,7 +28476,7 @@ function onExDrop(e, targetRenderPos){
   var card=e.currentTarget; if(card) card.classList.remove('drag-over');
   if(_dragSrcRenderPos===null||_dragSrcRenderPos===targetRenderPos) return;
   var k=dKey(vDate);
-  var sess=S.sessions[k]&&S.sessions[k].gym; if(!sess) return;
+  var sess=GS(k); if(!sess) return;
   if(!sess.exOrder) return;
   // Swap positions in exOrder
   var order=sess.exOrder.slice();
@@ -28528,7 +28614,7 @@ function openSplitSwitcher(){
   var k=dKey(vDate);
   var currentSplit=getEffTpl(k);
   var recentSplits=getRecentSplits(7);
-  var allSplits=Object.keys(WTPL);
+  var allSplits=Object.keys(WTPL).filter(function(s){return !WTPL[s].home;});
   // Score each split: lower = better recommendation (0 = not done recently)
   var scores={};
   allSplits.forEach(function(s){
@@ -29055,8 +29141,8 @@ function openCardioSwap(type, idx, tplKey){
 function selectCardioSwap(optIdx){
   var opt=CARDIO_OPTIONS[optIdx];
   var k=dKey(vDate);
-  if(!S.sessions[k]||!S.sessions[k].gym) return;
-  var sess=S.sessions[k].gym;
+  if(!S.sessions[k]||!GS(k)) return;
+  var sess=GS(k);
   var ctx=_cardioSwapContext;
 
   // Store the swap
@@ -29097,7 +29183,7 @@ function getEquipmentSafeCardio(defaultObj, tplKey, excludeNames){
       return e;
     });
     if(_normGymEquip.indexOf(name) >= 0) return true;
-    var alt = name.replace(' (Incline Walk)','').replace(' Incline Walk','')
+    var alt = name.replace(' (Incline Walk)','').replace(' Incline Walk','').replace(' (Brisk Walk)','')
                   .replace(' (Running)','').replace(' (Steady)','').replace(' (HIIT)','');
     if(gym.equipment.indexOf(alt) >= 0) return true;
     for(var ei=0; ei<gym.equipment.length; ei++){
@@ -29492,7 +29578,7 @@ function openWilksInfo(){
 // set structure (incl. extra sets & drop-set chains), logged weights/reps, superset
 // pairings, and intensity. Skipped exercises are excluded. Returns null if empty.
 function _captureRichTemplate(k){
-  var gym=(S.sessions[k]&&S.sessions[k].gym)||{};
+  var gym=(GS(k))||{};
   var exList=getRenderedExList(k);
   if(!exList.length) return null;
   var order=(gym.exOrder&&gym.exOrder.length===exList.length)?gym.exOrder.slice():exList.map(function(_,i){return i;});
@@ -29519,7 +29605,7 @@ function _captureRichTemplate(k){
 
 function openSaveTemplateModal(){
   var k=dKey(vDate);
-  var tplKey=getEffTpl(k), tpl=WTPL[tplKey]||WTPL.upper;
+  var tplKey=wkTpl(k), tpl=WTPL[tplKey]||WTPL.upper;
   var cap=_captureRichTemplate(k);
   var inp=el('templateNameInp'); if(inp) inp.value=tpl.focus+' (Custom)';
   var prev=el('templatePreviewExs');
@@ -29546,7 +29632,7 @@ function confirmSaveTemplate(){
   if(!name){showToast('Enter a template name first');return;}
   var cap=_captureRichTemplate(k);
   if(!cap){showToast('Nothing to save — no exercises in today\'s workout');return;}
-  var tmpl={id:Date.now(),v:2,name:name,baseSplit:getEffTpl(k),intensity:cap.intensity,focus:S.weekFocus||'general',exercises:cap.exercises,supersets:cap.supersets,created:k};
+  var tmpl={id:Date.now(),v:2,name:name,baseSplit:wkTpl(k),intensity:cap.intensity,focus:S.weekFocus||'general',exercises:cap.exercises,supersets:cap.supersets,created:k};
   if(!S.workoutTemplates) S.workoutTemplates=[];
   S.workoutTemplates.push(tmpl);
   saveS();
@@ -29611,8 +29697,8 @@ function applyWorkoutTemplate(id){
   // set structure, weights, and supersets all come back exactly as captured.
   Object.keys(S.swaps).forEach(function(sk){if(sk.indexOf(k+':')===0) delete S.swaps[sk];});
   if(!S.sessions[k]) S.sessions[k]={};
-  if(!S.sessions[k].gym) S.sessions[k].gym={exercises:{},intensity:'standard'};
-  var gym=S.sessions[k].gym;
+  if(!GS(k)) S.sessions[k][wkKey(k)]={exercises:{},intensity:wkKey(k)==='home'?'quick':'standard'};
+  var gym=GS(k);
   gym.exercises={};
   gym.exOrder=null;
   gym.supersets={};
@@ -29639,7 +29725,7 @@ function applyWorkoutTemplate(id){
 // Escape hatch from a pinned template back to the engine-generated workout.
 function resetToAutoWorkout(){
   var k=dKey(vDate);
-  var g=S.sessions[k]&&S.sessions[k].gym;
+  var g=GS(k);
   if(!g||!g.exListPinned) return;
   showConfirm('Switch back to the auto-generated workout? Sets logged today will be cleared.',function(){
     g.exListPinned=false; g.fromTemplateName=null; g.exList=null;
@@ -29937,7 +30023,7 @@ function buildTodayProgramCard(){
   // Read the day's actual exercises, not the raw template — the program card was
   // listing lifts that are not in today's session and omitting ones that are.
   var _todayEx=getRenderedExList(dKey(vDate))||[];
-  if(!_todayEx.length){ var _tplFb=WTPL[getEffTpl(dKey(vDate))]; if(!_tplFb) return; _todayEx=_tplFb.exercises; }
+  if(!_todayEx.length){ var _tplFb=WTPL[wkTpl(dKey(vDate))]; if(!_tplFb) return; _todayEx=_tplFb.exercises; }
   var wk=(st.id==='531')?Math.max(0,Math.min(3,Number(st.week)||0)):0;
   var sets=p.weeks?p.weeks[wk].sets:p.scheme;
   var wkLbl=p.weeks?(' · '+p.weeks[wk].label):'';
@@ -30418,6 +30504,281 @@ if(_origShowStatInfo){
   };
 }
 
+</script>
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// HOME WORKOUT MODULE
+// A separate daily workout for the home exercise room: its own session per day
+// (S.sessions[k].home), saved to history as type 'home', built by the SAME engine as
+// the gym workout (GS / wkKey / wkTpl route it) against the home equipment profile.
+// It is an extra session — it never replaces or overwrites the gym workout — and it
+// counts toward the streak, calories and muscle recovery. Progression compares home
+// sessions with home sessions only.
+// Equipment researched October 2026 (see docs/HOME_EQUIPMENT.md).
+// ═══════════════════════════════════════════════════════════════════════════
+var HOME_PROFILE_ID='home-room';
+var HOME_EQUIPMENT_DEFAULT=[
+  'GMWD Chest Press Machine','Bumper Plates','Decline Bench','Yoga Mat','Ab Mat','Push-Up Board','Push-Up Handles',
+  'Ab Roller / Ab Wheel','Stability Ball','Medicine Ball','Kettlebells','Resistance Bands','Treadmill',
+  'Pull-Up Bar (Doorframe)','Twister Arm Trainer','Power Twister Bar','Push Down Bar','Chest Expander',
+  'Hand Grip Kit','Wrist Roller','Ankle Weights','Weighted Vest','Thigh Trainer'
+];
+// Bumper plates owned, one of each size per arm of the GMWD press.
+var GMWD_BUMPERS=[45,35,25,15,10];
+function gmwdPerArmLoads(plates){
+  var sums={0:1};
+  (plates||GMWD_BUMPERS).forEach(function(p){ Object.keys(sums).map(Number).forEach(function(v){ sums[v+p]=1; }); });
+  return Object.keys(sums).map(Number).filter(function(v){return v>0;}).sort(function(a,b){return a-b;});
+}
+function gmwdPlatesFor(perArm){
+  // Largest-first breakdown of a per-arm load into the bumper set.
+  var best=null;
+  (function walk(i,rem,used){
+    if(best) return;
+    if(Math.abs(rem)<1e-9){best=used.slice();return;}
+    for(var j=i;j<GMWD_BUMPERS.length;j++){ if(GMWD_BUMPERS[j]<=rem+1e-9){used.push(GMWD_BUMPERS[j]);walk(j+1,rem-GMWD_BUMPERS[j],used);used.pop();} }
+  })(0,perArm,[]);
+  return best;
+}
+// What each home implement can actually be loaded to (lbs, as logged). The GMWD logs
+// the plates on BOTH arms (single-arm: one arm); add the empty-arm resistance with ⚖️
+// once measured. Vest / ankle ranges are adjustable defaults — edit on the card.
+function homeLoadingRules(){
+  var perArm=gmwdPerArmLoads();
+  return [
+    {re:'^GMWD Single-Arm',values:perArm},
+    {re:'^GMWD ',values:perArm.map(function(v){return v*2;})},
+    {re:'kettlebell',values:[20]},
+    {re:'medicine ball',values:[10]},
+    {re:'^weighted vest|vest pull|vest chin',min:4,step:2,max:32},
+    {re:'^ankle weight',min:1,step:1,max:5},
+    {re:'^bumper plate|wrist roller|plate squat',values:[10,15,25,35,45]}
+  ];
+}
+function getHomeProfile(){
+  if(!S.gymProfiles) S.gymProfiles=[];
+  var h=S.gymProfiles.find(function(g){return g.id===HOME_PROFILE_ID;});
+  if(!h){ h={id:HOME_PROFILE_ID,name:'Home Exercise Room',equipment:HOME_EQUIPMENT_DEFAULT.slice(),isHome:true}; S.gymProfiles.push(h); try{saveS();}catch(e){} }
+  h.loadingRules=homeLoadingRules();
+  return h;
+}
+function getHomeEquipment(){ return getHomeProfile().equipment; }
+// While the Home tab is showing, "the gym" IS the home room: equipment checks, swaps,
+// loading and progression all use it. Every other page sees the real active gym.
+var _gymActiveGym=getActiveGym;
+getActiveGym=function(){ return cMode==='home'?getHomeProfile():_gymActiveGym(); };
+
+// ── Home gear in the equipment catalogue ───────────────────────────────────
+EQUIPMENT_CATALOGUE.push({id:'home_gear',label:'🏠 Home Gear',items:[
+  {n:'GMWD Chest Press Machine',sub:'Chest · Shoulders · Plate-Loaded · Independent Arms'},
+  {n:'Ab Mat',sub:'Core · Sit-ups & Crunches'},{n:'Push-Up Board',sub:'Chest · Triceps · Shoulders'},
+  {n:'Pull-Up Bar (Doorframe)',sub:'Back · Biceps · Hangs (no kipping)'},
+  {n:'Twister Arm Trainer',sub:'Chest · Arms · Hydraulic / Spring (levels)'},{n:'Power Twister Bar',sub:'Chest · Shoulders · Forearms (spring)'},
+  {n:'Push Down Bar',sub:'Chest · Triceps · Abs (spring levels)'},{n:'Chest Expander',sub:'Upper Back · Shoulders · Arms (tubes)'},
+  {n:'Hand Grip Kit',sub:'Forearms · Grip (adjustable)'},{n:'Wrist Roller',sub:'Forearms · Grip'},
+  {n:'Ankle Weights',sub:'Glutes · Hips · Core (1–5 lb per ankle)'},{n:'Weighted Vest',sub:'Full Body · Adds load to bodyweight moves'},
+  {n:'Thigh Trainer',sub:'Adductors · Hips · Pelvic Floor'},{n:'Medicine Ball',sub:'Core · Power (10 lb)'}
+]});
+
+// ── Home exercises (added to the exercise library + equipment requirements) ─
+var EXERCISE_REQUIRES_ALL={
+  'Weighted Vest Pull-Up':['Weighted Vest','Pull-Up Bar|Pull-Up Bar (Doorframe)'],
+  'Weighted Vest Chin-Up':['Weighted Vest','Pull-Up Bar|Pull-Up Bar (Doorframe)'],
+  'Weighted Decline Crunch':['Decline Bench','Medicine Ball|Bumper Plates|Weight Plates (Bumper/Iron)|Dumbbells (5-75 lbs)'],
+  'Bumper Plate Sit-Up':['Bumper Plates|Weight Plates (Bumper/Iron)','Ab Mat|Yoga Mat|Decline Bench'],
+  'Plate Squat (Bumper Plate)':['Bumper Plates|Weight Plates (Bumper/Iron)']
+};
+var HOME_EXERCISES=[
+  // chest
+  {g:'chest',n:'GMWD Chest Press (Flat)',t:'Chest · Triceps · Front Delts',p:1,d:['GMWD Chest Press Machine'],
+    i:{muscles:'Pectorals, triceps, anterior deltoids',equipment:'GMWD chest press — independent converging arms, bumper plates on each horn',setup:'Bench flat. Set both arms to the same position (11 per arm) so the handles start level with mid-chest. Load the SAME plates on each horn.',steps:['Grip the handles, shoulder blades pulled back and down.','Press both arms forward and slightly together until elbows are nearly straight.','Lower under control until you feel a stretch across the chest.'],cues:'Plates logged = both arms together. The empty arm adds its own resistance — measure it once with a luggage scale and set it with ⚖️.',mistakes:['Different plates on each arm.','Letting the shoulders roll forward at lockout.'],videoSearch:'converging chest press machine form'}},
+  {g:'chest',n:'GMWD Incline Press',t:'Upper Chest · Front Delts · Triceps',p:1,d:['GMWD Chest Press Machine'],
+    i:{muscles:'Upper (clavicular) pectorals, anterior deltoids, triceps',equipment:'GMWD chest press, bench in incline',setup:'Bench to the incline position; handles level with the upper chest.',steps:['Press up and in along the arm path.','Lower slowly to a full stretch.'],cues:'Reviewers note the pad is short at incline — sit high enough that your head is supported.',mistakes:['Arching the lower back to turn it into a flat press.'],videoSearch:'incline converging press machine form'}},
+  {g:'chest',n:'GMWD Single-Arm Press',t:'Chest · Triceps (one side at a time)',p:2,d:['GMWD Chest Press Machine'],
+    i:{muscles:'Pectorals, triceps — unilateral',equipment:'GMWD chest press, one arm loaded',setup:'Load one horn only. Brace the free hand on the frame.',steps:['Press one arm without twisting the torso.','Do all reps, then switch sides.'],cues:'Logged load = that one arm. Great for fixing a weaker side.',mistakes:['Rotating the shoulders to help.'],videoSearch:'single arm machine chest press'}},
+  {g:'chest',n:'Weighted Vest Push-Up',t:'Chest · Triceps · Core',p:1,d:['Weighted Vest'],
+    i:{muscles:'Pectorals, triceps, anterior deltoids, core',equipment:'Weighted vest (log the vest weight)',setup:'Vest snug and high on the torso. Hands on the push-up board or bars.',steps:['Lower chest to just above the floor in a straight line.','Press back up without the hips sagging.'],cues:'Log the vest weight as the load — that is what progresses.',mistakes:['Loose vest shifting toward the head.'],videoSearch:'weighted vest push up form'}},
+  {g:'chest',n:'Band Push-Up',t:'Chest · Triceps · Core',p:2,d:['Resistance Bands'],
+    i:{muscles:'Pectorals, triceps, core',equipment:'Resistance band across the upper back, ends under the hands',setup:'Loop the band across your shoulder blades and pin the ends under your palms.',steps:['Push up against the band — it is hardest at the top.','Lower slowly.'],cues:'Bands add the most resistance at lockout, where push-ups are easiest.',mistakes:['Band riding up onto the neck.'],videoSearch:'banded push up form'}},
+  {g:'chest',n:'Twister Chest Squeeze',t:'Chest · Front Delts · Arms',p:3,d:['Twister Arm Trainer'],
+    i:{muscles:'Pectorals, anterior deltoids, biceps/triceps, grip',equipment:'Hydraulic or spring twister arm trainer — log the LEVEL',setup:'Hold the handles at chest height, elbows slightly bent.',steps:['Squeeze the handles together in front of the chest.','Pause, then let them open under control.'],cues:'Pound ratings on these are marketing numbers — log the dial/level and progress reps, then level.',mistakes:['Letting a spring version snap back.'],videoSearch:'twister arm trainer chest exercise'}},
+  {g:'chest',n:'Power Twister Chest Bend',t:'Chest · Shoulders · Forearms',p:3,d:['Power Twister Bar'],
+    i:{muscles:'Pectorals, deltoids, forearms, grip',equipment:'Core Prodigy Power Twister — hands closer to the spring = harder',setup:'Hold the handles at chest height, arms out front.',steps:['Bend the bar into a U by pushing the handles together.','Hold 2 s at the bottom, then return slowly.'],cues:'Log hand position as the level (1 = ends of the handles).',mistakes:['Letting it spring back — control both directions.'],videoSearch:'power twister bar chest workout'}},
+  {g:'chest',n:'Push Down Bar Chest Press',t:'Chest · Triceps',p:3,d:['Push Down Bar'],
+    i:{muscles:'Pectorals, triceps, anterior deltoids',equipment:'GoFitness push-down bar — level = springs attached',setup:'Bar vertical in front of the chest, one hand on top, one below.',steps:['Press the top handle down toward the lower hand.','Return slowly against the springs.'],cues:'Log the number of springs as the level.',mistakes:['Shrugging the shoulders.'],videoSearch:'push down bar chest exercise'}},
+  // back
+  {g:'back',n:'Dead Hang',t:'Grip · Lats · Shoulders',p:3,d:['Pull-Up Bar','Pull-Up Bar (Doorframe)'],
+    i:{muscles:'Forearm flexors, lats, shoulder stabilisers',equipment:'Pull-up bar (doorframe is fine — no swinging)',setup:'Hang with a full grip, feet off the floor.',steps:['Hang still with shoulders gently engaged.','Hold for time; log seconds.'],cues:'Builds the grip that pull-ups need.',mistakes:['Swinging on a doorframe bar.'],videoSearch:'dead hang grip strength'}},
+  {g:'back',n:'Weighted Vest Pull-Up',t:'Lats · Biceps',p:1,d:['Weighted Vest'],
+    i:{muscles:'Latissimus dorsi, biceps, mid-back',equipment:'Weighted vest + pull-up bar (log the vest weight)',setup:'Start only once 3 × 8 strict bodyweight pull-ups are easy. Check your doorframe bar’s weight rating first.',steps:['Pull until the chin clears the bar.','Lower fully, no kipping.'],cues:'Strict reps only on a doorframe bar.',mistakes:['Kipping — it can unseat a doorframe bar.'],videoSearch:'weighted pull up form'}},
+  {g:'back',n:'Weighted Vest Chin-Up',t:'Lats · Biceps',p:2,d:['Weighted Vest'],
+    i:{muscles:'Latissimus dorsi, biceps',equipment:'Weighted vest + pull-up bar',setup:'Underhand grip, shoulder width.',steps:['Pull the chest toward the bar.','Lower under control.'],cues:'Strict reps only on a doorframe bar.',mistakes:['Half reps.'],videoSearch:'weighted chin up form'}},
+  {g:'back',n:'Kettlebell Single-Arm Row',t:'Lats · Mid-Back · Biceps',p:2,d:['Kettlebells'],
+    i:{muscles:'Latissimus dorsi, rhomboids, biceps',equipment:'20 lb kettlebell; hand on the bench or a chair',setup:'Hinge forward with one hand braced, back flat.',steps:['Row the bell to the hip.','Lower to a full stretch.'],cues:'With one 20 lb bell, progress by reps and a 2-s pause at the top.',mistakes:['Twisting the torso.'],videoSearch:'kettlebell single arm row form'}},
+  {g:'back',n:'Chest Expander Pull-Apart',t:'Rear Delts · Upper Back',p:3,d:['Chest Expander'],
+    i:{muscles:'Rear deltoids, rhomboids, middle traps',equipment:'5-tube chest expander — level = tubes attached',setup:'Arms straight out in front at shoulder height.',steps:['Pull the handles apart until they reach your chest line.','Return slowly.'],cues:'Log tubes attached (1–5) as the level.',mistakes:['Shrugging up.'],videoSearch:'chest expander pull apart'}},
+  {g:'back',n:'Chest Expander Overhead Pull-Down',t:'Lats · Upper Back',p:3,d:['Chest Expander'],
+    i:{muscles:'Latissimus dorsi, lower traps',equipment:'Chest expander',setup:'Handles overhead, arms straight.',steps:['Pull the handles apart and down behind the head to shoulder level.','Return overhead slowly.'],cues:'Keep the ribs down.',mistakes:['Arching the lower back.'],videoSearch:'chest expander lat pulldown'}},
+  // shoulders
+  {g:'shoulders',n:'GMWD Shoulder Press',t:'Shoulders · Triceps',p:1,d:['GMWD Chest Press Machine'],
+    i:{muscles:'Anterior and lateral deltoids, triceps',equipment:'GMWD press, bench upright',setup:'Bench upright, arms set so the handles start at shoulder height.',steps:['Press up and slightly forward.','Lower to shoulder level.'],cues:'Reviewers note the angle is between a chest and an overhead press — use it as a shoulder-press variation.',mistakes:['Leaning back.'],videoSearch:'machine shoulder press form'}},
+  {g:'shoulders',n:'Twister Overhead Squeeze',t:'Shoulders · Arms',p:3,d:['Twister Arm Trainer'],
+    i:{muscles:'Deltoids, triceps, upper chest',equipment:'Twister arm trainer — log the level',setup:'Hold the handles overhead.',steps:['Squeeze them together above the head.','Release slowly.'],cues:'Ribs down, no arching.',mistakes:['Locking the elbows hard.'],videoSearch:'twister arm trainer overhead'}},
+  {g:'shoulders',n:'Chest Expander Lateral Raise',t:'Side Delts',p:3,d:['Chest Expander'],
+    i:{muscles:'Lateral deltoids',equipment:'Chest expander, one handle under the foot',setup:'Stand on one handle, hold the other.',steps:['Raise the arm out to the side to shoulder height.','Lower slowly.'],cues:'Lead with the elbow.',mistakes:['Swinging.'],videoSearch:'band lateral raise form'}},
+  {g:'shoulders',n:'Bumper Plate Front Raise',t:'Front Delts',p:3,d:['Bumper Plates'],
+    i:{muscles:'Anterior deltoids',equipment:'One bumper plate held at the sides',setup:'Hold a 10 or 15 lb plate at the hips.',steps:['Raise to eye level with straight arms.','Lower slowly.'],cues:'Start with the 10 lb plate.',mistakes:['Leaning back.'],videoSearch:'plate front raise form'}},
+  // arms
+  {g:'triceps',n:'Push Down Bar Tricep Press',t:'Triceps',p:3,d:['Push Down Bar'],
+    i:{muscles:'Triceps',equipment:'Push-down bar — level = springs',setup:'Bar vertical, elbows tucked.',steps:['Push straight down using only the elbows.','Return slowly.'],cues:'Log springs as the level.',mistakes:['Flaring the elbows.'],videoSearch:'push down bar triceps'}},
+  {g:'biceps',n:'Chest Expander Bicep Curl',t:'Biceps',p:3,d:['Chest Expander'],
+    i:{muscles:'Biceps, brachialis',equipment:'Chest expander, one handle under the feet',setup:'Stand on one handle, curl the other.',steps:['Curl to the shoulder.','Lower slowly.'],cues:'Log tubes as the level.',mistakes:['Swinging the torso.'],videoSearch:'band bicep curl form'}},
+  {g:'biceps',n:'Power Twister Low Bend',t:'Biceps · Forearms · Grip',p:3,d:['Power Twister Bar'],
+    i:{muscles:'Biceps, forearms, grip',equipment:'Power Twister bar',setup:'Hold the bar low in front of the hips.',steps:['Bend the ends up and together.','Hold 2 s, return slowly.'],cues:'Hands closer to the spring = harder.',mistakes:['Letting it snap back.'],videoSearch:'power twister arm workout'}},
+  {g:'biceps',n:'Hand Gripper Squeeze',t:'Grip · Forearms',p:3,d:['Hand Grip Kit'],
+    i:{muscles:'Finger and forearm flexors',equipment:'FitBeast adjustable gripper (22–132 lb dial) — log the dial setting',setup:'Set the dial so 10–15 full closes are hard.',steps:['Close the gripper fully.','Open slowly. Do both hands.'],cues:'Log the dial number as the level.',mistakes:['Partial closes.'],videoSearch:'adjustable hand gripper training'}},
+  {g:'biceps',n:'Finger Extension (Band)',t:'Finger Extensors · Forearms',p:3,d:['Hand Grip Kit'],
+    i:{muscles:'Finger and wrist extensors',equipment:'Finger stretcher band from the grip kit',setup:'Band around all five fingertips.',steps:['Spread the fingers wide against the band.','Return slowly.'],cues:'Balances all the gripping work.',mistakes:['Rushing.'],videoSearch:'finger extensor band exercise'}},
+  {g:'biceps',n:'Wrist Roller Exercise',t:'Forearms · Grip',p:3,d:['Wrist Roller','Wrist / Forearm Machine'],
+    i:{muscles:'Forearm flexors and extensors',equipment:'DMoose wrist roller + a bumper plate (log the plate)',setup:'Start with a 10 lb plate. Arms out at shoulder height.',steps:['Roll the plate all the way up.','Roll it back down under control; reverse direction next set.'],cues:'One full up-and-down = 1 rep.',mistakes:['Dropping the arms.'],videoSearch:'wrist roller forearm exercise'}},
+  // legs
+  {g:'quads',n:'Weighted Vest Squat',t:'Quads · Glutes',p:1,d:['Weighted Vest'],
+    i:{muscles:'Quadriceps, glutes, adductors',equipment:'Weighted vest (log the vest weight)',setup:'Feet shoulder width.',steps:['Squat to depth with a tall chest.','Drive up through the whole foot.'],cues:'Add a kettlebell goblet hold for more.',mistakes:['Knees caving in.'],videoSearch:'weighted vest squat form'}},
+  {g:'quads',n:'Weighted Vest Lunge',t:'Quads · Glutes',p:1,d:['Weighted Vest'],
+    i:{muscles:'Quadriceps, glutes',equipment:'Weighted vest',setup:'Stand tall, vest snug.',steps:['Step back into a lunge.','Return and alternate.'],cues:'Reps are per leg.',mistakes:['Front knee drifting in.'],videoSearch:'weighted vest lunge'}},
+  {g:'quads',n:'Weighted Vest Step-Up',t:'Quads · Glutes',p:2,d:['Weighted Vest'],
+    i:{muscles:'Quadriceps, glutes',equipment:'Weighted vest + a sturdy step or the bench',setup:'Whole foot on the step.',steps:['Drive up through the top leg.','Step down slowly.'],cues:'Do not push off the bottom leg.',mistakes:['Using a wobbly surface.'],videoSearch:'weighted step up form'}},
+  {g:'quads',n:'Plate Squat (Bumper Plate)',t:'Quads · Glutes',p:2,d:['Bumper Plates'],
+    i:{muscles:'Quadriceps, glutes',equipment:'Bumper plate hugged at the chest',setup:'Hold a 25–45 lb bumper at the chest.',steps:['Squat to depth.','Stand up tall.'],cues:'Heavier than the kettlebell goblet squat once 20 lb is easy.',mistakes:['Plate pulling the chest forward.'],videoSearch:'plate squat form'}},
+  {g:'quads',n:'Thigh Trainer Inner-Thigh Squeeze',t:'Adductors · Pelvic Floor',p:3,d:['Thigh Trainer'],
+    i:{muscles:'Hip adductors, pelvic floor',equipment:'Thigh / pelvic-floor trainer',setup:'Sit or lie with the trainer between the knees.',steps:['Squeeze the knees together.','Hold 2 s, release slowly.'],cues:'Log the setting if yours adjusts; otherwise progress reps.',mistakes:['Holding the breath.'],videoSearch:'thigh master adductor exercise'}},
+  {g:'glutes',n:'Thigh Trainer Knee Press-Out',t:'Glute Medius · Hips',p:3,d:['Thigh Trainer'],
+    i:{muscles:'Gluteus medius, hip abductors',equipment:'Thigh trainer (pressing outward)',setup:'Trainer outside the knees if its design allows.',steps:['Press the knees outward.','Return slowly.'],cues:'Only if your model supports outward pressing.',mistakes:['Rocking the pelvis.'],videoSearch:'hip abduction thigh trainer'}},
+  {g:'glutes',n:'Ankle Weight Glute Kickback',t:'Glutes',p:3,d:['Ankle Weights'],
+    i:{muscles:'Gluteus maximus',equipment:'Ankle weights (log the weight on ONE ankle)',setup:'On all fours on the mat.',steps:['Drive one heel up and back.','Lower slowly; do both sides.'],cues:'Do not arch the lower back.',mistakes:['Swinging the leg.'],videoSearch:'ankle weight donkey kick'}},
+  {g:'glutes',n:'Ankle Weight Side-Lying Leg Raise',t:'Glute Medius · Hips',p:3,d:['Ankle Weights'],
+    i:{muscles:'Gluteus medius and minimus',equipment:'Ankle weights',setup:'Lie on your side, bottom knee bent.',steps:['Raise the top leg with the toes slightly down.','Lower slowly.'],cues:'Hips stacked.',mistakes:['Rolling backward.'],videoSearch:'side lying leg raise ankle weights'}},
+  {g:'glutes',n:'Ankle Weight Standing Hip Abduction',t:'Glute Medius · Hips',p:3,d:['Ankle Weights'],
+    i:{muscles:'Hip abductors',equipment:'Ankle weights; hold a wall',setup:'Stand tall beside a wall.',steps:['Lift the leg out to the side.','Lower slowly.'],cues:'No leaning.',mistakes:['Hiking the hip.'],videoSearch:'standing hip abduction ankle weight'}},
+  // core
+  {g:'core',n:'Ab Mat Sit-Up',t:'Abs · Hip Flexors',p:2,d:['Ab Mat','Yoga Mat'],
+    i:{muscles:'Rectus abdominis, hip flexors',equipment:'Yes4All ab mat under the lower back',setup:'Mat under the lumbar curve, tailbone pad down.',steps:['Curl up to sitting.','Roll back down over the mat to a full stretch.'],cues:'The arch lets the abs work through a longer range.',mistakes:['Yanking the neck.'],videoSearch:'abmat sit up form'}},
+  {g:'core',n:'Butterfly Sit-Up',t:'Abs',p:3,d:['Ab Mat','Yoga Mat'],
+    i:{muscles:'Rectus abdominis',equipment:'Ab mat',setup:'Soles of the feet together, knees out.',steps:['Reach overhead, then sit up and touch the feet.','Roll back down.'],cues:'Removes most hip-flexor help.',mistakes:['Bouncing.'],videoSearch:'butterfly sit up abmat'}},
+  {g:'core',n:'Weighted Decline Crunch',t:'Abs',p:2,d:['Decline Bench'],
+    i:{muscles:'Rectus abdominis',equipment:'XMARK decline bench + med ball or bumper plate',setup:'Feet under the rollers; weight held at the chest.',steps:['Curl the ribs toward the hips.','Lower slowly.'],cues:'Steeper decline or more weight progresses it.',mistakes:['Pulling with the hip flexors only.'],videoSearch:'weighted decline crunch'}},
+  {g:'core',n:'Decline Russian Twist',t:'Obliques',p:3,d:['Decline Bench'],
+    i:{muscles:'Obliques',equipment:'XMARK decline bench, optional med ball',setup:'Lean back on the decline, feet secured.',steps:['Rotate side to side under control.','One rep = both sides.'],cues:'Turn the ribs, not just the arms.',mistakes:['Rushing.'],videoSearch:'decline bench russian twist'}},
+  {g:'core',n:'Bumper Plate Sit-Up',t:'Abs',p:2,d:['Bumper Plates'],
+    i:{muscles:'Rectus abdominis',equipment:'Bumper plate held at the chest, ab mat',setup:'Hold a 10–25 lb plate at the chest.',steps:['Sit up fully.','Roll back slowly.'],cues:'Log the plate weight.',mistakes:['Holding the plate overhead too early.'],videoSearch:'weighted sit up plate'}},
+  {g:'core',n:'Push Down Bar Standing Ab Crunch',t:'Abs',p:3,d:['Push Down Bar'],
+    i:{muscles:'Rectus abdominis',equipment:'Push-down bar',setup:'Bar vertical against the stomach area per the booklet.',steps:['Crunch down against the springs.','Return slowly.'],cues:'Log springs as the level.',mistakes:['Bending at the hips instead of the spine.'],videoSearch:'push down bar abs'}},
+  {g:'core',n:'Ankle Weight Lying Leg Raise',t:'Lower Abs · Hip Flexors',p:3,d:['Ankle Weights'],
+    i:{muscles:'Lower rectus abdominis, hip flexors',equipment:'Ankle weights, mat',setup:'Lie flat, hands under the hips.',steps:['Raise straight legs to vertical.','Lower slowly without the back arching.'],cues:'Bend the knees to make it easier.',mistakes:['Arching the lower back.'],videoSearch:'lying leg raise ankle weights'}}
+];
+HOME_EXERCISES.forEach(function(e){
+  if(!ELIB[e.g]) ELIB[e.g]=[];
+  if(!ELIB[e.g].some(function(x){return x.n===e.n;})) ELIB[e.g].push({n:e.n,t:e.t,p:e.p});
+  if(!EXERCISE_DEPS[e.n]) EXERCISE_DEPS[e.n]=e.d;
+  if(e.i&&!EX_INFO[e.n]) EX_INFO[e.n]=e.i;
+});
+// Bar work that never declared its equipment: a pull-up bar (or a rack) is what it needs.
+['Pull-Ups','Chin-Ups','Pull-Up Negative (Slow Eccentric)','Scapular Pull-Up','Pull-Up Hold (Active Flexed Hang)','Towel Pull-Up','Close-Grip Pull-Up','Wide-Grip Pull-Up','Neutral-Grip Pull-Up','Pull-Up (Overhand)','Chin-Up (Underhand)','Commando Pull-Up','Archer Pull-Up','Negative Pull-Up','Hanging Knee Raise'].forEach(function(n){
+  if(!EXERCISE_DEPS[n]) EXERCISE_DEPS[n]=['Pull-Up Bar','Power Rack / Squat Cage','Pull-Up Bar (Doorframe)'];
+});
+try{ _exCatCache={}; }catch(e){}
+
+// ── Home templates (4-day rotation) ─────────────────────────────────────────
+var HOME_SPLITS=['hpush','hpull','hlegs','hcore'];
+var HOME_SPLIT_META={hpush:{nm:'Push',sb:'Chest · Shoulders · Triceps',groups:['chest','shoulders','triceps']},hpull:{nm:'Pull',sb:'Back · Biceps · Grip',groups:['back','biceps']},hlegs:{nm:'Legs',sb:'Quads · Glutes · Hams',groups:['quads','hamstrings','glutes','calves']},hcore:{nm:'Core & Arms',sb:'Abs · Obliques · Grip',groups:['core']}};
+var _homeFinisher={n:'Treadmill (Brisk Walk)',dur:10,tgt:'3.3–3.8 mph brisk walk (the UREVO has no incline) — wear the weighted vest to make it harder'};
+WTPL.hpush={home:true,focus:'Home · Push (Chest, Shoulders, Triceps)',exercises:[
+  {n:'GMWD Chest Press (Flat)',t:'Chest · Triceps · Front Delts',sets:4,reps:8,rest:90,p:1},
+  {n:'GMWD Incline Press',t:'Upper Chest · Front Delts',sets:3,reps:10,rest:90,p:1},
+  {n:'GMWD Shoulder Press',t:'Shoulders · Triceps',sets:3,reps:10,rest:90,p:2},
+  {n:'Weighted Vest Push-Up',t:'Chest · Triceps · Core',sets:3,reps:12,rest:60,p:2},
+  {n:'Twister Chest Squeeze',t:'Chest · Front Delts · Arms',sets:3,reps:15,rest:45,p:3},
+  {n:'Push Down Bar Tricep Press',t:'Triceps',sets:3,reps:15,rest:45,p:3},
+  {n:'Plank',t:'Core',sets:3,reps:30,rest:45,p:3}],cardio:[_homeFinisher]};
+WTPL.hpull={home:true,focus:'Home · Pull (Back, Biceps, Grip)',exercises:[
+  {n:'Pull-Ups',t:'Lats · Biceps',sets:4,reps:6,rest:90,p:1},
+  {n:'Chin-Ups',t:'Lats · Biceps',sets:3,reps:6,rest:90,p:1},
+  {n:'Kettlebell Single-Arm Row',t:'Lats · Mid-Back · Biceps',sets:3,reps:12,rest:60,p:2},
+  {n:'Chest Expander Pull-Apart',t:'Rear Delts · Upper Back',sets:3,reps:15,rest:45,p:3},
+  {n:'Chest Expander Bicep Curl',t:'Biceps',sets:3,reps:12,rest:45,p:3},
+  {n:'Wrist Roller Exercise',t:'Forearms · Grip',sets:3,reps:2,rest:60,p:3},
+  {n:'Dead Hang',t:'Grip · Lats · Shoulders',sets:3,reps:30,rest:60,p:3}],cardio:[_homeFinisher]};
+WTPL.hlegs={home:true,focus:'Home · Legs & Glutes',exercises:[
+  {n:'Kettlebell Goblet Squat',t:'Quads · Glutes · Core',sets:4,reps:12,rest:75,p:1},
+  {n:'Weighted Vest Lunge',t:'Quads · Glutes',sets:3,reps:10,rest:75,p:1},
+  {n:'Kettlebell Swing',t:'Glutes · Hamstrings · Core',sets:3,reps:15,rest:60,p:1},
+  {n:'Kettlebell Romanian Deadlift',t:'Hamstrings · Glutes',sets:3,reps:12,rest:60,p:2},
+  {n:'Weighted Vest Step-Up',t:'Quads · Glutes',sets:3,reps:10,rest:60,p:2},
+  {n:'Ankle Weight Glute Kickback',t:'Glutes',sets:3,reps:15,rest:45,p:3},
+  {n:'Thigh Trainer Inner-Thigh Squeeze',t:'Adductors · Pelvic Floor',sets:3,reps:15,rest:45,p:3},
+  {n:'Single-Leg Calf Raise',t:'Calves',sets:3,reps:15,rest:45,p:3}],cardio:[_homeFinisher]};
+WTPL.hcore={home:true,focus:'Home · Core & Arms',exercises:[
+  {n:'Decline Bench Sit-Up',t:'Abs',sets:3,reps:12,rest:60,p:1},
+  {n:'Ab Wheel Rollout (Kneeling)',t:'Abs · Lats',sets:3,reps:10,rest:60,p:1},
+  {n:'Hanging Leg Raise',t:'Lower Abs · Hip Flexors',sets:3,reps:10,rest:60,p:2},
+  {n:'Medicine Ball Russian Twist',t:'Obliques',sets:3,reps:20,rest:45,p:2},
+  {n:'Weighted Decline Crunch',t:'Abs',sets:3,reps:12,rest:45,p:2},
+  {n:'Power Twister Chest Bend',t:'Chest · Shoulders · Forearms',sets:3,reps:10,rest:45,p:3},
+  {n:'Hand Gripper Squeeze',t:'Grip · Forearms',sets:3,reps:15,rest:45,p:3},
+  {n:'Side Plank',t:'Obliques',sets:3,reps:30,rest:45,p:3}],cardio:[_homeFinisher]};
+HOME_SPLITS.forEach(function(sk){ WARMUP_CARDIO[sk]={n:'Treadmill (Brisk Walk)',dur:5,tgt:'Easy 2.8–3.3 mph walk to warm up'}; });
+if(typeof CARDIO_MET!=='undefined') CARDIO_MET['Treadmill (Brisk Walk)']=4.3;
+
+// Which home split today: the user's pick for the day, else the next in the rotation
+// that least overlaps today's gym session and anything trained in the last 48 h.
+function homeSplitFor(k){
+  var cfg=S.homeConfig&&S.homeConfig[k];
+  if(cfg&&cfg.split&&WTPL[cfg.split]) return cfg.split;
+  var day=Math.floor(new Date(k+'T12:00:00').getTime()/864e5), start=((day%4)+4)%4;
+  var avoid={};
+  try{
+    var dt=getDayType(k);
+    if(dt==='gym'||dt==='both'){ var gs=S.sessions[k]&&S.sessions[k].gym, list=(gs&&gs.exList&&gs.exList.length)?gs.exList:((WTPL[getEffTpl(k)]||{exercises:[]}).exercises); list.forEach(function(e){var g=getMG(e.n);if(g)avoid[g]=(avoid[g]||0)+3;}); }
+    var r=getRecentMuscles(48)||{}; Object.keys(r).forEach(function(g){ if(r[g]>0) avoid[g]=(avoid[g]||0)+1; });
+  }catch(e){}
+  var best=null,bestScore=1e9;
+  for(var i=0;i<4;i++){
+    var sk=HOME_SPLITS[(start+i)%4], sc=0;
+    HOME_SPLIT_META[sk].groups.forEach(function(g){ sc+=(avoid[g]||0); });
+    if(sc<bestScore){best=sk;bestScore=sc;}
+  }
+  return best;
+}
+function setHomeSplit(sk){
+  var k=dKey(vDate);
+  if(!S.homeConfig) S.homeConfig={};
+  S.homeConfig[k]={split:sk};
+  saveS(); buildTodayWorkout();
+  showToast('🏠 Home · '+HOME_SPLIT_META[sk].nm);
+}
+function getHomeFocus(){ return S.weekFocus||'general'; }
+
+// Banner on the Home tab: today's split, why it was picked, and a quick switcher.
+function buildHomeBanner(k){
+  var banner=el('swapWorkoutBanner'); if(!banner) return;
+  var cur=homeSplitFor(k), auto=!(S.homeConfig&&S.homeConfig[k]&&S.homeConfig[k].split);
+  var gymNote='';
+  var dt=getDayType(k);
+  if(dt==='gym'||dt==='both'){ var gt=WTPL[getEffTpl(k)]; if(gt) gymNote='Gym today: '+gt.focus+'. '; }
+  banner.style.display='block';
+  banner.innerHTML='<div class="card" style="border-color:rgba(34,211,238,.35);background:rgba(34,211,238,.04)">'
+    +'<div class="slbl" style="margin:0;color:#22d3ee">🏠 Home workout · '+HOME_SPLIT_META[cur].nm+'</div>'
+    +'<div style="font-size:11px;color:var(--mu);margin:3px 0 8px;line-height:1.5">'+escapeHtml(gymNote)+(auto?'Picked from the daily rotation to avoid muscles you are training at the gym today or trained in the last 48 h.':'Your pick for today.')+' Extra session — saved separately from the gym workout.</div>'
+    +'<div style="display:flex;gap:6px;flex-wrap:wrap">'+HOME_SPLITS.map(function(sk){var on=sk===cur;return '<button onclick="setHomeSplit(\''+sk+'\')" style="flex:1;min-width:70px;padding:6px 8px;border-radius:8px;font-size:11px;cursor:pointer;'+(on?'border:1px solid #22d3ee;background:rgba(34,211,238,.14);color:#22d3ee':'border:1px solid var(--b2);background:var(--s3);color:var(--mu)')+'">'+HOME_SPLIT_META[sk].nm+'<div style="font-size:8px;opacity:.8">'+HOME_SPLIT_META[sk].sb+'</div></button>';}).join('')+'</div>'
+    +'</div>';
+}
+// GMWD plate breakdown shown on the exercise card.
+function gmwdPlateHint(exName,totalLbs){
+  if(!/^GMWD /.test(exName)||!(totalLbs>0)) return '';
+  var perArm=/Single-Arm/.test(exName)?totalLbs:totalLbs/2, plates=gmwdPlatesFor(perArm);
+  if(!plates) return '';
+  return '<div class="sugg" style="color:#94a3b8">🔩 Each arm: '+plates.join(' + ')+' lb bumper'+(plates.length>1?'s':'')+(/Single-Arm/.test(exName)?' (loaded arm only)':'')+' · plates only — add the empty arm with ⚖️</div>';
+}
 </script>
 <!-- UNIFIED FOOD SEARCH MODAL -->
 <div class="mo" id="unifiedSearchModal"><div class="md">
