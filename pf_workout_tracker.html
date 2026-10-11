@@ -261,6 +261,7 @@ canvas{width:100%!important;display:block}
 .stype.ds{color:var(--or);border-color:rgba(249,115,22,.35);background:rgba(249,115,22,.06)}
 .stype.fl{color:var(--re);border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.06)}
 .stype.rp{color:#a78bfa;border-color:rgba(167,139,250,.35);background:rgba(167,139,250,.06)}
+.stype.cl{color:#22d3ee;border-color:rgba(34,211,238,.35);background:rgba(34,211,238,.06)}
 @keyframes ss-pulse{0%,100%{box-shadow:0 0 0 3px #a78bfa,0 0 20px rgba(167,139,250,.45)}50%{box-shadow:0 0 0 3px #c4b5fd,0 0 30px rgba(167,139,250,.65)}}
 .ss-active{animation:ss-pulse 1.8s ease-in-out infinite;}
 .ss-waiting{transition:opacity .3s,box-shadow .3s;}
@@ -339,6 +340,7 @@ canvas{width:100%!important;display:block}
 .wt-start{background:var(--ye);color:#000}
 .wt-pause{background:rgba(249,115,22,.15);color:var(--or);border:1px solid rgba(249,115,22,.3)}
 .wt-end{background:rgba(239,68,68,.12);color:var(--re);border:1px solid rgba(239,68,68,.25)}
+.wt-discard{background:transparent;color:#f87171;border:1px solid rgba(239,68,68,.25);padding-left:9px;padding-right:9px}
 .wt-resume{background:rgba(34,197,94,.12);color:var(--gr);border:1px solid rgba(34,197,94,.25)}
 
 /* ── Workout Notes ── */
@@ -675,6 +677,7 @@ canvas{width:100%!important;display:block}
 </div>
 <div id="extraActivitiesWrap"></div>
 <button class="btn btn-p bfw mt16" id="saveBtn" onclick="saveWorkoutPrompt()">💾 Save Workout</button>
+<button class="btn bfw mt8" id="discardBtn" onclick="discardWorkout()" style="display:none;font-size:12px;background:rgba(239,68,68,.08);color:#f87171;border:1px solid rgba(239,68,68,.3)">🗑 End Without Saving</button>
 <button class="btn btn-g bfw mt8" onclick="showAITips()" style="font-size:12px">✨ Get AI Coaching Tips</button>
 <button class="btn bfw mt8" id="saveTemplateBtn" onclick="openSaveTemplateModal()" style="display:none;font-size:12px;background:rgba(16,185,129,.1);color:var(--ru);border:1px solid rgba(16,185,129,.25)">📋 Save as Workout Template</button>
 </div>
@@ -1760,8 +1763,8 @@ canvas{width:100%!important;display:block}
 <div style="background:var(--s2);border:1px solid var(--b1);border-radius:10px;padding:4px 14px 4px;margin-top:8px">
 <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--b2)">
   <div style="flex:1">
-    <div style="font-size:13px;color:#fff;font-weight:600;margin-bottom:3px">Advanced sets</div>
-    <div style="font-size:11px;color:var(--mu);line-height:1.5">Auto-assigns Drop Set, Failure &amp; Rest-Pause by focus, and seeds antagonist supersets. Turn off for clean Work + Warm-Up only.</div>
+    <div style="font-size:13px;color:#fff;font-weight:600;margin-bottom:3px">Specialty sets</div>
+    <div style="font-size:11px;color:var(--mu);line-height:1.5">Adds each focus's specialty set after your work sets — Cluster (Strength), Drop + Failure (Muscle), Drop (Tone, General), Rest-Pause (Endurance) — and offers them when adding a set. Supersets have their own switch below. Turn off for Work + Warm-Up only.</div>
   </div>
   <div id="advSuggestToggle" onclick="toggleAdvSuggest()" style="cursor:pointer;width:56px;height:30px;border-radius:15px;background:var(--gr);position:relative;transition:background .2s;flex-shrink:0">
     <div style="position:absolute;right:3px;top:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:all .2s;box-shadow:0 1px 4px rgba(0,0,0,.3)"></div>
@@ -1779,7 +1782,7 @@ canvas{width:100%!important;display:block}
 <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--b2)">
   <div style="flex:1">
     <div style="font-size:13px;color:#fff;font-weight:600;margin-bottom:3px">Auto-superset pairing</div>
-    <div style="font-size:11px;color:var(--mu);line-height:1.5">Automatically pairs antagonist exercises (e.g. Lat Pull-Down ↔ Pec Fly) when Advanced sets is on. Turn off to manage supersets manually.</div>
+    <div style="font-size:11px;color:var(--mu);line-height:1.5">Automatically pairs antagonist exercises (e.g. Lat Pull-Down ↔ Pec Fly). Independent of Specialty sets. Turn off to manage supersets manually.</div>
   </div>
   <div id="autoSupersetToggle" onclick="toggleAutoSuperset()" style="cursor:pointer;width:56px;height:30px;border-radius:15px;background:var(--gr);position:relative;transition:background .2s;flex-shrink:0">
     <div style="position:absolute;right:3px;top:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:all .2s;box-shadow:0 1px 4px rgba(0,0,0,.3)"></div>
@@ -4874,7 +4877,7 @@ function autoSplitFor(k,_depth){
   }
   return (_autoSplitCache[k]=AUTO_SPLIT_POOL[(idx+1)%AUTO_SPLIT_POOL.length]);
 }
-function getEffTpl(k){var gym=S.sessions[k]&&S.sessions[k].gym;if(gym&&gym.split&&sessionHasActivity(gym))return gym.split;var c=S.dayConfig[k];if(c&&c.split&&c.split!=='auto')return c.split;if(S.prefs&&S.prefs.autoRotateSplits)return autoSplitFor(k);var d=new Date(k+'T12:00:00'),dow=d.getDay();return S.daySched[dow]||'upper';}
+function getEffTpl(k){var gym=S.sessions[k]&&S.sessions[k].gym;if(gym&&gym.split&&sessionHasActivity(gym)&&!isLiveSession(k))return gym.split;var c=S.dayConfig[k];if(c&&c.split&&c.split!=='auto')return c.split;if(S.prefs&&S.prefs.autoRotateSplits)return autoSplitFor(k);var d=new Date(k+'T12:00:00'),dow=d.getDay();return S.daySched[dow]||'upper';}
 function getDayType(k){var c=S.dayConfig[k];if(c&&c.type){var _ct=c.type;if((S.prefs&&S.prefs.runMode===false)&&(_ct==='run'))return'rest';if((S.prefs&&S.prefs.runMode===false)&&(_ct==='both'))return'gym';return _ct;}var d=new Date(k+'T12:00:00'),dow=d.getDay(),isG=S.setup.gymDays.includes(dow),isR=S.setup.runDays.includes(dow)&&(S.prefs?S.prefs.runMode!==false:true);if(isG&&isR)return'both';if(isG)return'gym';if(isR)return'run';return'rest';}
 var vDate=new Date(),cMode='gym',timerInt=null,timerSecs=0,ciMood=0,ciSleep='',editDK=null,mDayType='rest',mDaySplit='auto',_originalDtype='rest';
 function dKey(d){
@@ -5315,7 +5318,7 @@ var _swb=el('swapWorkoutBanner'); if(_swb) _swb.style.display='none';
 if(!S.sessions[k])S.sessions[k]={};if(isG&&!S.sessions[k].gym)S.sessions[k].gym={exercises:{},cardio:{},intensity:S.setup.defaultIntensity||'standard'};if(isR&&!S.sessions[k].run)S.sessions[k].run={};var tabs=el('modeTabs');if(isG&&isR){tabs.style.display='flex';document.querySelectorAll('.mtab').forEach(function(t){t.classList.toggle('active',t.dataset.mode===cMode);});}else{tabs.style.display='none';cMode=isG?'gym':isR?'run':'gym';}if(!isG&&!isR){el('todaySub').textContent='REST DAY · Recovery & Mobility';el('intCard').style.display='none';el('cmpCard').style.display='none';el('timerWrap').classList.remove('active');var _wtb=el('workoutTimerBar');if(_wtb)_wtb.style.display='none';var _nw=el('todayNotesWrap');if(_nw)_nw.style.display='none';var recovHTML=buildRestDayRecovery();
 el('wContent').innerHTML='<div class="card"><div class="fbet" style="margin-bottom:8px"><div><h3 style="color:#a78bfa">😴 REST DAY</h3><div style="font-size:10px;color:var(--mu);font-family:\'DM Mono\',monospace;letter-spacing:1px;margin-top:2px">ACTIVE RECOVERY</div></div><button class="btn btn-g bsm" onclick="openSettings()">⚙️ Schedule</button></div>'+recovHTML+'</div>'+
 buildRestDayActivityCard(k)+
-buildWeeklyMuscleStatusCard();var _eawRest=el('extraActivitiesWrap');if(_eawRest)_eawRest.innerHTML=buildExtraActivitiesCard(k);el('saveBtn').style.display='none';el('volAlert').innerHTML='';updateStats();return;}var _alreadySaved=S.history.some(function(h){return h.date===k&&h.type===(cMode==='run'?'run':'gym');});
+buildWeeklyMuscleStatusCard();var _eawRest=el('extraActivitiesWrap');if(_eawRest)_eawRest.innerHTML=buildExtraActivitiesCard(k);el('saveBtn').style.display='none';var _dbR=el('discardBtn');if(_dbR)_dbR.style.display='none';el('volAlert').innerHTML='';updateStats();return;}var _alreadySaved=S.history.some(function(h){return h.date===k&&h.type===(cMode==='run'?'run':'gym');});
 var _saveBtnEl=el('saveBtn');
 if(_saveBtnEl){
   if(_alreadySaved){
@@ -5331,6 +5334,7 @@ if(_saveBtnEl){
   }
 }
 el('saveBtn').style.display='inline-flex';
+refreshDiscardBtn();
 // Load the VIEWED day's workout clock (it lives in that day's session), so paging
 // between days never shows another day's elapsed time.
 try{syncWorkoutTimerFromState();}catch(e){console.warn('syncWorkoutTimerFromState failed:',e);}
@@ -5386,11 +5390,14 @@ var MIN_WORK_SETS=3;
 // sets than accessories, and the count shifts by focus: Power = more sets of few reps
 // (e.g. 5×3), Endurance = the 3-set floor at high reps, etc. No entry may drop below
 // MIN_WORK_SETS — _focusSetCount clamps regardless.
+// Work-set doses follow the NSCA/ACSM ranges for each goal: strength 2–6 sets of the
+// main lifts (4 here), hypertrophy 3–6 (4 on compounds so weekly volume clears ~10
+// sets/muscle), general fitness and muscular endurance 2–3 (3 = the house floor).
 var SETS_BY_FOCUS={
-  hybrid:   {comp:3, acc:3},
-  power:    {comp:3, acc:3},
-  muscle:   {comp:3, acc:3},
-  general:  {comp:4, acc:3},
+  hybrid:   {comp:4, acc:3},
+  power:    {comp:4, acc:3},
+  muscle:   {comp:4, acc:3},
+  general:  {comp:3, acc:3},
   tone:     {comp:3, acc:3},
   endurance:{comp:3, acc:3}
 };
@@ -5601,7 +5608,10 @@ function selectWorkoutForDuration(tplExercises, intensity, fp, recent48, tplKey,
 function _renderIntEstLine(k,sel,exs,intensity,pinned,fp,tplKey){
   var iel=el('intEstLine'); if(!iel||!sel) return;
   var focus=S.weekFocus||'general';
-  var saved=_supersetSavingMinutes(k,exs,intensity,fp,focus);
+  var ssSaved=_supersetSavingMinutes(k,exs,intensity,fp,focus), saved=ssSaved;
+  // Specialty extras are short (a drop or cluster runs ~1–2 min) but real time.
+  var _spN=0; try{Object.values((S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.exercises)||{}).forEach(function(d){_spN+=((d&&d.sets)||[]).filter(function(x){return x.spec;}).length;});}catch(e){}
+  saved-=_spN*1.5;
   var lo=Math.max(5,Math.round((sel.estLowMin||sel.estMin)-saved));
   var hi=Math.round((sel.estHighMin||sel.estMin)-saved);
   var mid=Math.max(5,Math.round(sel.estMin-saved));
@@ -5610,7 +5620,7 @@ function _renderIntEstLine(k,sel,exs,intensity,pinned,fp,tplKey){
     ?' <span style="color:#a78bfa">· 🔄 auto-split</span>':'';
   var b=sel.breakdown||{};
   var lift=Math.max(0,Math.round((b.liftMin||0)-saved));
-  var parts='lifting + rest '+lift+'m · cardio '+(b.cardioMin||0)+'m · setup '+(b.overheadMin||0)+'m'+(saved>=1?' · supersets −'+Math.round(saved)+'m':'');
+  var parts='lifting + rest '+lift+'m · cardio '+(b.cardioMin||0)+'m · setup '+(b.overheadMin||0)+'m'+(ssSaved>=1?' · supersets −'+Math.round(ssSaved)+'m':'')+(_spN?' · specialty sets +'+Math.round(_spN*1.5)+'m':'');
   // Superset switch, right here rather than buried in Settings — it changes the plan
   // and the time, so it belongs next to the estimate.
   var ssOn=!(S.prefs&&S.prefs.autoSuperset===false);
@@ -5619,12 +5629,18 @@ function _renderIntEstLine(k,sel,exs,intensity,pinned,fp,tplKey){
     +(ssOn?'border:1px solid rgba(167,139,250,.45);background:rgba(124,58,237,.14);color:#a78bfa'
           :'border:1px solid var(--b2);background:var(--s3);color:var(--mu)')+'">'
     +'🔗 SUPERSETS '+(ssOn?('ON'+(ssCount>=1?' · '+Math.round(ssCount)+' pair'+(ssCount>1?'s':''):' · none today')):'OFF')+'</button>';
+  var spOn=specialtySetsOn(), spCount=0;
+  try{Object.values((S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.exercises)||{}).forEach(function(d){spCount+=((d&&d.sets)||[]).filter(function(x){return x.spec;}).length;});}catch(e){}
+  var spChip='<button onclick="toggleSpecialtyToday()" style="margin:7px 0 0 6px;padding:5px 11px;border-radius:999px;cursor:pointer;font-family:\'DM Mono\',monospace;font-size:9px;letter-spacing:.5px;'
+    +(spOn?'border:1px solid rgba(34,211,238,.45);background:rgba(34,211,238,.1);color:#22d3ee'
+          :'border:1px solid var(--b2);background:var(--s3);color:var(--mu)')+'">'
+    +'✨ SPECIALTY SETS '+(spOn?('ON'+(spCount?' · '+spCount:' · none today')):'OFF')+'</button>';
   iel.innerHTML='⏱ Today\'s estimate: <span style="color:var(--ye)">'+lo+'–'+hi+' min</span> · '+exs.length+' exercises + cardio '
     +'<span style="color:var(--mu)">('+tgt+' min target)</span>'+(pinned?' <span style="color:#a78bfa">· 📋 template</span>':arBadge)
     +'<div style="margin-top:3px;font-size:9px;color:var(--mu)">'+parts+'</div>'
     +'<div style="margin-top:2px;font-size:9px;color:var(--mu)">Moving between machines and loading plates is included. Pauses aren\'t — pause the timer for those.</div>'
     +'<div style="margin-top:3px;font-size:9px;color:var(--gr);letter-spacing:.3px">🔒 House rule: minimum '+MIN_WORK_SETS+' work sets on every exercise — more is fine, fewer is not.</div>'
-    +ssChip;
+    +ssChip+spChip;
   iel.setAttribute('data-est-mid',String(mid));
 }
 
@@ -5692,6 +5708,23 @@ function computeAutoSupersets(exs, midCardByIndex, maxPairs, focus){
   return pairs;
 }
 
+// Prepare a live session for re-planning: everything keyed by list index (swaps,
+// supersets, visual order) belonged to the old list and is cleared; finished cardio
+// keeps its machine and result, unfinished cardio is re-planned. Logged lift sets are
+// carried by exercise identity in buildGym.
+function _replanSession(k,gym){
+  gym.exListPinned=false; gym.fromTemplateName=null;
+  gym.supersets={}; gym.activeSuperset=undefined; gym.userUnlinkedSupersets=false;
+  gym.exOrder=null; gym.smartNote=null; gym.lastAppliedKey=null;
+  Object.keys(S.swaps||{}).forEach(function(sk){if(sk.indexOf(k+':')===0) delete S.swaps[sk];});
+  var cb=gym.cardioBlocks||{}, keep={}, cs=gym.cardioSwaps||{}, keepSw={};
+  Object.keys(cb).forEach(function(key){
+    var b=cb[key]; if(!b) return;
+    if(b.done||(b.timer&&b.timer.running)){keep[key]=b;if(cs[key])keepSw[key]=cs[key];else if(b.name)keepSw[key]={n:b.name,dur:Number(b.duration)||Number(b.defaultDur)||10};}
+  });
+  gym.cardioBlocks=keep; gym.cardioSwaps=keepSw;
+}
+
 function buildGym(k,dow){el('intCard').style.display='block';el('cmpCard').style.display='block';
 // Reset completion bar color (may be teal from a previous run view)
 var _cf=el('cmpFill'); if(_cf) _cf.style.background='';
@@ -5717,7 +5750,13 @@ var _gymSavedBanner=_savedGym
 // [smart note updated after set loop below]
 var sess=S.sessions[k].gym,intensity=sess.intensity||'standard';
 var _started=sessionHasActivity(sess);
-if(!_started){sess.gymId=S.activeGymId;sess.trainingFocus=S.weekFocus;sess.split=getEffTpl(k);}
+// Re-plan a live session whenever what it was generated from changed (split, focus,
+// intensity or gym) — including mid-workout. Logged work is carried across.
+var _live=isLiveSession(k), _planKey=sessionPlanKey(k);
+if(sess.exList&&!sess.planKey) sess.planKey=_planKey; // legacy session: adopt, don't re-plan
+var _replan=!!(_live&&sess.exList&&sess.exList.length&&sess.planKey!==_planKey);
+if(_replan) _replanSession(k,sess);
+if(!_started||_live){sess.gymId=S.activeGymId;sess.trainingFocus=S.weekFocus;sess.split=getEffTpl(k);}
 document.querySelectorAll('#intCard .ibtn').forEach(function(b){b.classList.toggle('active',b.dataset.int===intensity);});
 var tplKey=getEffTpl(k),tpl=WTPL[tplKey]||WTPL.upper;
 var fp=getFocusParams();
@@ -5732,7 +5771,7 @@ el('todaySub').textContent=(tpl.focus||'Workout')+focusLabel;
 var _recent48=(typeof getRecentMuscles==='function')?getRecentMuscles(48):{};
 var _pinned=!!(sess.exListPinned&&sess.exList&&sess.exList.length);
 var _sel;
-if(_pinned||(_started&&sess.exList)){
+if(_pinned||(_started&&sess.exList&&!_replan)){
   var _pLift=0; sess.exList.forEach(function(e){ try{_pLift+=_exLiftMinutes(e,intensity,fp,getWorkoutFocus(k));}catch(err){_pLift+=6;} });
   var _pPlan=sess._cardioPlan||{warmupMin:(getWorkoutFocus(k)==='power')?4:6, midEachMin:6, finisherMin:10};
   _sel={exercises:sess.exList.slice(), plan:_pPlan, estMin:Math.round(_pLift+(_pPlan.warmupMin||0)+(_pPlan.finisherMin||0))};
@@ -5747,7 +5786,7 @@ sess._estDuration=_sel.estMin;
 // Keep a started workout stable across reloads, goal changes and equipment changes.
 // Set data is keyed by exercise index, so reselecting here could relabel real lifts.
 var hasLogged=Object.values(sess.exercises||{}).some(function(e){return (e.sets||[]).some(function(s){return s.done;});});
-if((_started||hasLogged||isSessionComplete(k))&&sess.exList&&sess.exList.length){
+if((_started||hasLogged||isSessionComplete(k))&&sess.exList&&sess.exList.length&&!_replan){
   exs=sess.exList.slice();
 } else {
   var usedExNames=[];
@@ -5761,16 +5800,46 @@ if((_started||hasLogged||isSessionComplete(k))&&sess.exList&&sess.exList.length)
   // Only carry editable state for the same exercise, never for a reused index.
   if(sess.exList){
     var oldData=sess.exercises||{}, remapped={};
+    if(_replan){
+      // Exercises already worked on that the new plan does not include stay at the top,
+      // finished as they are, so nothing logged is lost or relabelled.
+      var _carried=[];
+      sess.exList.forEach(function(oe,oi){
+        var d=oldData[oi];
+        var anyDone=d&&(d.sets||[]).some(function(x){return x.done;});
+        if(!anyDone||exs.some(function(e){return e.n===oe.n;})) return;
+        d.sets=d.sets.filter(function(x){return x.done;});
+        _carried.push(Object.assign({},oe,{carried:true}));
+      });
+      exs=_carried.concat(exs);
+    }
     exs.forEach(function(ex,i){var old=sess.exList.findIndex(function(e){return e.n===ex.n;});if(old>=0&&oldData[old])remapped[i]=oldData[old];});
+    if(_replan){
+      // A kept exercise follows the new prescription for whatever is still to do:
+      // logged sets stay exactly as logged, untouched suggestions are re-derived.
+      exs.forEach(function(ex,i){
+        var d=remapped[i]; if(!d||ex.carried) return;
+        var room=Math.max(0,(ex.sets||MIN_WORK_SETS)-(d.sets||[]).filter(function(x){return x.done&&(x.type||'wk')!=='wu'&&!x.spec;}).length);
+        d.sets=(d.sets||[]).filter(function(x){
+          if(x.done) return true;
+          if(x.spec||room<=0) return false; // specialty extras are re-planned for the new focus
+          room--;
+          if(x.auto) x.weight='';
+          if(x.autoR) x.reps='';
+          return true;
+        });
+      });
+    }
     sess.exercises=remapped;
   }
 }
+sess.planKey=_planKey;
 // Snapshot the exact rendered list onto the session. This is the single source of
 // truth for everything keyed by exercise index (save, stats, supersets, templates,
 // quick-fill): the duration engine above can pick different exercises/counts than
 // the legacy template re-filter those consumers used to rebuild, which silently
 // dropped or misattributed logged sets.
-sess.exList=exs.map(function(e){return {n:e.n,t:e.t,sets:e.sets,reps:e.reps,rest:e.rest,p:e.p};});
+sess.exList=exs.map(function(e){var o={n:e.n,t:e.t,sets:e.sets,reps:e.reps,rest:e.rest,p:e.p};if(e.carried)o.carried=true;return o;});
 // Warm-up cardio — only when the duration plan allocates warm-up time
 // (e.g. Power often skips it to preserve CNS freshness).
 // _usedCardio tracks machines already placed today (by canonical type, see cardioTypeKey)
@@ -5836,7 +5905,7 @@ var orderedExs = sess.exOrder.map(function(i){return {ex:exs[i], origIdx:i};});
   if(!sess.supersets) sess.supersets={};
   // Only auto-seed if no supersets exist yet AND user hasn't explicitly unlinked
   // Also respect the global 'Auto-suggest supersets' toggle in Settings
-  if(!_advSuggestEnabled) return;
+  // Supersets have their own switch, independent of specialty sets.
   if(S.prefs&&S.prefs.autoSuperset===false) return; // user disabled auto-seeding globally
   if(Object.keys(sess.supersets).length>0) return;
   if(sess.userUnlinkedSupersets) return; // user opted out for this session
@@ -5868,16 +5937,25 @@ var orderedExs = sess.exOrder.map(function(i){return {ex:exs[i], origIdx:i};});
     // Target = the larger of the two, counting BOTH the template set count AND any sets the
     // user has already added (so an extra set on one half pads its partner to match). Only
     // ever pads up, never truncates, so it's idempotent across re-renders.
-    var target=Math.max(exs[a].sets||0, exs[b].sets||0, (sess.exercises[a]&&sess.exercises[a].sets||[]).length, (sess.exercises[b]&&sess.exercises[b].sets||[]).length);
+    var _nonSpec=function(i){return ((sess.exercises[i]&&sess.exercises[i].sets)||[]).filter(function(x){return !x.spec;}).length;};
+    var target=Math.max(exs[a].sets||0, exs[b].sets||0, _nonSpec(a), _nonSpec(b));
     [a,b].forEach(function(i){
       if(!sess.exercises[i]) sess.exercises[i]={sets:[]};
       var arr=sess.exercises[i].sets;
-      // Count current work sets (warmups live separately in exD.warmups)
-      while(arr.length<target){ arr.push({weight:'',reps:'',done:false}); padded=true; }
+      // Count current work sets (warmups live separately in exD.warmups); specialty
+      // extras stay last, after the work sets.
+      while(arr.filter(function(x){return !x.spec;}).length<target){
+        var _fs=arr.findIndex(function(x){return x.spec;});
+        var _blank={weight:'',reps:'',done:false};
+        if(_fs<0) arr.push(_blank); else arr.splice(_fs,0,_blank);
+        padded=true;
+      }
     });
   });
   if(padded) saveS();
 })();
+
+applySpecialtySets(k,sess,exs,getWorkoutFocus(k),intensity);
 
 orderedExs.forEach(function(exEntry, renderPos){
 var ex=exEntry.ex, ei=exEntry.origIdx;
@@ -5893,7 +5971,7 @@ if(exD.skipped){
   return;
 }
 var isSwapped=!!S.swaps[k+':'+ei];
-var prog=getProgression(ex.n,ex.reps,ex.sets,fp?fp.weightPct:1.0);
+var prog=getProgression(ex.n,ex.reps,ex.sets,focusLoadFactor(getWorkoutFocus(k),ex.reps));
 var suggWeight=prog.weight;
 var suggReps=prog.reps||ex.reps;
 var exType=getExType(ex.n);
@@ -6011,7 +6089,13 @@ if(set.done){
   // Save per-set suggestions to state for logging (store in lbs)
   // Only fill blank weights - preserve any value the user already has
   // Skip advanced set types (ds/fl/rp) - autoFillSetType handles their weight/reps
-  var _isAdv=(set.type==='ds'||set.type==='fl'||set.type==='rp');
+  var _isAdv=(set.type==='ds'||set.type==='fl'||set.type==='rp'||set.type==='cl');
+  // Specialty extras (auto-planned per focus) derive from this exercise's work target.
+  if(set.spec&&set.auto){
+    var _st=specialtySetTarget(set.type,ex,setWLbs||0,getWorkoutFocus(k));
+    if(!noWeight&&_st.w>0) set.weight=String(_st.w);
+    if(set.autoR&&_st.r) set.reps=_st.r;
+  }
   // Auto-fill blank OR still-auto values (so focus/intensity changes refresh untouched
   // suggestions); user-typed values (auto flag cleared by updateSet) are never overwritten.
   if(setWLbs && !noWeight && !_isAdv && (!set.weight||(set.auto&&!_started))){set.weight=String(setWLbs);set.auto=true;} // lbs
@@ -6037,12 +6121,12 @@ var prev=getPrevBest(ex.n,s);
 var prevDisp=prev?'<span style="color:var(--gr)">'+prev+'</span>':'-';
 var setType=set.type||'wk';
 var setTypeClass=setType;
-var repPlaceholder2=setType==='fl'?'log reps':setType==='rp'?'cluster reps':pyramidSets.length>0&&pyramidSets[s]?String(pyramidSets[s].r):(fprog3.floor+'-'+fprog3.ceil);var repValue2=set.done?displayR:setType==='fl'?'':setType==='rp'&&!set.reps?(function(){var fm=FOCUS_META[getWorkoutFocus(k)]||FOCUS_META.general;return String(fm.rpReps||12);})():(set.reps||'');var repInputHTML='<input class="sinp" type="number" inputmode="numeric" placeholder="'+repPlaceholder2+'" value="'+repValue2+'" oninput="updateSet('+ei+','+s+',\'reps\',this.value)">';
+var repPlaceholder2=setType==='fl'?'log reps':setType==='rp'?'total reps':setType==='cl'?'total reps':pyramidSets.length>0&&pyramidSets[s]?String(pyramidSets[s].r):(fprog3.floor+'-'+fprog3.ceil);var repValue2=set.done?displayR:setType==='fl'?'':setType==='rp'&&!set.reps?(function(){var fm=FOCUS_META[getWorkoutFocus(k)]||FOCUS_META.general;return String(fm.rpReps||12);})():(set.reps||'');var repInputHTML='<input class="sinp" type="number" inputmode="numeric" placeholder="'+repPlaceholder2+'" value="'+repValue2+'" oninput="updateSet('+ei+','+s+',\'reps\',this.value)">';
 sH+='<div class="snum">'+(s+1)+'</div>'+
 '<div style="display:inline-block"><select class="stype '+setTypeClass+'" onchange="updateSetType('+ei+','+(s)+',this.value,this)">'+
 '<option value="wk"'+(setType==="wk"?' selected':'')+'>Work</option>'+
 '<option value="wu"'+(setType==="wu"?' selected':'')+'>Warm-Up</option>'+
-(_advSuggestEnabled?'<option value="ds"'+(setType==="ds"?' selected':'')+'>Drop Set</option>'+'<option value="fl"'+(setType==="fl"?' selected':'')+'>Failure</option>'+'<option value="rp"'+(setType==="rp"?' selected':'')+'>Rest-Pause</option>':'')+
+((_advSuggestEnabled||setType==='ds')?'<option value="ds"'+(setType==="ds"?' selected':'')+'>Drop Set</option>':'')+((_advSuggestEnabled||setType==='fl')?'<option value="fl"'+(setType==="fl"?' selected':'')+'>Failure</option>':'')+((_advSuggestEnabled||setType==='rp')?'<option value="rp"'+(setType==="rp"?' selected':'')+'>Rest-Pause</option>':'')+((_advSuggestEnabled||setType==='cl')?'<option value="cl"'+(setType==="cl"?' selected':'')+'>Cluster</option>':'')+
 '</select>'+
 '</div>'+
 '<input class="sinp" type="number" inputmode="decimal" placeholder="'+(noWeight?'bw':(_addedMode?'+plates':(suggWeight?toDisplayWeight(suggWeight):getWeightUnit())))+'" value="'+(_addedMode?_displayWEntry:displayW)+'" oninput="updateSet('+ei+','+s+',\'weight\',this.value)"'+(noWeight?' disabled style="opacity:.4"':'')+'>'+
@@ -6160,9 +6244,9 @@ _lastSessLine+'</div></div><div style="display:flex;gap:6px"><button class="ex-i
 sH+'<div class="ex-note-row"><input type="text" class="ex-note-inp" placeholder="Note for this exercise..." value="'+_safeAttr((S.sessions[k]&&S.sessions[k].gym&&S.sessions[k].gym.exNotes&&S.sessions[k].gym.exNotes[ei])||'')+'" oninput="saveExNote('+ei+',this.value)"></div>'+// Add Set picker (inline, shown on button tap)
 '<div id="addSetPicker_'+ei+'" style="display:none;flex-wrap:wrap;gap:6px;padding:8px 12px 4px;border-top:1px solid var(--b2);margin-top:4px">'+
 '<span style="font-size:10px;color:var(--mu);width:100%;margin-bottom:2px">ADD SET TYPE:</span>'+
-(_advSuggestEnabled?['wk','wu','ds','fl','rp']:['wk','wu']).map(function(t){
-  var labels={wk:'Work',wu:'Warm-Up',ds:'Drop Set',fl:'Failure',rp:'Rest-Pause'};
-  var colors={wk:'var(--ye)',wu:'#94a3b8',ds:'var(--or)',fl:'var(--re)',rp:'#a78bfa'};
+(_advSuggestEnabled?['wk','wu','ds','fl','rp','cl']:['wk','wu']).map(function(t){
+  var labels={wk:'Work',wu:'Warm-Up',ds:'Drop Set',fl:'Failure',rp:'Rest-Pause',cl:'Cluster'};
+  var colors={wk:'var(--ye)',wu:'#94a3b8',ds:'var(--or)',fl:'var(--re)',rp:'#a78bfa',cl:'#22d3ee'};
   return '<button onclick="addExtraSet('+ei+',\''+t+'\')" style="font-size:11px;padding:5px 10px;border-radius:7px;border:1px solid '+colors[t]+';background:none;color:'+colors[t]+';cursor:pointer">'+labels[t]+'</button>';
 }).join('')+
 '</div>'+   // close #addSetPicker
@@ -6318,7 +6402,7 @@ function toggleSet(ei,si,btn){
       var setType=set.type||'wk';
 
       // Rest-Pause: continuous effort  --  complete fully on active card, no partner switch
-      if(setType==='rp'){
+      if(setType==='rp'||setType==='cl'){
         startTimer(restSecs);
         showToast('Rest-Pause done  --  rest '+restSecs+'s, then continue on this exercise');
         return;
@@ -6474,7 +6558,11 @@ function setIntensity(lvl){
   var gym=S.sessions[k].gym;
   var prev=gym.intensity||'standard';
   if(prev===lvl) return;
-  if(Object.values(gym.exercises||{}).some(function(e){return (e.sets||[]).some(function(s){return s.done;});})||Object.values(gym.cardioBlocks||{}).some(function(c){return c.done||c.timer&&c.timer.running;})){showToast('This workout has started. Keep its exercise list; use swaps or extra sets to adjust it.');return;}
+  if(Object.values(gym.exercises||{}).some(function(e){return (e.sets||[]).some(function(s){return s.done;});})||Object.values(gym.cardioBlocks||{}).some(function(c){return c.done||c.timer&&c.timer.running;})){
+    if(!isLiveSession(k)){showToast('This workout is saved. Keep its exercise list; use swaps or extra sets to adjust it.');return;}
+    // Mid-workout: re-plan for the new length; logged sets are carried across.
+    gym.intensity=lvl; saveS(); buildTodayWorkout(); showToast('Intensity: '+lvl.toUpperCase()+' — logged sets kept');return;
+  }
   gym.intensity=lvl;
   gym.cardio={};
   gym.smartNote=null;
@@ -7407,7 +7495,14 @@ function completedCardioCalories(c,bwKg){
   if(c.calories!=null&&c.calories!==''&&isFinite(Number(c.calories))&&Number(c.calories)>=0)return Number(c.calories);
   return Math.round((CARDIO_MET[c.name]||5.5)*bwKg*(c.duration/60));
 }
-function updateStats(){
+// "End Without Saving" is offered once the viewed workout has something to throw away.
+function refreshDiscardBtn(){
+  var b=el('discardBtn'); if(!b) return;
+  var k=dKey(vDate), key=(cMode==='home')?'home':'gym', g=S.sessions[k]&&S.sessions[k][key];
+  var dt=getDayType(k), show=(key==='home'||dt==='gym'||dt==='both')&&cMode!=='run'&&g&&sessionHasActivity(g);
+  b.style.display=show?'block':'none';
+}
+function updateStats(){try{refreshDiscardBtn();}catch(e){}
   var k=dKey(vDate),sess=S.sessions[k]||{},sets=0,vol=0,mins=0,cals=0;
   var liftingCals=0, cardioCals=0;
 
@@ -7665,6 +7760,21 @@ var FOCUS_META={
   tone:      {em:'🔥', lb:'Lose & Tone',         reps:[10,14], rest:75,  cardurMult:1.6, weightPct:0.85, restLabel:'70-90s',  midCardio:true,  midCardioCount:1, wuReps:[12,8],  wuPct2:0.60, dsReps:[10,15], rpReps:20},
   endurance: {em:'🏃', lb:'Endurance',           reps:[15,20], rest:35,  cardurMult:1.9, weightPct:0.60, restLabel:'30-45s',  midCardio:true,  midCardioCount:2, wuReps:[15,10], wuPct2:0.60, dsReps:[15,20], rpReps:22}
 };
+// Planned reps in reserve per focus. Strength work stays crisp (2 RIR), hypertrophy
+// sets go closer (1 RIR), and the short-rest metabolic focuses keep a bigger buffer
+// because fatigue accumulates across sets.
+var FOCUS_RIR={hybrid:2,power:2,muscle:1,general:3,tone:2,endurance:3};
+// A starting load for an exercise with no history, derived from the 7-rep working weight
+// in the strength profile via Epley: that weight ≈ an 8-rep max, and the target load is
+// the one that leaves the focus's RIR at the prescribed reps. With a 7RM ≈ 83 % 1RM this
+// lands each focus inside its NSCA load zone — strength ≈ 88 %, hypertrophy ≈ 79 %,
+// tone/general ≈ 72 %, endurance ≈ 63 % 1RM — instead of a flat multiplier that ignored
+// the rep target (the old ×1.15 strength factor put 3×4 above a true 4-rep max).
+function focusLoadFactor(focus,reps){
+  var r=Number(reps); if(!isFinite(r)||r<1) r=10;
+  var rir=FOCUS_RIR[focus]!=null?FOCUS_RIR[focus]:2;
+  return Math.max(0.5,Math.min(1.12,(30+8)/(30+r+rir)));
+}
 // Practical starting ranges, not guarantees of an optimal load or adaptation.
 // See docs/TRAINING_AUDIT.md for current sources and implementation limits.
 // weightPct applies only to an initial profile-derived estimate; it is not percent 1RM.
@@ -7772,7 +7882,25 @@ function sessionHasActivity(gym){
 function getWorkoutFocus(k){
   k=k||dKey(vDate);
   var gym=S.sessions[k]&&S.sessions[k].gym;
-  return gym&&gym.trainingFocus&&sessionHasActivity(gym)?gym.trainingFocus:(S.weekFocus||'general');
+  return gym&&gym.trainingFocus&&sessionHasActivity(gym)&&!isLiveSession(k)?gym.trainingFocus:(S.weekFocus||'general');
+}
+// A "live" session is one that still follows the plan: today or later, not yet saved
+// to history (or one whose workout clock is still running past midnight). Changing the
+// split, focus, intensity or gym re-plans a live session even mid-workout — logged sets
+// are carried over (see _replanSession). Saved and past sessions keep their snapshot,
+// so editing history never reshuffles what was actually done.
+function isLiveSession(k){
+  k=k||dKey(vDate);
+  if(isSessionComplete(k)) return false;
+  if(k>=dKey(new Date())) return true;
+  var gym=S.sessions[k]&&S.sessions[k].gym;
+  return !!(gym&&gym.wTimer&&gym.wTimer.active);
+}
+// Everything a workout is generated from. When it changes on a live session the
+// exercise list is rebuilt.
+function sessionPlanKey(k){
+  var gym=S.sessions[k]&&S.sessions[k].gym;
+  return [getEffTpl(k),getWorkoutFocus(k),(gym&&gym.intensity)||'standard',S.activeGymId||''].join('|');
 }
 function getFocusParams(){
   var f=getWorkoutFocus();if(f==='auto')f='general';
@@ -7877,11 +8005,25 @@ var FOCUS_DETAIL = {
   tone:{color:'#f97316',tagline:'Maintain strength while pursuing fat loss.',goal:'Preserve muscle with resistance training while managing overall energy balance. No rep range selectively tones a muscle or removes nearby fat.',reps:'10–14',rest:'75s; extend rest when performance drops',weight:'Challenging, controlled reps; reduce when recovery requires it',science:'Resistance training helps retain muscle. Cardio supports health and expenditure, but a fixed session cannot guarantee a calorie deficit.',cardio:'Additional cardio is optional; skip a block when recovery or time requires it.',tips:['Track bodyweight trends over several weeks rather than daily noise.','Keep protein intake and recovery consistent.','Exercise discomfort is not proof of effectiveness.']},
   endurance:{color:'#10b981',tagline:'Practice sustained muscular effort.',goal:'Use lighter loads and higher reps for local muscular endurance. This complements but does not replace running-specific training.',reps:'15–20',rest:'35s; increase if technique or breathing requires it',weight:'Select a manageable load; do not force failure',science:'Training adaptations are specific. High-rep lifting does not guarantee a faster marathon or replace aerobic training.',cardio:'More cardio blocks; adapt them to your running schedule.',tips:['Keep technique consistent as fatigue builds.','Reduce gym volume when hard running compromises recovery.']}
 };
+// What makes each focus distinct, shown on the Plan page and kept in step with the
+// numbers the engine actually uses (SETS_BY_FOCUS, FOCUS_RIR, SPECIALTY_BY_FOCUS).
+var FOCUS_SPECIALTY_TEXT={
+  power:'One <b>Cluster set</b> is added after the work sets on your main lift: the same load, the reps split with ~20 s pauses so every rep stays fast. Clusters preserve bar speed and force within a set (Latella 2019); long-term strength matches straight sets (Jukic 2021), so it is one more quality heavy set. No drops or failure — they add fatigue without helping strength.',
+  hybrid:'A <b>Cluster set</b> on the main lift for one more crisp heavy set, and a <b>Rest-Pause set</b> on an accessory for extra muscle-building reps.',
+  muscle:'A <b>Drop set</b> after the work sets on the last isolation (or machine) exercises, and one set to technical <b>Failure</b> on a machine/cable isolation. Drop sets match normal sets for growth in far less time (Sødal 2023); failure adds a small extra stimulus (Refalo 2023) and is never used on free-weight compounds.',
+  general:'One <b>Drop set</b> on the final isolation exercise — a little extra work at the end without changing your main sets.',
+  tone:'<b>Drop sets</b> on two isolation exercises: the most time-efficient way to keep training volume (and muscle) high while cutting.',
+  endurance:'<b>Rest-Pause sets</b> on the last accessories: short 10–15 s pauses let you keep going, building local muscular endurance beyond straight sets (Prestes 2019).'
+};
+var FOCUS_LOAD_TEXT={power:'≈ 85–90 % of 1RM · stop 2 reps short',hybrid:'≈ 80–85 % of 1RM · 2 reps in reserve',muscle:'≈ 75–80 % of 1RM · 1 rep in reserve',general:'≈ 70–75 % of 1RM · 2–3 reps in reserve',tone:'≈ 70–75 % of 1RM · 2 reps in reserve',endurance:'≈ 60–65 % of 1RM · 3 reps in reserve'};
 Object.keys(FOCUS_DETAIL).forEach(function(key){
   var d=FOCUS_DETAIL[key];
-  d.advSets='Manual options only. Ordinary work sets are the default; failure, drop sets and rest-pause are not required. Rest-pause is not an inherently safe replacement for barbell failure.';
+  var sb=SETS_BY_FOCUS[key]||SETS_BY_FOCUS.general;
+  d.uniqueStat={label:'Work sets',val:(sb.comp===sb.acc?sb.comp+' per exercise':sb.comp+' main lifts · '+sb.acc+' accessories')};
+  if(FOCUS_LOAD_TEXT[key]) d.weight=FOCUS_LOAD_TEXT[key];
+  d.advSets=(FOCUS_SPECIALTY_TEXT[key]||'')+' Specialty sets are always extras on top of the work sets, never count toward records or progression, and can be switched off (Settings → Specialty sets, or the ✨ chip on Today).';
   d.progression='Reach the top of the rep range on every straight work set at the same weight with controlled form, then add the next loadable increment. RPE 9.5–10 holds the load. Warm-ups, drops and clusters do not qualify. A changed goal may lower the suggested load.';
-  d.supersets=(key==='power'||key==='hybrid')?'Automatic supersets are disabled to preserve rest.':'Optional pairings save time when they do not compromise technique or performance.';
+  d.supersets=(key==='power'||key==='hybrid')?'Automatic supersets are disabled to preserve rest.':'Antagonist pairs (e.g. chest + back) are seeded automatically: they save time without reducing training volume (Zhang et al. 2025 meta-analysis). Separate switch from specialty sets.';
 });
 
 function openFocusModal(g) {
@@ -7916,7 +8058,7 @@ function openFocusModal(g) {
     // Science
     _focusSect('🔬 The Science', d.science) +
     // Advanced sets
-    _focusSect('⚡ Advanced Sets', d.advSets) +
+    _focusSect('✨ Specialty Sets', d.advSets) +
     // Progression (unit-aware: replace "5 lbs" with "2.5 kg" for kg users)
     _focusSect('📈 Progression Rule', getWeightUnit()==='kg'?d.progression.replace(/\b5 lbs?\b/g,'2.5 kg'):d.progression) +
     // Supersets
@@ -11331,7 +11473,13 @@ function toggleAdvSuggest(){
   _advSuggestEnabled=!_advSuggestEnabled;
   _applyToggle('advSuggestToggle',_advSuggestEnabled);
   try{localStorage.setItem('pf_advSuggest',_advSuggestEnabled?'1':'0');}catch(e){}
+  if(!S.prefs) S.prefs={};
+  S.prefs.specialtySets=_advSuggestEnabled; saveS();
+  try{ if(typeof buildTodayWorkout==='function') buildTodayWorkout(); }catch(e){}
+  showToast(_advSuggestEnabled?'✨ Specialty sets on':'Specialty sets off');
 }
+// Today-page chip — same switch, reachable mid-workout.
+function toggleSpecialtyToday(){ toggleAdvSuggest(); }
 // These prefs are "enabled unless ===false" throughout the app, so toggle the EFFECTIVE
 // value — flipping a raw undefined with ! would set it to true (a visual no-op) and the
 // first tap to disable would silently do nothing.
@@ -13763,7 +13911,7 @@ var SET_TYPE_INFO = {
   ds:{name:'Drop Set',desc:'Reduce weight 20% after near-failure and continue  --  no rest.',
     how:'Complete your last Work set to near-failure. Without resting, reduce weight by 20% and rep to near-failure again. Tap Continue Drop to add another 20% reduction. Best on machines and cables.',
     focusNote:{general:'Drop 20%, aim for 8-12 reps.',power:'Not needed for strength goals. Use ordinary sets with full rests.',muscle:'Drop 20%, aim for 8-12 reps. Extends set beyond failure for hypertrophy.',tone:'Drop 20%, aim for 10-15 reps. Keeps metabolic stress high.',endurance:'Drop 20%, push to near-failure (15-20 reps). Maximizes endurance fiber recruitment.'},
-    tips:['Only on the LAST set of an exercise.','Best on machines and cables  --  fast weight changes.','Never on heavy barbell compounds.','Drop Sets do NOT count toward progression.']},
+    tips:['Added as an extra set after your work sets — your work sets stay intact.','Best on machines and cables  --  fast weight changes.','Never on heavy barbell compounds.','Drop Sets do NOT count toward progression.']},
   fl:{name:'Failure Set',desc:'Train until you cannot complete another rep with good form.',
     how:'Perform reps until the muscle gives out. Log actual reps achieved. Best on the final set of isolation and machine exercises. For Power focus, stop 1-2 reps before failure instead.',
     focusNote:{general:'Go to form failure on your last set. Log actual reps.',power:'NOT recommended on compounds. Leave 1-2 reps in reserve. Isolation only.',muscle:'Optional on stable isolation exercises; failure is not required for growth.',tone:'Failure on last isolation set keeps intensity high.',endurance:'Optional; stop before technique fails.'},
@@ -13771,7 +13919,11 @@ var SET_TYPE_INFO = {
   rp:{name:'Rest-Pause Set',desc:'One extended set broken into mini-clusters with 10-15 second rests.',
     how:'Rep to near-failure (1-2 reps in reserve). Rest 10-15 seconds. Rep again. Rest 10-15 seconds. One more cluster. Log TOTAL reps across all clusters as one set.',
     focusNote:{general:'~3 clusters, 12-15 total reps at working weight.',power:'Not automatically prescribed. Heavy clusters need careful load and fatigue management.',muscle:'~3 clusters of 5-6 reps (15-18 total). Proven for hypertrophy at heavy loads.',tone:'~3-4 clusters, 18-22 total reps.',endurance:'~4 clusters, 20-25 total reps. Builds serious work capacity.'},
-    tips:['Keep working weight  --  do NOT reduce it.','10-15 seconds rest only.','Log total reps across ALL clusters.','Rest-Pause sets do NOT count toward progression.']}
+    tips:['Keep working weight  --  do NOT reduce it.','10-15 seconds rest only.','Log total reps across ALL clusters.','Rest-Pause sets do NOT count toward progression.']},
+  cl:{name:'Cluster Set',desc:'Your work-set load and reps, split into mini-sets with ~20 second pauses.',
+    how:'Take the prescribed reps in pieces — e.g. 4 reps as 2 + 2, or 5 as 2 + 2 + 1 — racking or holding the weight for 15–30 seconds between pieces. Every rep stays fast and crisp. Log the TOTAL reps as one set.',
+    focusNote:{general:'Not prescribed automatically.',power:'Auto-added on your main lift: one extra high-quality heavy set. Clusters keep bar speed and force up within the set (Latella 2019); long-term strength gains match straight sets.',hybrid:'Auto-added on the main lift for one more crisp heavy set.',muscle:'Not prescribed automatically; rest-pause and drop sets suit hypertrophy better.',tone:'Not prescribed automatically.',endurance:'Not prescribed automatically.'},
+    tips:['Same load as your work sets.','Rack or hold the bar for 15–30 s between mini-sets.','Stop a piece early if speed drops sharply.','Cluster sets do NOT count toward progression or records.']}
 };
 
 function openSetTypeInfo(typeCode){
@@ -13821,7 +13973,7 @@ function getWorkingWeight(ei){
   if(!ex) return 0;
   var exName=S.swaps[k+':'+ei]?S.swaps[k+':'+ei].n:ex.n;
   var fp=getFocusParams();
-  var wPct=fp?fp.weightPct:1.0;
+  var wPct=focusLoadFactor(getWorkoutFocus(),ex.reps);
   var prog=getProgression(exName, ex.reps||[8,12], ex.sets||3, wPct);
   return prog.weight||0;
 }
@@ -13878,6 +14030,10 @@ function autoFillSetType(ei, si, newType){
     // Failure: same weight as working, reps blank
     sets[si].weight = workingW>0 ? String(workingW) : (sets[si].weight||'');
     sets[si].reps   = ''; // user fills in actual reps
+  } else if(newType==='cl'){
+    // Cluster: same load as the work sets, the work-set reps split by short pauses
+    sets[si].weight = workingW>0 ? String(workingW) : (sets[si].weight||'');
+    sets[si].reps   = String((fm.reps&&fm.reps[0])||4);
   } else if(newType==='rp'){
     // Rest-Pause: same weight, target total reps
     sets[si].weight = workingW>0 ? String(workingW) : (sets[si].weight||'');
@@ -13897,6 +14053,7 @@ function removeDropSet(ei, si){
   if(!sess||!sess.gym||!sess.gym.exercises[ei]) return;
   var sets=sess.gym.exercises[ei].sets;
   if(!sets[si]||sets[si].type!=='ds') return;
+  if(sets[si].spec) sess.gym.exercises[ei].specRemoved='ds';
   sets.splice(si, 1);
   saveS();
   buildTodayWorkout();
@@ -13917,6 +14074,7 @@ function removeExtraSet(ei, si){
     showToast('⛔ '+MIN_WORK_SETS+' work sets is the minimum on every exercise');
     return;
   }
+  if(sets[si].spec) sess.gym.exercises[ei].specRemoved=sets[si].type;
   sets.splice(si, 1);
   saveS();
   buildTodayWorkout();
@@ -15721,7 +15879,8 @@ function renderTimerBar(){
     btns.innerHTML=(_wTimerPaused
         ?'<button class="wt-btn wt-resume" onclick="resumeWorkoutTimer()">▶ Resume</button>'
         :'<button class="wt-btn wt-pause" onclick="pauseWorkoutTimer()">⏸ Pause</button>')
-      +'<button class="wt-btn wt-end" onclick="endWorkoutTimer()">'+endLbl+'</button>';
+      +'<button class="wt-btn wt-end" onclick="endWorkoutTimer()">'+endLbl+'</button>'
+      +'<button class="wt-btn wt-discard" onclick="discardWorkout()" title="End without saving" aria-label="End without saving">🗑</button>';
   }
   var sub=el('wTimerSub');
   if(sub) sub.textContent=!_wTimerActive?'Workout time':(_wTimerPaused?'Paused':'In progress...');
@@ -15812,7 +15971,7 @@ function endWorkoutTimer(){
   }catch(e){}
   var msg=complete
     ? 'Finish the workout? '+mins+' min on the clock — all exercises are logged. Save it to your history now?'
-    : 'End early at '+mins+' min? '+remaining+' exercise'+(remaining===1?'':'s')+' still have unlogged sets. Save what you have done so far?';
+    : 'End early at '+mins+' min? '+remaining+' exercise'+(remaining===1?'':'s')+' still have unlogged sets. Save what you have done so far? (To stop without recording anything, use 🗑 End Without Saving.)';
   showConfirm(msg,function(){
     _stopWorkoutClock(k);
     showToast(complete?('🏁 Workout complete — '+mins+' min'):('■ Ended early — '+mins+' min'));
@@ -15821,6 +15980,31 @@ function endWorkoutTimer(){
     // "Cancel" leaves the workout running but pauses the clock, so the time spent
     // deciding is not charged to the session.
     if(!_wTimerPaused) pauseWorkoutTimer();
+  });
+}
+
+// End the workout WITHOUT recording it: clears the day's logged sets, cardio and
+// workout clock. History is never touched — a workout already saved for the day stays
+// exactly as saved (use History to delete that).
+function discardWorkout(){
+  var k=dKey(vDate), sess=S.sessions[k], key=(cMode==='home')?'home':'gym';
+  var g=sess&&sess[key];
+  if(!g){showToast('Nothing to discard');return;}
+  var saved=S.history.some(function(h){return h.date===k&&h.type===(key==='home'?'home':'gym');});
+  var msg=saved
+    ? 'Discard the changes on screen? The workout already saved for this day stays in your history.'
+    : 'End this workout without saving it? Logged sets, cardio and the workout clock are cleared and nothing is added to your history.';
+  showConfirm(msg,function(){
+    if(_wTimerInterval){clearInterval(_wTimerInterval);_wTimerInterval=null;}
+    _wTimerActive=false;_wTimerPaused=false;_wTimerElapsed=0;_wTimerStart=null;
+    try{stopTimer();}catch(e){}
+    try{clearAllCardioTimers();}catch(e){}
+    Object.keys(S.swaps||{}).forEach(function(sk){if(sk.indexOf((key==='home'?'home:':'')+k+':')===0) delete S.swaps[sk];});
+    sess[key]={exercises:{},cardio:{},cardioBlocks:{},intensity:g.intensity||(S.setup&&S.setup.defaultIntensity)||'standard'};
+    saveS();
+    try{refreshWakeLock();}catch(e){}
+    buildTodayWorkout();
+    showToast(saved?'Changes discarded':'Workout discarded — nothing recorded');
   });
 }
 
@@ -25356,6 +25540,102 @@ function applySmartSetTypes(k){
   gym.smartNote=null;
 }
 
+// ── SPECIALTY SETS BY FOCUS ────────────────────────────────────────────────
+// Each focus gets the technique whose evidence matches its goal. Every specialty set is
+// an EXTRA set after the work sets — never a converted work set — so the three-work-set
+// floor and the "three straight work sets" progression rule are untouched, and the
+// specialty set itself never counts toward records or progression.
+//  · Build Strength / Muscle + Strength: one CLUSTER set on the main lift (same load,
+//    reps split by ~20 s pauses). Clusters preserve bar speed and force across a set
+//    (Latella et al. 2019 meta-analysis); chronic strength gains match straight sets
+//    (Jukic et al. 2021; Davies et al. 2021), so it buys one more quality set, not magic.
+//  · Build Muscle: a DROP set on the last isolation exercises, and one set taken to
+//    technical FAILURE on a machine/cable isolation — drop sets match traditional sets
+//    for hypertrophy in far less time (Sødal et al. 2023), failure adds a small extra
+//    stimulus (Refalo et al. 2023) and is kept off free-weight compounds for safety.
+//  · Lose & Tone: DROP sets on two isolation exercises — the most time-efficient way to
+//    keep volume high while cutting.
+//  · Endurance: REST-PAUSE on accessories — greater local muscular endurance gains than
+//    straight sets (Prestes et al. 2019).
+//  · General Fitness: one DROP set on the final isolation exercise.
+// Supersets are a separate, independently switchable technique (see computeAutoSupersets).
+var SPECIALTY_BY_FOCUS={
+  power:    [{type:'cl',pick:'main',n:1}],
+  hybrid:   [{type:'cl',pick:'main',n:1},{type:'rp',pick:'acc',n:1}],
+  muscle:   [{type:'ds',pick:'iso',n:2},{type:'fl',pick:'isoMachine',n:1}],
+  tone:     [{type:'ds',pick:'iso',n:2}],
+  endurance:[{type:'rp',pick:'acc',n:2}],
+  general:  [{type:'ds',pick:'iso',n:1}]
+};
+function specialtySetsOn(){ return _advSuggestEnabled!==false&&!(S.prefs&&S.prefs.specialtySets===false); }
+// Which exercise (by list index) gets which specialty set type for this focus.
+function planSpecialtySets(exs,focus,intensity,exData){
+  var plan={}, rules=SPECIALTY_BY_FOCUS[focus]||[];
+  if(intensity==='quick') rules=rules.slice(0,1).map(function(r){return Object.assign({},r,{n:1});});
+  function ok(i){
+    var e=exs[i], d=exData&&exData[i];
+    if(!e||e.carried||plan[i]||(d&&d.skipped)) return false;
+    if(e.n==='Plank'||e.n==='Side Plank'||/hold|hang|carry|walk/i.test(e.n)) return false; // timed / loaded-carry work
+    if(isAssistanceExercise(e.n)) return false;
+    return true;
+  }
+  function freeCompound(n){ var t=getExType(n); return isCompound(n)&&(t==='compound'||t==='compound_db'); }
+  function multiJoint(i){ var n=exs[i].n; return isCompound(n)||isMainStrengthMovement(n)||(exs[i].p!=null&&exs[i].p<=1)||/press|squat|deadlift|lunge|row|pull-?up|chin-?up|dip/i.test(n); }
+  function machineLike(n){ var t=getExType(n); return t==='machine'||t==='cable'||t==='plate_machine'; }
+  rules.forEach(function(r){
+    var idxs=exs.map(function(_,i){return i;}).filter(ok), chosen=[];
+    if(r.pick==='main') chosen=idxs.filter(function(i){return isMainStrengthMovement(exs[i].n)&&getExType(exs[i].n)!=='bodyweight';}).slice(0,r.n);
+    else{
+      var cand=idxs.filter(function(i){
+        var n=exs[i].n, t=getExType(n);
+        if(r.type==='ds'&&t==='bodyweight') return false;          // nothing to drop
+        if(r.pick==='iso') return !multiJoint(i);
+        if(r.pick==='isoMachine') return !multiJoint(i)&&machineLike(n);
+        return !freeCompound(n)&&!(exs[i].p!=null&&exs[i].p<=1);   // 'acc'
+      });
+      // No single-joint work today (e.g. a short Build Muscle upper day): a machine or
+      // cable lift takes a drop set safely; free-weight compounds never do.
+      if(!cand.length&&r.type==='ds') cand=idxs.filter(function(i){return machineLike(exs[i].n);});
+      chosen=cand.slice(-r.n); // finishers: the last eligible exercises of the day
+    }
+    chosen.forEach(function(i){plan[i]=r.type;});
+  });
+  return plan;
+}
+// Bring each exercise's specialty extra in line with the plan. Logged specialty sets are
+// never touched; an unlogged one is added, retyped or removed. A specialty set the user
+// deleted stays deleted for that exercise (exD.specRemoved). Saved/past sessions are
+// left exactly as they are.
+function applySpecialtySets(k,sess,exs,focus,intensity){
+  if(!isLiveSession(k)) return;
+  var on=specialtySetsOn(), plan=on?planSpecialtySets(exs,focus,intensity,sess.exercises):{}, changed=false;
+  exs.forEach(function(ex,i){
+    if(!sess.exercises[i]) sess.exercises[i]={sets:[]};
+    var d=sess.exercises[i], want=plan[i];
+    var specs=d.sets.filter(function(x){return x.spec;});
+    var doneSpec=specs.some(function(x){return x.done;});
+    // drop unlogged extras that no longer belong
+    var before=d.sets.length;
+    d.sets=d.sets.filter(function(x){return !x.spec||x.done||(want&&x.type===want);});
+    if(d.sets.length!==before) changed=true;
+    if(!want||doneSpec||d.specRemoved===want) return;
+    if(d.sets.some(function(x){return x.spec&&x.type===want;})) return;
+    // pad the work sets first so the extra always sits after them
+    while(d.sets.filter(function(x){return !x.spec&&(x.type||'wk')!=='wu';}).length<(ex.sets||MIN_WORK_SETS)) d.sets.push({weight:'',reps:'',done:false});
+    d.sets.push({weight:'',reps:'',done:false,type:want,spec:true,auto:true,autoR:true});
+    changed=true;
+  });
+  if(changed) saveS();
+}
+// Suggested load/reps for a specialty extra, from the exercise's own working target.
+function specialtySetTarget(type,ex,workLbs,focus){
+  var fm=FOCUS_META[focus]||FOCUS_META.general;
+  if(type==='ds') return {w:workLbs>0?snapToLoadable(ex.n,workLbs*0.80,'down'):0, r:String(fm.dsReps[0]||10)};
+  if(type==='rp') return {w:workLbs, r:String(fm.rpReps||12)};
+  if(type==='cl') return {w:workLbs, r:String(ex.reps||4)};
+  return {w:workLbs, r:''}; // failure: log what you actually get
+}
+
 
 function dismissSmartNote(k){
   var key = (k && typeof k === 'string') ? k : dKey(vDate);
@@ -25574,7 +25854,7 @@ function addExtraSet(ei, typeCode){
   try{_ok=autoFillSetType(ei,newSi,typeCode);}catch(e){console.warn('autoFillSetType failed:',e);}
   if(_ok===false){ exData.sets.pop(); return; }
   saveS(); buildTodayWorkout();
-  var names={wk:'Work set',wu:'Warm-Up',ds:'Drop Set',fl:'Failure Set',rp:'Rest-Pause'};
+  var names={wk:'Work set',wu:'Warm-Up',ds:'Drop Set',fl:'Failure Set',rp:'Rest-Pause',cl:'Cluster'};
   showToast('Added: '+(names[typeCode]||typeCode));
 }
 
@@ -27913,12 +28193,9 @@ function buildSwapWorkoutBanner(k){
   if(!banner) return;
   var dtype=getDayType(k);
   if(dtype!=='gym'&&dtype!=='both'){banner.style.display='none';return;}
-  // Only show if no sets have been logged yet today
-  var sess=S.sessions[k]&&S.sessions[k].gym;
-  var hasLoggedSets=sess&&Object.values(sess.exercises||{}).some(function(exD){
-    return (exD.sets||[]).some(function(s){return s.done;});
-  });
-  if(hasLoggedSets){banner.style.display='none';return;}
+  // A saved or past workout keeps what was done; a live one can be switched any time,
+  // as often as wanted — logged sets are carried into the new plan.
+  if(!isLiveSession(k)){banner.style.display='none';return;}
   var currentSplit=getEffTpl(k);
   var currentTpl=WTPL[currentSplit];
   // Find last session with same split to enable Repeat button
@@ -28062,16 +28339,10 @@ function confirmSplitSwitch(newSplit){
   var k=dKey(vDate);
   var currentSplit=getEffTpl(k);
   if(newSplit===currentSplit){closeModal('splitSwitcherModal');return;}
-  showConfirm('Switch to '+WTPL[newSplit].focus+'? This clears any in-progress sets and shifts remaining workouts forward.',function(){
-    // Clear today's session
-    if(S.sessions[k]&&S.sessions[k].gym){
-      S.sessions[k].gym={exercises:{},cardio:{},cardioBlocks:{},intensity:S.sessions[k].gym.intensity||'standard',exOrder:null};
-    }
-    // Set today's split override
-    if(!S.dayConfig[k]) S.dayConfig[k]={};
-    S.dayConfig[k].split=newSplit;
-    // Shift remaining gym days forward
-    shiftWeekSplitsForward(k, currentSplit, newSplit);
+  var _gs=S.sessions[k]&&S.sessions[k].gym;
+  var _hasLogged=_gs&&sessionHasActivity(_gs);
+  showConfirm('Switch to '+WTPL[newSplit].focus+'? '+(_hasLogged?'Sets you have already logged are kept; the rest of the workout is rebuilt.':'The workout is rebuilt for the new split.')+' The workout you skip moves to your next gym day.',function(){
+    applyTodaySplitSwitch(k,newSplit);
     saveS();
     closeModal('splitSwitcherModal');
     buildTodayWorkout();
@@ -28081,7 +28352,33 @@ function confirmSplitSwitch(newSplit){
   });
 }
 
-function shiftWeekSplitsForward(todayKey, skippedSplit, newSplit){
+// Switch a day's split from the Today page. The first switch moves the planned
+// workout to the next gym day (shiftWeekSplitsForward). Switching again — any number
+// of times — first undoes that shift, so the week is never shifted twice, and switching
+// back to the originally planned split leaves the rest of the week exactly as it was.
+function applyTodaySplitSwitch(k,newSplit){
+  if(!S.dayConfig[k]) S.dayConfig[k]={};
+  var cfg=S.dayConfig[k], prior=cfg.todaySwitch;
+  var original=prior?prior.orig:getEffTpl(k);
+  if(prior&&prior.changed){
+    Object.keys(prior.changed).forEach(function(dk){
+      var c=S.dayConfig[dk]; if(!c||c.split!==prior.changed[dk].set) return; // user edited it since: leave it
+      if(prior.changed[dk].prev==null) delete c.split; else c.split=prior.changed[dk].prev;
+    });
+  }
+  delete cfg.todaySwitch;
+  if(newSplit===original){
+    if(prior&&prior.prevSplit!==undefined){ if(prior.prevSplit==null) delete cfg.split; else cfg.split=prior.prevSplit; }
+    else cfg.split=newSplit;
+    return;
+  }
+  var record={orig:original,prevSplit:prior?prior.prevSplit:(cfg.split===undefined?null:cfg.split),changed:{}};
+  cfg.split=newSplit;
+  shiftWeekSplitsForward(k, original, newSplit, record.changed);
+  cfg.todaySwitch=record;
+}
+
+function shiftWeekSplitsForward(todayKey, skippedSplit, newSplit, changedOut){
   // Find remaining gym days this week (after today) that don't have history logged
   var today=new Date(todayKey+'T12:00:00');
   var gymDays=S.setup.gymDays.slice().sort(function(a,b){return a-b;});
@@ -28108,7 +28405,9 @@ function shiftWeekSplitsForward(todayKey, skippedSplit, newSplit){
   var newSequence=[skippedSplit].concat(currentSequence.slice(0,currentSequence.length-1));
   upcoming.forEach(function(u,i){
     if(!S.dayConfig[u.key]) S.dayConfig[u.key]={};
+    var _prev=S.dayConfig[u.key].split;
     S.dayConfig[u.key].split=newSequence[i];
+    if(changedOut) changedOut[u.key]={prev:_prev===undefined?null:_prev,set:newSequence[i]};
   });
 }
 

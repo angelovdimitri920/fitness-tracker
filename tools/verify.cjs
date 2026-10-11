@@ -19,7 +19,7 @@ let server, browser;
     server=spawn(process.execPath,[path.join(__dirname,'serve.js'),'18753'],{windowsHide:true});
     await new Promise((resolve,reject)=>{server.stdout.once('data',resolve);server.once('error',reject);server.once('exit',code=>reject(new Error(`Server exited: ${code}`)));});
   }
-  browser = await chromium.launch({ headless: true, ...(process.env.BROWSER_CHANNEL ? {channel:process.env.BROWSER_CHANNEL} : process.platform==='win32'?{channel:'msedge'}:{}) });
+  browser = await chromium.launch({ headless: true, ...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {}), ...(process.env.CHROMIUM_PATH ? {} : process.env.BROWSER_CHANNEL ? {channel:process.env.BROWSER_CHANNEL} : process.platform==='win32'?{channel:'msedge'}:{}) });
   const page = await browser.newPage({ viewport: { width: 430, height: 932 } });
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -345,7 +345,7 @@ let server, browser;
   await page.waitForSelector('#confirmModal.show');
   await page.locator('#confirmModal button').filter({hasText:/confirm|yes|restore/i}).last().click();
   await page.waitForTimeout(200);
-  results.push({name:'backup restored through real file picker',pass:await page.evaluate(()=>S.weekFocus==='tone'&&S.history.length===1&&S.history[0].notes==='backup regression'&&S.history[0].exercises[0].sets[0].weight==='100'&&Object.values(S.nutLog)[0].lunch[0].n==='Backup meal')});
+  results.push({name:'backup restored through real file picker',pass:await page.evaluate(()=>S.weekFocus==='tone'&&S.history.length===1&&S.history[0].notes==='backup regression'&&S.history[0].exercises[0].sets[0].weight==='100'&&Object.values(S.nutLog).some(d=>d&&d.lunch&&d.lunch[0]&&d.lunch[0].n==='Backup meal'))});
   await page.evaluate(()=>navigator.serviceWorker.ready);
   await page.context().setOffline(true);await page.reload();
   await page.waitForFunction(()=>typeof S!=='undefined'&&S.weekFocus==='tone');
