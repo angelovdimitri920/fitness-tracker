@@ -443,7 +443,12 @@ let server, browser;
     test('home loads are real: GMWD bumper combos, one 20 lb kettlebell, doorframe bar limits', () => {
       homeReset('hpush'); const perArm=gmwdPerArmLoads();
       check(JSON.stringify(perArm)===JSON.stringify([10,15,25,35,40,45,50,55,60,70,75,80,85,90,95,105,115,120,130]),'per-arm loads '+perArm);
-      check(!isLoadableWeight('GMWD Chest Press (Flat)',40)&&isLoadableWeight('GMWD Chest Press (Flat)',50),'two-arm totals wrong');
+      // Totals include the two ~10 lb arms: empty = 20, then 20 + 2 x (per-arm plates).
+      check(getBaseWeight('GMWD Chest Press (Flat)')===20&&getBaseWeight('GMWD Single-Arm Press')===10,'arm weight not included');
+      check(isLoadableWeight('GMWD Chest Press (Flat)',20)&&isLoadableWeight('GMWD Chest Press (Flat)',40)&&!isLoadableWeight('GMWD Chest Press (Flat)',30)&&!isLoadableWeight('GMWD Chest Press (Flat)',60),'two-arm totals wrong');
+      check(isLoadableWeight('GMWD Single-Arm Press',55)&&!isLoadableWeight('GMWD Single-Arm Press',30),'single-arm totals wrong');
+      check(snapToLoadable('Weighted Vest Push-Up',4)===20&&snapToLoadable('Weighted Vest Push-Up',40)===32,'vest range not 20-32');
+      check(!getAvailableCardioOptions().some(o=>/incline/i.test(o.n)),'incline treadmill offered at home');
       check(snapToLoadable('Kettlebell Goblet Squat',45)===20,'kettlebell not fixed at 20');
       const eq=getHomeEquipment(); check(isExerciseAvailable('Pull-Ups',eq)&&isExerciseAvailable('Dead Hang',eq),'doorframe bar unusable');
       check(!isExerciseAvailable('Muscle-Up',eq),'muscle-ups allowed on a doorframe bar');
@@ -453,6 +458,52 @@ let server, browser;
     test('home swaps are kept apart from the gym workout', () => {
       const k=homeReset('hpush'); doSwap(1,'Diamond Push-Up','Triceps');
       check(S.swaps['home:'+k+':1'],'home swap not stored'); check(!S.swaps[k+':1'],'home swap leaked to gym');
+      cMode='gym';
+    });
+    // ── Review follow-ups ────────────────────────────────────────────────────────
+    test('applying a saved template on a live day stays pinned (not undone by the re-planner)', () => {
+      const k=liveReset('upper'); buildTodayWorkout();
+      S.workoutTemplates=[{id:1,v:2,name:'Test tpl',baseSplit:'upper',intensity:'full',focus:'tone',exercises:[{n:'Pec Deck / Fly Machine',t:'Chest',sets:3,reps:12,rest:60},{n:'Lat Pull-Down Machine',t:'Back',sets:3,reps:12,rest:60},{n:'Leg Extension Machine',t:'Quads',sets:3,reps:12,rest:60}]}];
+      applyWorkoutTemplate(1); const g=S.sessions[k].gym;
+      check(g.exListPinned&&names(g).join()==='Pec Deck / Fly Machine,Lat Pull-Down Machine,Leg Extension Machine','template undone: '+names(g));
+    });
+    test('home lifts read home history for last-session, PREV and stall checks', () => {
+      const k=homeReset('hpush'); const n=S.sessions[k].home.exList[0].n;
+      S.history.push({id:1,date:'2026-09-01',type:'home',exercises:[{name:n,sets:[set(100,10),set(100,10),set(100,10)]}]});
+      check(getLastExSessionSets(n)&&getLastExSessionSets(n).sets.length===3,'home history ignored');
+      check(getPrevBest(n,0)!=null,'PREV ignores home history');
+      cMode='gym';
+    });
+    test('changing an auto specialty set\'s type keeps the user\'s choice', () => {
+      const k=liveReset('push'); _advSuggestEnabled=true; S.weekFocus='tone'; buildTodayWorkout(); const g=S.sessions[k].gym;
+      const ei=g.exList.findIndex((e,i)=>g.exercises[i].sets.some(s=>s.spec)); check(ei>=0,'no specialty set');
+      const si=g.exercises[ei].sets.findIndex(s=>s.spec); updateSetType(ei,si,'fl',null);
+      const after=S.sessions[k].gym.exercises[ei].sets; check(after[si]&&after[si].type==='fl'&&!after[si].spec,'type change reverted');
+      check(!after.some(s=>s.spec&&s.type==='ds'),'drop set re-added');
+      _advSuggestEnabled=false;
+    });
+    test('exercise notes follow their exercise through a re-plan', () => {
+      const k=liveReset('upper'); buildTodayWorkout(); const g=S.sessions[k].gym; const first=g.exList[0].n;
+      g.exercises[0].sets[0]=set(100,10); saveExNote(0,'elbows in'); setWeeklyFocus('power');
+      const n=S.sessions[k].gym, i=names(n).indexOf(first);
+      check(n.exNotes[i]==='elbows in','note moved: '+JSON.stringify(n.exNotes));
+      check(Object.values(n.exNotes).filter(v=>v==='elbows in').length===1,'note duplicated');
+    });
+    test('the day\'s home split stays fixed when the gym plan changes', () => {
+      const k=homeReset(); const sp=wkTpl(k); const h=S.sessions[k].home; h.exercises[0].sets[0]={...h.exercises[0].sets[0],reps:'8',done:true}; saveS();
+      cMode='gym'; S.dayConfig[k].split=sp==='hlegs'?'push':'lower'; buildTodayWorkout(); switchMode('home');
+      check(wkTpl(k)===sp,'home split changed '+sp+' → '+wkTpl(k)); check(!S.sessions[k].home.exList.some(e=>e.carried),'home workout re-planned');
+      cMode='gym';
+    });
+    test('a saved day cannot be wiped by End Without Saving', () => {
+      const k=liveReset('upper'); buildTodayWorkout(); S.sessions[k].gym.exercises[0].sets[0]=set(100,10); doSaveWorkout(3,'saved');
+      const before=JSON.stringify(S.sessions[k].gym.exercises); discardWorkout();
+      check(JSON.stringify(S.sessions[k].gym.exercises)===before,'saved session wiped'); check(S.history.length===1,'history changed');
+    });
+    test('the Home tab keeps its session while other pages see the real gym', () => {
+      const k=homeReset('hpush'); switchPage('equipment'); check(getActiveGym().id!==HOME_PROFILE_ID,'equipment page sees the home profile');
+      check(GS(k)===S.sessions[k].home,'home session lost while parked');
+      switchPage('today'); check(cMode==='home'&&getActiveGym().id===HOME_PROFILE_ID,'home not restored');
       cMode='gym';
     });
     reset(); saveS();

@@ -4486,7 +4486,7 @@ if(allCompleted && lastW > 0){
 // the bench / overhead-press working weights and let the first logged session take over.
 if(/^GMWD /.test(exName)){
   var _gb=S.strength.bench||135,_go=S.strength.ohp||75;
-  var _gw=/Shoulder/.test(exName)?_go*0.9:/Incline/.test(exName)?_gb*0.45:/Single-Arm/.test(exName)?_gb*0.25:_gb*0.55;
+  var _gw=getBaseWeight(exName)+(/Shoulder/.test(exName)?_go*0.9:/Incline/.test(exName)?_gb*0.45:/Single-Arm/.test(exName)?_gb*0.25:_gb*0.55);
   return {weight:applyMult(_gw),reps:targetReps,sets:targetSets,badge:'est',msg:'conservative start — adjust after the first set'};
 }
 // Step 2b: wearable / fixed home implements — start at the lightest setting.
@@ -4588,7 +4588,7 @@ function getLastExSessionSets(exName){
   var history=priorGymHistory();
   for(var i=0;i<history.length;i++){
     var sess=history[i];
-    if(sess.type!=='gym'||sess.date===dKey(vDate)) continue;
+    if(!isWkHistType(sess)||sess.date===dKey(vDate)) continue;
     for(var j=0;j<(sess.exercises||[]).length;j++){
       var ex=sess.exercises[j];
       if(ex.name===exName&&ex.sets&&ex.sets.length>0){
@@ -5432,6 +5432,9 @@ function buildHomePage(){
 function updateDateDisplay(){var t=isToday(vDate),dn=vDate.toLocaleDateString('en-US',{weekday:'long'}),fd=vDate.toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});el('dateDay').textContent=t?'TODAY · '+dn.toUpperCase():dn.toUpperCase();el('dateFull').textContent=fd;el('dateBack').style.display=t?'none':'block';el('todayTitle').innerHTML=t?"TODAY'S <span style='color:var(--ye)'>WORKOUT</span>":"<span style='color:var(--ye)'>"+dn.toUpperCase()+"'S</span> WORKOUT";}
 function buildWeekStrip(){var dow=vDate.getDay(),_ws=weekStartDow(),mon=new Date(vDate);mon.setDate(vDate.getDate()-((dow-_ws+7)%7));var strip=el('weekStrip');strip.innerHTML='';var td=new Date();td.setHours(0,0,0,0);var SH=['SUN','MON','TUE','WED','THU','FRI','SAT'];for(var i=0;i<7;i++){var d=new Date(mon);d.setDate(mon.getDate()+i);var k=dKey(d),dw=d.getDay(),isV=k===dKey(vDate),isT=d.toDateString()===td.toDateString(),dtype=getDayType(k),isG=(dtype==='gym'||dtype==='both'),isR=(dtype==='run'||dtype==='both'),gD=S.history.some(function(h){return h.date===k&&h.type==='gym';}),rD=S.history.some(function(h){return h.date===k&&h.type==='run';});var cls='dpip';if(isT)cls+=' today';if(isV&&!isT)cls+=' viewing';if(gD)cls+=' done';if(rD)cls+=' rdone';if(!isG&&!isR&&!isT)cls+=' rest';var pip=document.createElement('div');pip.className=cls;pip.innerHTML='<div class="dpn">'+SH[dw]+'</div><div class="dpnum">'+d.getDate()+'</div><div class="dpdot">'+(isG?'<div class="dot gym"></div>':'')+(isR?'<div class="dot run"></div>':'')+'</div>';(function(dd){pip.onclick=function(){vDate=new Date(dd);updateDateDisplay();buildWeekStrip();buildTodayWorkout();};})(d);strip.appendChild(pip);}}
 function buildTodayWorkout(){
+  // The Home workout is only (re)built while the Today page is showing — elsewhere the
+  // active gym is the real gym, and building would re-plan home against it.
+  if(_homeParked) return;
   // Stop any cardio countdowns before the view is rebuilt — their DOM nodes are
   // about to be replaced, so a surviving interval would tick against detached
   // elements and could complete against the wrong day after navigation.
@@ -5856,7 +5859,10 @@ function computeAutoSupersets(exs, midCardByIndex, maxPairs, focus){
 function _replanSession(k,gym){
   gym.exListPinned=false; gym.fromTemplateName=null;
   gym.supersets={}; gym.activeSuperset=undefined; gym.userUnlinkedSupersets=false;
-  gym.exOrder=null; gym.smartNote=null; gym.lastAppliedKey=null;
+  gym.exOrder=null; gym.smartNote=null; gym.lastAppliedKey=null; gym.swapOriginals={};
+  // Exercise notes are keyed by list position: carry them by exercise name instead.
+  var _notes={}; (gym.exList||[]).forEach(function(e,i){ if(gym.exNotes&&gym.exNotes[i]) _notes[e.n]=gym.exNotes[i]; });
+  gym._noteCarry=_notes; gym.exNotes={};
   Object.keys(S.swaps||{}).forEach(function(sk){if(sk.indexOf(swapPrefix(k))===0) delete S.swaps[sk];});
   var cb=gym.cardioBlocks||{}, keep={}, cs=gym.cardioSwaps||{}, keepSw={};
   Object.keys(cb).forEach(function(key){
@@ -5988,6 +5994,7 @@ sess.planKey=_planKey;
 // the legacy template re-filter those consumers used to rebuild, which silently
 // dropped or misattributed logged sets.
 sess.exList=exs.map(function(e){var o={n:e.n,t:e.t,sets:e.sets,reps:e.reps,rest:e.rest,p:e.p};if(e.carried)o.carried=true;if(e.added)o.added=true;return o;});
+if(sess._noteCarry){ sess.exNotes={}; sess.exList.forEach(function(e,i){ if(sess._noteCarry[e.n]) sess.exNotes[i]=sess._noteCarry[e.n]; }); delete sess._noteCarry; }
 // Warm-up cardio — only when the duration plan allocates warm-up time
 // (e.g. Power often skips it to preserve CNS freshness).
 // _usedCardio tracks machines already placed today (by canonical type, see cardioTypeKey)
@@ -7353,7 +7360,7 @@ function sessionAvgRPE(entry){
 function lastRPEFor(exName){
   for(var i=S.history.length-1;i>=0;i--){
     var sess=S.history[i];
-    if(sess.type!=='gym'||!sess.exercises) continue;
+    if(!isWkHistType(sess)||!sess.exercises) continue;
     for(var j=0;j<sess.exercises.length;j++){
       var ex=sess.exercises[j];
       if(ex.name!==exName||!ex.sets) continue;
@@ -7390,7 +7397,7 @@ function getExSessionHistory(exName, limit){
   var sorted=priorGymHistory();
   for(var i=0;i<sorted.length&&out.length<(limit||8);i++){
     var sess=sorted[i];
-    if(sess.type!=='gym'||!sess.exercises) continue;
+    if(!isWkHistType(sess)||!sess.exercises) continue;
     if(sess.date<cutoff) break;
     for(var j=0;j<sess.exercises.length;j++){
       var ex=sess.exercises[j];
@@ -7775,7 +7782,7 @@ function completedCardioCalories(c,bwKg){
 function refreshDiscardBtn(){
   var b=el('discardBtn'); if(!b) return;
   var k=dKey(vDate), key=(cMode==='home')?'home':'gym', g=S.sessions[k]&&S.sessions[k][key];
-  var dt=getDayType(k), show=(key==='home'||dt==='gym'||dt==='both')&&cMode!=='run'&&g&&sessionHasActivity(g);
+  var dt=getDayType(k), show=(key==='home'||dt==='gym'||dt==='both')&&cMode!=='run'&&g&&sessionHasActivity(g)&&!isSessionComplete(k,key);
   b.style.display=show?'block':'none';
 }
 function updateStats(){try{refreshDiscardBtn();}catch(e){}
@@ -7924,7 +7931,7 @@ function updateLiveVolumeCard(k){
       +'</div>';
   }).join('');
 }
-function getPrevBest(name,si){var recent=S.history.slice(-8).reverse();for(var i=0;i<recent.length;i++){var sess=recent[i];if(sess.type!=='gym')continue;for(var j=0;j<(sess.exercises||[]).length;j++){var ex=sess.exercises[j];if(ex.name===name&&ex.sets&&ex.sets[si]&&ex.sets[si].done){var s=ex.sets[si];if(s.weight&&s.reps)return toDisplayWeight(parseFloat(s.weight)||0)+'x'+s.reps;}}}return null;}
+function getPrevBest(name,si){var recent=S.history.slice(-8).reverse();for(var i=0;i<recent.length;i++){var sess=recent[i];if(!isWkHistType(sess))continue;for(var j=0;j<(sess.exercises||[]).length;j++){var ex=sess.exercises[j];if(ex.name===name&&ex.sets&&ex.sets[si]&&ex.sets[si].done){var s=ex.sets[si];if(s.weight&&s.reps)return toDisplayWeight(parseFloat(s.weight)||0)+'x'+s.reps;}}}return null;}
 
 // Skip/unskip an exercise for today only (machine occupied, pain, time). Skipped
 // exercises render as a slim undo card and are excluded from stats and the save.
@@ -8156,6 +8163,9 @@ var FOCUS_PROGRESSION={
 function wkKey(k){ return (cMode==='home'&&k===dKey(vDate))?'home':'gym'; }
 // The split of the workout on screen: the gym plan, or the home rotation (see the
 // Home Workout module).
+// History entries comparable with the workout on screen: gym entries at the gym, home
+// entries at home.
+function isWkHistType(h){ return !!h&&h.type===(isHomeMode()?'home':'gym'); }
 function wkTpl(k){ return (wkKey(k)==='home'&&typeof homeSplitFor==='function')?homeSplitFor(k):getEffTpl(k); }
 function GS(k){ var d=S.sessions&&S.sessions[k]; return d?d[wkKey(k)]:undefined; }
 // Exercise swaps are keyed by list position, so the home workout keeps its own.
@@ -13328,8 +13338,8 @@ var _homeParked=false;
 function switchPage(id,btn){
   // The Home tab is a Today-page mode. Park it while another page is open (so Equipment,
   // Plan etc. always see the real gym profile) and bring it back on return.
-  if(id!=='today'&&cMode==='home'){_homeParked=true;cMode='gym';}
-  else if(id==='today'&&_homeParked){cMode='home';_homeParked=false;}
+  // Home stays the Today mode (its timers keep running); other pages see the real gym.
+  _homeParked=(id!=='today'&&cMode==='home');
   document.querySelectorAll('.page').forEach(function(p){p.classList.remove('active');});
   document.querySelectorAll('.nb').forEach(function(b){b.classList.remove('active');});
   var _pg=el('page-'+id); if(_pg)_pg.classList.add('active'); if(btn&&btn.classList)btn.classList.add('active');
@@ -13657,7 +13667,8 @@ function _perSideLoads(){
 function snapToLoadable(exName, targetLbs, dir){
   if(!(targetLbs>0)) return targetLbs;
   var base=getBaseWeight(exName);
-  if(!(base>0)){
+  var _vl=getExerciseLoading(exName);
+  if(!(base>0)||(_vl.values&&_vl.values.length)){
     var loading=getExerciseLoading(exName),step=loading.step,min=loading.min;
     if(loading.values&&loading.values.length){
       var vals=loading.values.slice().sort(function(a,b){return a-b;}), pickV=vals[0];
@@ -13687,11 +13698,12 @@ function snapToLoadable(exName, targetLbs, dir){
   else pick=(Math.abs(hi-want)<Math.abs(want-lo))?hi:lo;
   return Math.round((base+pick*2)*100)/100;
 }
+var _loadRuleRx={};
 function getExerciseLoading(name){
   var gym=getActiveGym(),config=gym.loading&&gym.loading[name];
   if(config&&config.values&&config.values.length)return {min:Math.min.apply(null,config.values),step:5,max:Math.max.apply(null,config.values),values:config.values};
   if(config&&config.step>0&&config.min>=0&&config.max>=config.min)return config;
-  if(gym.loadingRules){ for(var _li=0;_li<gym.loadingRules.length;_li++){ var _lr=gym.loadingRules[_li]; if(new RegExp(_lr.re,'i').test(name)) return _lr.values?{min:Math.min.apply(null,_lr.values),step:5,max:Math.max.apply(null,_lr.values),values:_lr.values}:{min:_lr.min,step:_lr.step,max:_lr.max}; } }
+  if(gym.loadingRules){ for(var _li=0;_li<gym.loadingRules.length;_li++){ var _lr=gym.loadingRules[_li]; if((_loadRuleRx[_lr.re]||(_loadRuleRx[_lr.re]=new RegExp(_lr.re,'i'))).test(name)) return _lr.values?{min:Math.min.apply(null,_lr.values),step:5,max:Math.max.apply(null,_lr.values),values:_lr.values}:{min:_lr.min,step:_lr.step,max:_lr.max}; } }
   var max=Infinity;
   if(/dumbbell/i.test(name)){
     var limits=(gym.equipment||[]).filter(function(e){return /dumbbell/i.test(e);}).map(function(e){var m=e.match(/(\d+)\s*-\s*(\d+)/);return m?Number(m[2]):Infinity;});
@@ -13723,6 +13735,7 @@ function isLoadableWeight(exName, totalLbs){
 function plateHintFor(exName,totalLbs){
   var base=getBaseWeight(exName);
   if(base<=0) return null;
+  if(/^GMWD /.test(exName)) return null; // home press: its own per-arm bumper hint (gmwdPlateHint)
   var perSide=(totalLbs-base)/2;
   if(perSide<=0) return null;
   var parts=[], rem=perSide;
@@ -14271,14 +14284,11 @@ function getWorkingWeight(ei){
       }
     }
   }
-  // Second: use the progression system (uses history + S.strength as source of truth)
-  var tplKey=wkTpl(k);
-  var tpl=WTPL[tplKey];
-  if(!tpl) return 0;
-  // Use the actual exercise at ei, with swaps applied
-  var ex=tpl.exercises[ei];
+  // Second: use the progression system (uses history + S.strength as source of truth).
+  // The exercise at ei is whatever is rendered there (swaps already applied).
+  var ex=(getRenderedExList(k)||[])[ei];
   if(!ex) return 0;
-  var exName=S.swaps[swapKeyOf(k,ei)]?S.swaps[swapKeyOf(k,ei)].n:ex.n;
+  var exName=ex.n;
   var fp=getFocusParams();
   var wPct=focusLoadFactor(getWorkoutFocus(),ex.reps);
   var prog=getProgression(exName, ex.reps||[8,12], ex.sets||3, wPct);
@@ -14411,6 +14421,7 @@ if(!S.sessions[k]||!GS(k)) return;
 if(!GS(k).exercises[ei]) GS(k).exercises[ei]={sets:[]};
 var sets=GS(k).exercises[ei].sets;
 if(!sets[si]) sets[si]={weight:'',reps:'',done:false};
+if(sets[si]&&sets[si].spec){ GS(k).exercises[ei].specRemoved=sets[si].type; delete sets[si].spec; sets[si].auto=false; sets[si].autoR=false; }
 sets[si].type=val;
 var ok=autoFillSetType(ei,si,val);
 if(ok===false){
@@ -16298,9 +16309,8 @@ function discardWorkout(){
   var g=sess&&sess[key];
   if(!g){showToast('Nothing to discard');return;}
   var saved=S.history.some(function(h){return h.date===k&&h.type===(key==='home'?'home':'gym');});
-  var msg=saved
-    ? 'Discard the changes on screen? The workout already saved for this day stays in your history.'
-    : 'End this workout without saving it? Logged sets, cardio and the workout clock are cleared and nothing is added to your history.';
+  if(saved){ showToast('This workout is already saved — edit it here or delete it from History'); return; }
+  var msg='End this workout without saving it? Logged sets, cardio and the workout clock are cleared and nothing is added to your history.';
   showConfirm(msg,function(){
     if(_wTimerInterval){clearInterval(_wTimerInterval);_wTimerInterval=null;}
     _wTimerActive=false;_wTimerPaused=false;_wTimerElapsed=0;_wTimerStart=null;
@@ -18895,12 +18905,13 @@ function buildNutritionPage(){
   // The home workout is an extra session: its calories add to the day as well.
   var todayHomeEntry = S.history.filter(function(h){return h.date===k&&h.type==='home';}).slice(-1)[0];
   if(todayHomeEntry && todayHomeEntry.calories) activityBurn += todayHomeEntry.calories;
+  else { var _hLive=getWorkoutCalsBurned('home'); if(_hLive>0) activityBurn+=_hLive; }
   if(todayGymEntry && todayGymEntry.calories){
     // Saved session: use stored calories
     activityBurn += todayGymEntry.calories;
   } else {
     // Mid-session: use live calorie counter (same as Cals counter on Today page)
-    var liveCals = getWorkoutCalsBurned();
+    var liveCals = getWorkoutCalsBurned('gym');
     if(liveCals > 0) activityBurn += liveCals;
   }
   if(todayRunEntry && todayRunEntry.distance){
@@ -25802,11 +25813,12 @@ var CARDIO_MET = {
 
 // estimateWorkoutCalories() removed  --  superseded by getWorkoutCalsBurned()
 
-function getWorkoutCalsBurned(){
+function getWorkoutCalsBurned(keyOverride){
   // Mirrors updateStats() logic exactly so save prompt matches the live Cals counter
   var k = dKey(vDate);
   var sess = S.sessions[k];
-  if(!sess || !sess[wkKey(k)]) return 0;
+  var _wk = keyOverride || wkKey(k);
+  if(!sess || !sess[_wk]) return 0;
 
   var bw = (S.weights && S.weights.length) ? S.weights[S.weights.length-1].w : 200;
   var bwKg = bw / 2.205;
@@ -25816,7 +25828,7 @@ function getWorkoutCalsBurned(){
 
   // Lifting calories: count actual done sets (same MET logic as updateStats)
   var liftingCals = 0;
-  Object.entries(sess[wkKey(k)].exercises||{}).forEach(function(entry){
+  Object.entries(sess[_wk].exercises||{}).forEach(function(entry){
     var ei=parseInt(entry[0]), exD=entry[1];
     if(exD.skipped)return;
     var exName=(S.swaps[swapKeyOf(k,ei)]&&S.swaps[swapKeyOf(k,ei)].n)||(exs[ei]&&exs[ei].n)||'';
@@ -25832,7 +25844,7 @@ function getWorkoutCalsBurned(){
 
   // Cardio calories: read cardioBlocks (live storage), same done-gate as updateStats
   var cardioCals = 0;
-  completedCardioBlocks(sess[wkKey(k)]).forEach(function(c){cardioCals+=completedCardioCalories(c,bwKg);});
+  completedCardioBlocks(sess[_wk]).forEach(function(c){cardioCals+=completedCardioCalories(c,bwKg);});
 
   return Math.round(liftingCals + cardioCals);
 }
@@ -28051,6 +28063,7 @@ function getAvailableCardioOptions(){
   if(!gym || !gym.equipment) return CARDIO_OPTIONS;
   // Filter by gym equipment. Handle name variants (e.g. Treadmill Incline Walk vs Treadmill (Incline Walk))
   return CARDIO_OPTIONS.filter(function(opt){
+    if(gym.noIncline && /incline/i.test(opt.n)) return false; // e.g. the home treadmill has no incline
     if(gym.equipment.indexOf(opt.n) >= 0) return true;
     // Try variant name without parentheses
     var altName = opt.n.replace(/\s*\([^)]*\)/g,'').trim();
@@ -29181,6 +29194,7 @@ function getEquipmentSafeCardio(defaultObj, tplKey, excludeNames){
   function isAvailable(name){
     if(!name) return false;
     if(!gym || !gym.equipment || !gym.equipment.length) return false;
+    if(gym.noIncline && /incline/i.test(name)) return false;
     // Normalize legacy names
     var _normGymEquip = gym.equipment.map(function(e){
       if(e==='Olympic Barbell (45 lb)') return 'Olympic Barbells';
@@ -29210,8 +29224,9 @@ function getEquipmentSafeCardio(defaultObj, tplKey, excludeNames){
     return excl.indexOf(cardioTypeKey(name)) >= 0;
   }
 
-  // Use default only if BOTH available AND not excluded
-  if(isAvailable(defaultObj.n) && !isExcluded(defaultObj.n)) return defaultObj;
+  // Use default only if BOTH available AND not excluded. At home there is one treadmill;
+  // warm-up and finisher sharing it is not a duplicate machine, it is the only machine.
+  if(isAvailable(defaultObj.n) && (!isExcluded(defaultObj.n) || gym.isHome)) return defaultObj;
 
   // Build list of available machines at this gym
   var avail;
@@ -29720,6 +29735,8 @@ function applyWorkoutTemplate(id){
     }
   });
   if(tmpl.supersets){Object.keys(tmpl.supersets).forEach(function(a){gym.supersets[parseInt(a)]=parseInt(tmpl.supersets[a]);});}
+  // The template IS the plan now: record its key so the live re-planner doesn't undo it.
+  gym.planKey=sessionPlanKey(k);
   saveS();
   closeModal('loadTemplateModal');
   buildTodayWorkout();
@@ -30548,29 +30565,39 @@ function gmwdPlatesFor(perArm){
 // the plates on BOTH arms (single-arm: one arm); add the empty-arm resistance with ⚖️
 // once measured. Vest / ankle ranges are adjustable defaults — edit on the card.
 function homeLoadingRules(){
-  var perArm=gmwdPerArmLoads();
-  return [
-    {re:'^GMWD Single-Arm',values:perArm},
-    {re:'^GMWD ',values:perArm.map(function(v){return v*2;})},
+  var perArm=[0].concat(gmwdPerArmLoads()), rules=[];
+  // Logged weight = arms + plates (the true total, as for every machine). Each arm is
+  // ~10 lb empty (user-measured); a ⚖️ correction on the card replaces it.
+  GMWD_EXERCISES.forEach(function(n){
+    var single=/Single-Arm/.test(n), base=getBaseWeight(n);
+    rules.push({re:'^'+n.replace(/[()]/g,'\\$&')+'$',values:perArm.map(function(v){return base+(single?v:v*2);})});
+  });
+  return rules.concat([
     {re:'kettlebell',values:[20]},
     {re:'medicine ball',values:[10]},
-    {re:'^weighted vest|vest pull|vest chin',min:4,step:2,max:32},
+    // APEXUP 20–32 lb vest: 20 lb shell + six 2 lb iron-sand packs.
+    {re:'^weighted vest|vest pull|vest chin',min:20,step:2,max:32},
     {re:'^ankle weight',min:1,step:1,max:5},
     {re:'^bumper plate|wrist roller|plate squat',values:[10,15,25,35,45]}
-  ];
+  ]);
 }
+var GMWD_EXERCISES=['GMWD Chest Press (Flat)','GMWD Incline Press','GMWD Shoulder Press','GMWD Single-Arm Press'];
+var GMWD_ARM_LBS=10;
+GMWD_EXERCISES.forEach(function(n){ BASE_WEIGHT_EXACT[n]=/Single-Arm/.test(n)?GMWD_ARM_LBS:GMWD_ARM_LBS*2; });
 function getHomeProfile(){
   if(!S.gymProfiles) S.gymProfiles=[];
   var h=S.gymProfiles.find(function(g){return g.id===HOME_PROFILE_ID;});
   if(!h){ h={id:HOME_PROFILE_ID,name:'Home Exercise Room',equipment:HOME_EQUIPMENT_DEFAULT.slice(),isHome:true}; S.gymProfiles.push(h); try{saveS();}catch(e){} }
-  h.loadingRules=homeLoadingRules();
+  h.isHome=true; h.noIncline=true; // UREVO 2-in-1: no incline
+  var _sig=GMWD_EXERCISES.map(getBaseWeight).join(',');
+  if(h._rulesSig!==_sig||!h.loadingRules){ h.loadingRules=homeLoadingRules(); h._rulesSig=_sig; }
   return h;
 }
 function getHomeEquipment(){ return getHomeProfile().equipment; }
 // While the Home tab is showing, "the gym" IS the home room: equipment checks, swaps,
 // loading and progression all use it. Every other page sees the real active gym.
 var _gymActiveGym=getActiveGym;
-getActiveGym=function(){ return cMode==='home'?getHomeProfile():_gymActiveGym(); };
+getActiveGym=function(){ return (cMode==='home'&&!_homeParked)?getHomeProfile():_gymActiveGym(); };
 
 // ── Home gear in the equipment catalogue ───────────────────────────────────
 EQUIPMENT_CATALOGUE.push({id:'home_gear',label:'🏠 Home Gear',items:[
@@ -30751,6 +30778,9 @@ function homeSplitFor(k){
     HOME_SPLIT_META[sk].groups.forEach(function(g){ sc+=(avoid[g]||0); });
     if(sc<bestScore){best=sk;bestScore=sc;}
   }
+  // Once the day's home workout exists, its split is fixed for the day — a later gym-side
+  // change must not silently swap the home workout underneath logged sets.
+  if(S.sessions&&S.sessions[k]&&S.sessions[k].home){ if(!S.homeConfig) S.homeConfig={}; S.homeConfig[k]={split:best,auto:true}; }
   return best;
 }
 function setHomeSplit(sk){
@@ -30765,7 +30795,7 @@ function getHomeFocus(){ return S.weekFocus||'general'; }
 // Banner on the Home tab: today's split, why it was picked, and a quick switcher.
 function buildHomeBanner(k){
   var banner=el('swapWorkoutBanner'); if(!banner) return;
-  var cur=homeSplitFor(k), auto=!(S.homeConfig&&S.homeConfig[k]&&S.homeConfig[k].split);
+  var cur=homeSplitFor(k), _hc=S.homeConfig&&S.homeConfig[k], auto=!(_hc&&_hc.split)||!!_hc.auto;
   var gymNote='';
   var dt=getDayType(k);
   if(dt==='gym'||dt==='both'){ var gt=WTPL[getEffTpl(k)]; if(gt) gymNote='Gym today: '+gt.focus+'. '; }
@@ -30779,10 +30809,16 @@ function buildHomeBanner(k){
 // GMWD plate breakdown shown on the exercise card.
 function gmwdPlateHint(exName,totalLbs){
   if(!/^GMWD /.test(exName)||!(totalLbs>0)) return '';
-  var perArm=/Single-Arm/.test(exName)?totalLbs:totalLbs/2, plates=gmwdPlatesFor(perArm);
+  var single=/Single-Arm/.test(exName), base=getBaseWeight(exName);
+  var perArm=(totalLbs-base)/(single?1:2);
+  if(perArm<=0) return '<div class="sugg" style="color:#94a3b8">🔩 Empty arms only ('+toDisplayWeight(base)+' '+getWeightUnit()+')</div>';
+  var plates=gmwdPlatesFor(perArm);
   if(!plates) return '';
-  return '<div class="sugg" style="color:#94a3b8">🔩 Each arm: '+plates.join(' + ')+' lb bumper'+(plates.length>1?'s':'')+(/Single-Arm/.test(exName)?' (loaded arm only)':'')+' · plates only — add the empty arm with ⚖️</div>';
+  return '<div class="sugg" style="color:#94a3b8">🔩 Each arm: '+plates.join(' + ')+' lb bumper'+(plates.length>1?'s':'')+(single?' (loaded arm only)':'')+' · total includes '+toDisplayWeight(base)+' '+getWeightUnit()+' of arm'+(single?'':'s')+'</div>';
 }
+// A flat brisk walk for treadmills without incline.
+if(typeof CARDIO_OPTIONS!=='undefined'&&!CARDIO_OPTIONS.some(function(o){return o.n==='Treadmill (Brisk Walk)';})) CARDIO_OPTIONS.push({n:'Treadmill (Brisk Walk)',dur:15,tgt:'3.3–3.8 mph brisk walk, flat — add the weighted vest for more work',type:'treadmill'});
+try{ if(typeof _CARDIO_TYPE_BY_NAME!=='undefined') _CARDIO_TYPE_BY_NAME['Treadmill (Brisk Walk)']='treadmill'; }catch(e){}
 </script>
 <!-- UNIFIED FOOD SEARCH MODAL -->
 <div class="mo" id="unifiedSearchModal"><div class="md">
