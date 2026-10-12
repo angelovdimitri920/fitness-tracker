@@ -3,10 +3,10 @@
 **For:** an independent reviewer (Codex) to check every change on branch
 `claude/plan-sync-focus-home-workout` and confirm it works.
 **PR:** https://github.com/angelovdimitri920/fitness-tracker/pull/4 (base `main` @ `c9b45cc`)
-**Status (Oct 12, 2026):** 163 browser checks pass, 0 failures, 0 browser errors.
-Five review passes have been done and their findings fixed: the first code review (section 6),
-Codex's review of `cc74234` (6a), its re-review of `30e18e0` (6b), round 3 on `9f0ddaa` (6c)
-and round 4 on `1a42daa` (6d).
+**Status (Oct 12, 2026):** 170 browser checks pass, 0 failures, 0 browser errors.
+Six review passes have been done and their findings fixed: the first code review (section 6),
+Codex's review of `cc74234` (6a), its re-review of `30e18e0` (6b), round 3 on `9f0ddaa` (6c),
+round 4 on `1a42daa` (6d) and the comprehensive review of `d7f5029` (6e).
 
 Please review for **correctness first**, then for regressions in existing features. The app is
 one file, `pf_workout_tracker.html`: inline CSS and vanilla JS, no build step. Read `CLAUDE.md`
@@ -24,7 +24,7 @@ CHROMIUM_PATH=/path/to/chromium npm test         # if Playwright's bundled brows
 node tools/serve.js 8753                         # then open http://localhost:8753/pf_workout_tracker.html
 ```
 
-- `tools/verify.cjs` parses every inline `<script>`. It runs 163 checks in one page at
+- `tools/verify.cjs` parses every inline `<script>`. It runs 170 checks in one page at
   430 × 932 (the target device is an iPhone 14 Pro Max), sweeps 10 pages and all modals for
   horizontal overflow, and does a real save → reload → file-import → offline-reload cycle.
   Results go to `.verification/results.json`; screenshots to `.verification/*.png`.
@@ -114,7 +114,7 @@ node tools/serve.js 8753                         # then open http://localhost:87
 | Saving and history | `doSaveWorkout` writes `type:'home'`, `gymId:'home'`, deduped per (date, type). `isSessionComplete(k,key)`. `priorGymHistory` and the last-session, PREV, stall and RPE readers filter by `isWkHistType`, so progression stays per location. `getRecentMuscles`, `weeklyMuscleSets`, `recomputePBs`, the calories chart and nutrition `activityBurn` include home. History gets a 🏠 filter and icon, and the `-Infinity lbs` display for bodyweight exercises is fixed. |
 
 ### 3.6 Other
-- `sw.js` `CACHE_VERSION` → `pf-cache-v13`.
+- `sw.js` `CACHE_VERSION` → `pf-cache-v14`.
 - `tools/verify.cjs`: `CHROMIUM_PATH` support. The backup-restore assertion is now date-independent; it failed on `main` once the real date moved past Oct 1.
 - Docs: `CLAUDE.md` §2, `docs/TRAINING_AUDIT.md` addendum, `docs/HOME_EQUIPMENT.md`.
 
@@ -245,6 +245,31 @@ reported symptom and passes now. It checks:
 Accepted by Codex and unchanged: the history-index cache design (no in-place split writer exists)
 and the saved-day Plan modal UX.
 
+## 6e. Codex comprehensive review of `d7f5029`: fixed
+
+| # | Finding | Fix |
+| --- | --- | --- |
+| F1 (P2) | A saved Home workout could be relabelled by the split buttons, and a resave rewrote its history split | `homeSplitFor` reads the saved Home split first (`loggedSplitsOf('home')`, the same per-type index the gym uses), then a non-live session snapshot, then `homeConfig`. `setHomeSplit` refuses a non-live Home session. The banner hides the split buttons and says "✓ Saved". |
+| F2 (P2) | Ending Home without saving cancelled the Gym rest countdown | The rest timer stays a single person-level countdown, but now records its owner (`_restOwner` = `date|gym` or `date|home`, persisted in `pf_restTimer.o`). `discardWorkout` stops it only when it belongs to the discarded session. An older saved timer with no owner is never stopped by a discard. |
+| F3 (P2) | The Workouts CSV left out Home | `exportCSV('workouts')` uses `isResistanceWorkout` and has a new **Type** column (Gym / Home). The printable report (`printReport`) had the same gap and now counts Home ("Workouts (N home)") and marks Home rows 🏠. |
+| F4 (P2) | Weekly volume bars ignored Home | Each day's bar sums gym + home volume, converting units on the summed value, so the bars add up to the weekly total. |
+| F5 (P2) | History detail showed "0 lbs × 15 reps" for level gear and reps for timed holds | New `fmtLoggedSet(name, set)`: `Level N × R reps` for level gear, `S sec` (optionally with weight) for timed holds, and plain reps for unloaded work. Loaded sets are unchanged. |
+| F6 (P3) | "Save as Workout Template" was hidden for Home on rest and run days | `updateSaveTemplateBtnVisibility` shows it whenever Home has a workout, on any day type. |
+| obs | 6 of 96 Home Quick builds were estimated above 45 min | `selectWorkoutForDuration` now trims the lowest-priority exercise while the plan, including its expected specialty sets (~1.5 min each), exceeds the top of the band. It keeps at least 3 exercises (2 for Build Strength, 4 for full body, which must keep knee / hinge / push / pull). All 96 Home Quick combinations now plan 37–44 min. |
+| obs | Research wording overstated two studies | Comments, the Plan-page text and `TRAINING_AUDIT.md` now say: drop sets showed no significant hypertrophy difference, with time savings (Sødal 2023); failure has not been shown superior (Refalo 2023); the rest-pause endurance result is a small leg-press study (Prestes 2019); advanced techniques are optional (ACSM). |
+
+Regressions are in `tools/verify.cjs` (search "Codex comprehensive review", plus the Home Quick
+duration test). All seven fail at `d7f5029` with the reported symptoms and pass now. They cover:
+- F1: the Legs button is absent, a direct `setHomeSplit` is refused, the title, list and resaved
+  history keep `hpush`, and a history-only day after reload still reads `hpush`.
+- F2: the Gym timer survives a Home discard, Home's own timer is cleared, and a legacy unowned
+  timer is kept.
+- F3: a Home-only CSV, mixed Gym + Home + Run, escaping, the Runs CSV unchanged, and the report.
+- F4: bars on a Home-only day and on a same-day Gym + Home, with the sum equal to the total, plus kg.
+- F5: level, seconds and a loaded set after save → reload, through the real detail modal.
+- F6: all four day types.
+- Duration: all 96 Home Quick combinations land within 30–45 min, each with ≥ 3 exercises.
+
 ## 7. Judgement calls (flag if you disagree)
 
 - PRs are per exercise and therefore shared between gym and home. Progression history is per location.
@@ -254,7 +279,7 @@ and the saved-day Plan modal UX.
 
 ## 8. Known limitations / not covered by automated tests
 
-- Real iPhone behaviour: background timers, wake lock, notifications, PWA update with `pf-cache-v13`.
+- Real iPhone behaviour: background timers, wake lock, notifications, PWA update with `pf-cache-v14`.
 - Template save/apply on the Home tab works through the shared code, but has no dedicated test.
 - `autoSwapIn` iterates `sess.gym.exercises` with `.forEach`, but it is an object. This bug predates this PR and is caught by its `try`. It was left untouched.
 - The Plan page does not show the home workout. Home is chosen on Today only.

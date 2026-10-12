@@ -5059,16 +5059,18 @@ var AUTO_SPLIT_EPOCH='2024-01-01';
 // date → split of the saved gym workout on that date. A saved workout is what was
 // actually trained, so getEffTpl and the rotation both read it ahead of any override.
 // Rebuilt whenever the history array is replaced or changes length (every save does both).
-var _loggedSplitIdx={ref:null,len:-1,map:{}};
-function loggedGymSplits(){
+// One index per resistance type, so a saved Home workout keeps its split the same way.
+var _loggedSplitIdx={ref:null,len:-1,map:{gym:{},home:{}}};
+function loggedSplitsOf(type){
   var h=S.history||[];
   if(_loggedSplitIdx.ref!==h||_loggedSplitIdx.len!==h.length){
-    var m={};
-    for(var i=0;i<h.length;i++){var e=h[i]; if(e&&e.type==='gym'&&e.split&&!m[e.date]) m[e.date]=e.split;}
+    var m={gym:{},home:{}};
+    for(var i=0;i<h.length;i++){var e=h[i]; if(e&&m[e.type]&&e.split&&!m[e.type][e.date]) m[e.type][e.date]=e.split;}
     _loggedSplitIdx={ref:h,len:h.length,map:m};
   }
-  return _loggedSplitIdx.map;
+  return _loggedSplitIdx.map[type]||{};
 }
+function loggedGymSplits(){ return loggedSplitsOf('gym'); }
 function _autoSplitPinned(k,logged){
   // a logged workout freezes the day to exactly what was trained — it outranks any
   // override, so the next day rotates on from what was really done
@@ -5845,6 +5847,21 @@ function selectWorkoutForDuration(tplExercises, intensity, fp, recent48, tplKey,
       if(lift+addMin+warmupMin+midNow*midEach+minFin+overheadMin > band[1]) break;
       chosen.push(sorted[y]); lift+=addMin;
       if(lift+warmupMin+midNow*midEach+cap+overheadMin>=band[0]) break;
+    }
+  })();
+  // Never plan past the top of the band. Count floors (and the extra Home exercise) can
+  // push a session over it, and specialty extras (~1.5 min each) are added after this
+  // selection — so trim the lowest-priority exercise until the plan fits, keeping at least
+  // three exercises (two for Build Strength's long-rest sessions, four for full body).
+  (function(){
+    var specN=0;
+    try{ if(typeof specialtySetsOn==='function'&&specialtySetsOn()){ var rules=SPECIALTY_BY_FOCUS[focus]||[]; specN=intensity==='quick'?Math.min(1,rules.length):rules.reduce(function(a,r){return a+(r.n||1);},0); } }catch(e){}
+    // Full body has to keep its four movement patterns (knee, hinge, push, pull).
+    var floor=(tplKey==='fullbody')?4:(focus==='power'?2:3);
+    function planned(){ var mid=midCards.filter(function(mc){return mc.after!=null&&mc.after>=0&&mc.after<chosen.length;}).length; return lift+warmupMin+mid*midEach+minFin+overheadMin+specN*1.5; }
+    while(chosen.length>floor&&planned()>band[1]){
+      var drop=0; for(var z=1;z<chosen.length;z++){ if(chosen[z].p>chosen[drop].p||(chosen[z].p===chosen[drop].p&&chosen[z].i>chosen[drop].i)) drop=z; }
+      lift-=_exLiftMinutes(chosen[drop].ex, intensity, fp, focus); chosen.splice(drop,1);
     }
   })();
   chosen.sort(function(a,b){return a.i-b.i;}); // pool order (template first, then accessories by group)
@@ -6986,9 +7003,14 @@ var _restEndAt=null;      // epoch ms while running
 var _restLeftMs=null;     // remaining ms while paused
 var _restTotal=0;         // seconds the timer was started with
 var _RESTK='pf_restTimer';
+// Which workout the countdown was started from ("YYYY-MM-DD|gym" or "…|home"). There is
+// one rest timer — you only rest between one set at a time — but ending a workout without
+// saving must only stop a countdown that workout started. Older saved timers have none,
+// and are left alone.
+var _restOwner=null;
 function _saveRestTimer(){
   try{
-    if(_restEndAt||_restLeftMs) localStorage.setItem(_RESTK,JSON.stringify({e:_restEndAt,l:_restLeftMs,t:_restTotal}));
+    if(_restEndAt||_restLeftMs) localStorage.setItem(_RESTK,JSON.stringify({e:_restEndAt,l:_restLeftMs,t:_restTotal,o:_restOwner}));
     else localStorage.removeItem(_RESTK);
   }catch(e){}
 }
@@ -7003,6 +7025,7 @@ function startTimer(secs,force){
   _restTotal=secs;
   _restEndAt=Date.now()+secs*1000;
   _restLeftMs=null;
+  try{ var _rk=dKey(vDate); _restOwner=_rk+'|'+wkKey(_rk); }catch(e){ _restOwner=null; }
   _saveRestTimer();
   refreshWakeLock();
   el('timerWrap').classList.add('active');
@@ -7036,7 +7059,7 @@ function pauseTimer(){
 }
 function stopTimer(){
   if(timerInt){clearInterval(timerInt);timerInt=null;}
-  _restEndAt=null;_restLeftMs=null;_saveRestTimer();
+  _restEndAt=null;_restLeftMs=null;_restOwner=null;_saveRestTimer();
   refreshWakeLock();
   el('timerWrap').classList.remove('active');
 }
@@ -7056,8 +7079,8 @@ function restoreRestTimer(){
   var d=null; try{d=JSON.parse(raw);}catch(e){}
   if(!d) return;
   _restTotal=d.t||0;
-  if(d.e&&d.e-Date.now()>0){ _restEndAt=null; _restLeftMs=null; startTimer(Math.ceil((d.e-Date.now())/1000),true); _restEndAt=d.e; _saveRestTimer(); }
-  else if(d.l>0){ _restLeftMs=d.l; _restEndAt=null; timerSecs=Math.ceil(d.l/1000); el('timerWrap').classList.add('active'); updateTimerDisp(); }
+  if(d.e&&d.e-Date.now()>0){ _restEndAt=null; _restLeftMs=null; startTimer(Math.ceil((d.e-Date.now())/1000),true); _restEndAt=d.e; _restOwner=d.o||null; _saveRestTimer(); }
+  else if(d.l>0){ _restLeftMs=d.l; _restEndAt=null; _restOwner=d.o||null; timerSecs=Math.ceil(d.l/1000); el('timerWrap').classList.add('active'); updateTimerDisp(); }
   else { try{localStorage.removeItem(_RESTK);}catch(e){} }
 }
 
@@ -8302,6 +8325,14 @@ function wkKey(k){ return (cMode==='home'&&k===dKey(vDate))?'home':'gym'; }
 // Any resistance session — gym or home. For recovery and training-load features
 // (progression stays per location: isWkHistType / priorGymHistory).
 function isResistanceWorkout(h){ return !!h&&(h.type==='gym'||h.type==='home'); }
+// One logged set as text, in the unit the exercise is really measured in: a level for
+// spring/hydraulic gear, seconds for timed holds, plain reps for unloaded work.
+function fmtLoggedSet(exName,set){
+  set=set||{}; var w=parseFloat(set.weight)||0, r=(set.reps!=null&&set.reps!=='')?set.reps:'—';
+  if(typeof isLevelExercise==='function'&&isLevelExercise(exName)) return 'Level '+((set.level!=null&&set.level!=='')?set.level:'—')+' × '+r+' reps';
+  if(typeof isTimedHold==='function'&&isTimedHold(exName)) return (w>0?toDisplayWeight(w)+' '+getWeightUnit()+' · ':'')+r+' sec';
+  return (w>0?toDisplayWeight(w)+' '+getWeightUnit()+' × ':'')+r+' reps';
+}
 function isWkHistType(h){ return !!h&&h.type===(isHomeMode()?'home':'gym'); }
 function wkTpl(k){ return (wkKey(k)==='home'&&typeof homeSplitFor==='function')?homeSplitFor(k):getEffTpl(k); }
 function GS(k){ var d=S.sessions&&S.sessions[k]; return d?d[wkKey(k)]:undefined; }
@@ -8446,10 +8477,10 @@ var FOCUS_DETAIL = {
 var FOCUS_SPECIALTY_TEXT={
   power:'One <b>Cluster set</b> is added after the work sets on your main lift: the same load, the reps split with ~20 s pauses so every rep stays fast. Clusters preserve bar speed and force within a set (Latella 2019); long-term strength matches straight sets (Jukic 2021), so it is one more quality heavy set. No drops or failure — they add fatigue without helping strength.',
   hybrid:'A <b>Cluster set</b> on the main lift for one more crisp heavy set, and a <b>Rest-Pause set</b> on an accessory for extra muscle-building reps.',
-  muscle:'A <b>Drop set</b> after the work sets on the last isolation (or machine) exercises, and one set to technical <b>Failure</b> on a machine/cable isolation. Drop sets match normal sets for growth in far less time (Sødal 2023); failure adds a small extra stimulus (Refalo 2023) and is never used on free-weight compounds.',
+  muscle:'A <b>Drop set</b> after the work sets on the last isolation (or machine) exercises, and one set to technical <b>Failure</b> on a machine/cable isolation. Drop sets grew muscle about as well as normal sets in less time in some studies (Sødal 2023). Training to failure has not been shown to beat stopping 1–3 reps short (Refalo 2023), so it is one optional extra set on a machine, never on free-weight compounds.',
   general:'One <b>Drop set</b> on the final isolation exercise — a little extra work at the end without changing your main sets.',
   tone:'<b>Drop sets</b> on two isolation exercises: the most time-efficient way to keep training volume (and muscle) high while cutting.',
-  endurance:'<b>Rest-Pause sets</b> on the last accessories: short 10–15 s pauses let you keep going, building local muscular endurance beyond straight sets (Prestes 2019).'
+  endurance:'<b>Rest-Pause sets</b> on the last accessories: short 10–15 s pauses let you keep going. In one small study of trained lifters, rest-pause built more leg-press endurance than straight sets (Prestes 2019) — a reasonable rationale, not a guarantee.'
 };
 var FOCUS_LOAD_TEXT={power:'≈ 85–90 % of 1RM · stop 2 reps short',hybrid:'≈ 80–85 % of 1RM · 2 reps in reserve',muscle:'≈ 75–80 % of 1RM · 1 rep in reserve',general:'≈ 70–75 % of 1RM · 2–3 reps in reserve',tone:'≈ 70–75 % of 1RM · 2 reps in reserve',endurance:'≈ 60–65 % of 1RM · 3 reps in reserve'};
 Object.keys(FOCUS_DETAIL).forEach(function(key){
@@ -11632,7 +11663,7 @@ return '<div class="plateau-item">📊 <strong>'+p.name.split('(')[0].trim()+'</
 }
 var progAlertsEl=el('progAlerts');
 if(progAlertsEl) progAlertsEl.innerHTML=deloadHTML+plateauHTML;
-var now=new Date(),dow=now.getDay(),mon=new Date(now);mon.setDate(now.getDate()-((dow===0?7:dow)-1));var dates=[];for(var i=0;i<7;i++){var d=new Date(mon);d.setDate(mon.getDate()+i);dates.push(dKey(d));}var ws=S.history.filter(function(h){return dates.indexOf(h.date)>=0;}),exp=S.setup.gymDays.length+S.setup.runDays.length,_homeN=ws.filter(function(h){return h.type==='home';}).length,done=ws.length-_homeN,pct=exp>0?Math.min(100,Math.round(done/exp*100)):0;el('ringC').style.strokeDashoffset=188-(188*Math.min(1,done/Math.max(exp,1)));el('wkPct').textContent=pct+'%';el('wkLbl').textContent=done+' of '+exp+(_homeN?' · +'+_homeN+' home':'');var wV=ws.reduce(function(a,h){return a+(h.volume||0);},0),wS=ws.reduce(function(a,h){return a+(h.sets||0);},0),wC=ws.reduce(function(a,h){return a+(h.type==='run'?(h.duration||0):(h.cardioMins||0));},0),wM=ws.filter(function(h){return h.type==='run';}).reduce(function(a,h){return a+(h.distance||0);},0);var _wuWk=getWeightUnit(),_wVD=toDisplayWeight(wV);var _vcLbl=el('volChartLbl');if(_vcLbl)_vcLbl.textContent='Volume This Week ('+_wuWk+')';el('wkStats').innerHTML='<div class="sb"><div class="sv">'+(_wVD>999?Math.round(_wVD/1000)+'k':Math.round(_wVD))+'</div><div class="sl">Vol '+_wuWk+'</div></div><div class="sb"><div class="sv">'+wS+'</div><div class="sl">Sets</div></div><div class="sb"><div class="sv">'+Math.round(wC)+'</div><div class="sl">Cardio</div></div><div class="sb"><div class="sv" style="color:var(--ru)">'+wM.toFixed(1)+'</div><div class="sl">Run mi</div></div>';drawBar('volChart',dates.map(function(d){var s=ws.find(function(h){return h.date===d&&h.type==='gym';});return s?toDisplayWeight(s.volume||0):0;}),['M','T','W','Th','F','Sa','Su'],'#f5c400');drawBar('runChart',dates.map(function(d){var s=ws.find(function(h){return h.date===d&&h.type==='run';});return s?s.distance:0;}),['M','T','W','Th','F','Sa','Su'],'#10b981');var lifts=[{k:'squat',n:'Squat'},{k:'bench',n:'Bench'},{k:'deadlift',n:'Deadlift'},{k:'ohp',n:'OHP'}];var _wuOrm=getWeightUnit();el('ormChart').innerHTML=lifts.map(function(l){return'<div class="fbet" style="padding:7px 0;border-bottom:1px solid var(--b1)"><div style="font-size:12px">'+l.n+'</div><div><span class="badge by">Est 1RM: '+toDisplayWeight(loggedLiftEstimate(l.k))+' '+_wuOrm+'</span><span style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--mu);margin-left:8px">Working: '+toDisplayWeight(S.strength[l.k]||0)+' '+_wuOrm+'</span></div></div>';}).join('');var pbs=Object.values(S.pbs);if(!pbs.length){el('pbList').innerHTML='<div style="color:var(--mu);font-size:12px">Log workouts to track PRs.</div>';return;}var byEx={};pbs.forEach(function(p){if(!byEx[p.exercise]||p.vol>byEx[p.exercise].vol)byEx[p.exercise]=p;});var _wuPB=getWeightUnit();el('pbList').innerHTML=Object.values(byEx).slice(0,8).map(function(p){return'<div class="fbet" style="padding:7px 0;border-bottom:1px solid var(--b1)"><div style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:65%">'+escapeHtml(p.exercise)+'</div><span class="badge by">🏆 '+toDisplayWeight(parseFloat(p.weight)||0)+' '+_wuPB+' × '+p.reps+'</span></div>';}).join('');
+var now=new Date(),dow=now.getDay(),mon=new Date(now);mon.setDate(now.getDate()-((dow===0?7:dow)-1));var dates=[];for(var i=0;i<7;i++){var d=new Date(mon);d.setDate(mon.getDate()+i);dates.push(dKey(d));}var ws=S.history.filter(function(h){return dates.indexOf(h.date)>=0;}),exp=S.setup.gymDays.length+S.setup.runDays.length,_homeN=ws.filter(function(h){return h.type==='home';}).length,done=ws.length-_homeN,pct=exp>0?Math.min(100,Math.round(done/exp*100)):0;el('ringC').style.strokeDashoffset=188-(188*Math.min(1,done/Math.max(exp,1)));el('wkPct').textContent=pct+'%';el('wkLbl').textContent=done+' of '+exp+(_homeN?' · +'+_homeN+' home':'');var wV=ws.reduce(function(a,h){return a+(h.volume||0);},0),wS=ws.reduce(function(a,h){return a+(h.sets||0);},0),wC=ws.reduce(function(a,h){return a+(h.type==='run'?(h.duration||0):(h.cardioMins||0));},0),wM=ws.filter(function(h){return h.type==='run';}).reduce(function(a,h){return a+(h.distance||0);},0);var _wuWk=getWeightUnit(),_wVD=toDisplayWeight(wV);var _vcLbl=el('volChartLbl');if(_vcLbl)_vcLbl.textContent='Volume This Week ('+_wuWk+')';el('wkStats').innerHTML='<div class="sb"><div class="sv">'+(_wVD>999?Math.round(_wVD/1000)+'k':Math.round(_wVD))+'</div><div class="sl">Vol '+_wuWk+'</div></div><div class="sb"><div class="sv">'+wS+'</div><div class="sl">Sets</div></div><div class="sb"><div class="sv">'+Math.round(wC)+'</div><div class="sl">Cardio</div></div><div class="sb"><div class="sv" style="color:var(--ru)">'+wM.toFixed(1)+'</div><div class="sl">Run mi</div></div>';drawBar('volChart',dates.map(function(d){/* gym + home, the same sessions the weekly total counts */var v=ws.reduce(function(a,h){return (h.date===d&&isResistanceWorkout(h))?a+(h.volume||0):a;},0);return v?toDisplayWeight(v):0;}),['M','T','W','Th','F','Sa','Su'],'#f5c400');drawBar('runChart',dates.map(function(d){var s=ws.find(function(h){return h.date===d&&h.type==='run';});return s?s.distance:0;}),['M','T','W','Th','F','Sa','Su'],'#10b981');var lifts=[{k:'squat',n:'Squat'},{k:'bench',n:'Bench'},{k:'deadlift',n:'Deadlift'},{k:'ohp',n:'OHP'}];var _wuOrm=getWeightUnit();el('ormChart').innerHTML=lifts.map(function(l){return'<div class="fbet" style="padding:7px 0;border-bottom:1px solid var(--b1)"><div style="font-size:12px">'+l.n+'</div><div><span class="badge by">Est 1RM: '+toDisplayWeight(loggedLiftEstimate(l.k))+' '+_wuOrm+'</span><span style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--mu);margin-left:8px">Working: '+toDisplayWeight(S.strength[l.k]||0)+' '+_wuOrm+'</span></div></div>';}).join('');var pbs=Object.values(S.pbs);if(!pbs.length){el('pbList').innerHTML='<div style="color:var(--mu);font-size:12px">Log workouts to track PRs.</div>';return;}var byEx={};pbs.forEach(function(p){if(!byEx[p.exercise]||p.vol>byEx[p.exercise].vol)byEx[p.exercise]=p;});var _wuPB=getWeightUnit();el('pbList').innerHTML=Object.values(byEx).slice(0,8).map(function(p){return'<div class="fbet" style="padding:7px 0;border-bottom:1px solid var(--b1)"><div style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:65%">'+escapeHtml(p.exercise)+'</div><span class="badge by">🏆 '+toDisplayWeight(parseFloat(p.weight)||0)+' '+_wuPB+' × '+p.reps+'</span></div>';}).join('');
   buildReadyToProgressPanel();
   // Ensure correct tab panel is visible and its content is built
   var _pt = _activeProgTab || 'strength';
@@ -11748,7 +11779,7 @@ html+='<div style="margin-bottom:9px">'+
 '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">'+
 '<div style="font-weight:600;font-size:12px">'+escapeHtml(ex.name)+'</div>'+
 '<button class="btn btn-g bsm" style="font-size:9px;padding:3px 8px" data-nm="'+escapeHtml(ex.name)+'" onclick="openExChart(this.dataset.nm)">📈</button></div>'+
-done.map(function(x,i){return'<div style="font-size:11px;color:var(--mu);font-family:\'DM Mono\',monospace">Set '+(i+1)+': '+toDisplayWeight(parseFloat(x.weight)||0)+' '+_wuHD+' × '+x.reps+' reps'+(x.type&&x.type!=='wk'?' ['+x.type+']':'')+'</div>';}).join('')+
+done.map(function(x,i){return'<div style="font-size:11px;color:var(--mu);font-family:\'DM Mono\',monospace">Set '+(i+1)+': '+fmtLoggedSet(ex.name,x)+(x.type&&x.type!=='wk'?' ['+x.type+']':'')+'</div>';}).join('')+
 '</div>';
 });
 (s.cardio||[]).forEach(function(cv){
@@ -12204,9 +12235,10 @@ function exportCSV(kind){
     });
   } else if(kind==='workouts'){
     name='workouts';
-    rows.push(['Date','Day','Focus','Split','Intensity','Sets','Volume ('+u+')','Calories','Duration (min)','Rating','Notes']);
-    (S.history||[]).filter(function(h){return h.type==='gym';}).forEach(function(h){
-      rows.push([h.date, h.day||'', h.focus||'', h.split||'', h.intensity||'', h.sets||0, toDisplayWeight(h.volume||0), h.calories||0, h.duration||'', h.rating||'', h.notes||'']);
+    rows.push(['Date','Day','Type','Focus','Split','Intensity','Sets','Volume ('+u+')','Calories','Duration (min)','Rating','Notes']);
+    // Gym and Home workouts both; the Type column tells them apart.
+    (S.history||[]).filter(isResistanceWorkout).forEach(function(h){
+      rows.push([h.date, h.day||'', h.type==='home'?'Home':'Gym', h.focus||'', h.split||'', h.intensity||'', h.sets||0, toDisplayWeight(h.volume||0), h.calories||0, h.duration||'', h.rating||'', h.notes||'']);
     });
   } else if(kind==='runs'){
     name='runs';
@@ -12231,7 +12263,7 @@ function printReport(){
   var esc=function(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); };
   var p=S.profile||{}, u=getWeightUnit(), w=S.weights||[];
   var cur=w.length?w[w.length-1]:null, first=w.length?w[0]:null;
-  var gym=(S.history||[]).filter(function(h){return h.type==='gym';});
+  var gym=(S.history||[]).filter(isResistanceWorkout);   // gym + home workouts
   var runs=(S.history||[]).filter(function(h){return h.type==='run';});
   var totVol=gym.reduce(function(a,h){return a+(h.volume||0);},0);
   var totMiles=runs.reduce(function(a,h){return a+(h.distance||0);},0);
@@ -12280,7 +12312,8 @@ function printReport(){
 
   // Training summary
   h+='<h2>Training Summary</h2><div class="pr-stats">';
-  h+=stat(gym.length,'Gym sessions');
+  var _homeCt=gym.filter(function(g){return g.type==='home';}).length;
+  h+=stat(gym.length,_homeCt?'Workouts ('+_homeCt+' home)':'Gym sessions');
   h+=stat(runs.length,'Runs logged');
   h+=stat((totVol>=1000?Math.round(totVol/100)/10+'k':Math.round(totVol))+' '+u,'Total volume');
   h+=stat(totMiles.toFixed(1)+' mi','Total distance');
@@ -12290,7 +12323,7 @@ function printReport(){
   // Recent workouts
   if(gym.length){
     h+='<h2>Recent Workouts</h2><table><tr><th>Date</th><th>Focus</th><th>Sets</th><th>Volume ('+u+')</th><th>Cals</th><th>Min</th></tr>';
-    gym.slice(-12).reverse().forEach(function(g){ h+='<tr><td>'+esc(g.date)+'</td><td>'+esc(g.focus||g.split||'')+'</td><td>'+(g.sets||0)+'</td><td>'+toDisplayWeight(g.volume||0)+'</td><td>'+(g.calories||0)+'</td><td>'+(g.duration||'')+'</td></tr>'; });
+    gym.slice(-12).reverse().forEach(function(g){ h+='<tr><td>'+esc(g.date)+'</td><td>'+(g.type==='home'?'🏠 ':'')+esc(g.focus||g.split||'')+'</td><td>'+(g.sets||0)+'</td><td>'+toDisplayWeight(g.volume||0)+'</td><td>'+(g.calories||0)+'</td><td>'+(g.duration||'')+'</td></tr>'; });
     h+='</table>';
   }
   // Recent runs
@@ -16465,7 +16498,8 @@ function discardWorkout(){
   showConfirm(msg,function(){
     if(_wTimerInterval){clearInterval(_wTimerInterval);_wTimerInterval=null;}
     _wTimerActive=false;_wTimerPaused=false;_wTimerElapsed=0;_wTimerStart=null;
-    try{stopTimer();}catch(e){}
+    // Only this workout's rest countdown — a Gym rest must survive discarding Home.
+    try{ if(_restOwner===k+'|'+key) stopTimer(); }catch(e){}
     try{clearAllCardioTimers();}catch(e){}
     Object.keys(S.swaps||{}).forEach(function(sk){if(sk.indexOf(swapPrefix(k))===0) delete S.swaps[sk];});
     sess[key]={exercises:{},cardio:{},cardioBlocks:{},intensity:g.intensity||(S.setup&&S.setup.defaultIntensity)||'standard'};
@@ -26024,13 +26058,15 @@ function applySmartSetTypes(k){
 //    (Latella et al. 2019 meta-analysis); chronic strength gains match straight sets
 //    (Jukic et al. 2021; Davies et al. 2021), so it buys one more quality set, not magic.
 //  · Build Muscle: a DROP set on the last isolation exercises, and one set taken to
-//    technical FAILURE on a machine/cable isolation — drop sets match traditional sets
-//    for hypertrophy in far less time (Sødal et al. 2023), failure adds a small extra
-//    stimulus (Refalo et al. 2023) and is kept off free-weight compounds for safety.
+//    technical FAILURE on a machine/cable isolation — drop sets showed no significant
+//    hypertrophy difference from traditional sets, with time savings in some protocols
+//    (Sødal et al. 2023); failure has NOT been shown superior to stopping short (Refalo
+//    et al. 2023), so it is one optional extra set, kept off free-weight compounds.
 //  · Lose & Tone: DROP sets on two isolation exercises — the most time-efficient way to
 //    keep volume high while cutting.
-//  · Endurance: REST-PAUSE on accessories — greater local muscular endurance gains than
-//    straight sets (Prestes et al. 2019).
+//  · Endurance: REST-PAUSE on accessories — in a small trained sample it gave greater
+//    leg-press muscular endurance than straight sets (Prestes et al. 2019); a bounded
+//    rationale, not a universal advantage. Advanced techniques are optional (ACSM).
 //  · General Fitness: one DROP set on the final isolation exercise.
 // Supersets are a separate, independently switchable technique (see computeAutoSupersets).
 var SPECIALTY_BY_FOCUS={
@@ -29926,7 +29962,9 @@ function deleteWorkoutTemplate(id){
 function updateSaveTemplateBtnVisibility(){
   var btn=el('saveTemplateBtn'); if(!btn) return;
   var k=dKey(vDate), dtype=getDayType(k);
-  btn.style.display=(dtype==='gym'||dtype==='both')?'block':'none';
+  // The Home workout runs every day, rest and run days included.
+  var homeOn=(cMode==='home'&&!!(GS(k)&&GS(k).exList&&GS(k).exList.length));
+  btn.style.display=(homeOn||(cMode!=='home'&&(dtype==='gym'||dtype==='both')))?'block':'none';
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -30922,6 +30960,12 @@ if(typeof CARDIO_MET!=='undefined') CARDIO_MET['Treadmill (Brisk Walk)']=4.3;
 // Which home split today: the user's pick for the day, else the next in the rotation
 // that least overlaps today's gym session and anything trained in the last 48 h.
 function homeSplitFor(k){
+  // A saved or past Home workout keeps the split it was trained as — ahead of any later
+  // pick in homeConfig, exactly as a saved gym workout does (getEffTpl).
+  var _lh=loggedSplitsOf('home')[k];
+  if(_lh&&WTPL[_lh]) return _lh;
+  var _hs=S.sessions&&S.sessions[k]&&S.sessions[k].home;
+  if(_hs&&_hs.split&&WTPL[_hs.split]&&sessionHasActivity(_hs)&&!isLiveSession(k,'home')) return _hs.split;
   var cfg=S.homeConfig&&S.homeConfig[k];
   if(cfg&&cfg.split&&WTPL[cfg.split]) return cfg.split;
   var day=Math.floor(new Date(k+'T12:00:00').getTime()/864e5), start=((day%4)+4)%4;
@@ -30944,6 +30988,7 @@ function homeSplitFor(k){
 }
 function setHomeSplit(sk){
   var k=dKey(vDate);
+  if(!isLiveSession(k,'home')){ showToast('This home workout is saved — its split stays as trained'); return; }
   if(!S.homeConfig) S.homeConfig={};
   S.homeConfig[k]={split:sk};
   saveS(); buildTodayWorkout();
@@ -30954,15 +30999,15 @@ function getHomeFocus(){ return S.weekFocus||'general'; }
 // Banner on the Home tab: today's split, why it was picked, and a quick switcher.
 function buildHomeBanner(k){
   var banner=el('swapWorkoutBanner'); if(!banner) return;
-  var cur=homeSplitFor(k), _hc=S.homeConfig&&S.homeConfig[k], auto=!(_hc&&_hc.split)||!!_hc.auto;
+  var cur=homeSplitFor(k), _hc=S.homeConfig&&S.homeConfig[k], auto=!(_hc&&_hc.split)||!!_hc.auto, _locked=!isLiveSession(k,'home');
   var gymNote='';
   var dt=getDayType(k);
   if(dt==='gym'||dt==='both'){ var gt=WTPL[getEffTpl(k)]; if(gt) gymNote='Gym today: '+gt.focus+'. '; }
   banner.style.display='block';
   banner.innerHTML='<div class="card" style="border-color:rgba(34,211,238,.35);background:rgba(34,211,238,.04)">'
     +'<div class="slbl" style="margin:0;color:#22d3ee">🏠 Home workout · '+HOME_SPLIT_META[cur].nm+'</div>'
-    +'<div style="font-size:11px;color:var(--mu);margin:3px 0 8px;line-height:1.5">'+escapeHtml(gymNote)+(auto?'Picked from the daily rotation to avoid muscles you are training at the gym today or trained in the last 48 h.':'Your pick for today.')+' Extra session — saved separately from the gym workout.</div>'
-    +'<div style="display:flex;gap:6px;flex-wrap:wrap">'+HOME_SPLITS.map(function(sk){var on=sk===cur;return '<button onclick="setHomeSplit(\''+sk+'\')" style="flex:1;min-width:70px;padding:6px 8px;border-radius:8px;font-size:11px;cursor:pointer;'+(on?'border:1px solid #22d3ee;background:rgba(34,211,238,.14);color:#22d3ee':'border:1px solid var(--b2);background:var(--s3);color:var(--mu)')+'">'+HOME_SPLIT_META[sk].nm+'<div style="font-size:8px;opacity:.8">'+HOME_SPLIT_META[sk].sb+'</div></button>';}).join('')+'</div>'
+    +'<div style="font-size:11px;color:var(--mu);margin:3px 0 8px;line-height:1.5">'+escapeHtml(gymNote)+(_locked?'✓ Saved — this workout keeps the split it was trained as.':(auto?'Picked from the daily rotation to avoid muscles you are training at the gym today or trained in the last 48 h.':'Your pick for today.'))+' Extra session — saved separately from the gym workout.</div>'
+    +(_locked?'':'<div style="display:flex;gap:6px;flex-wrap:wrap">'+HOME_SPLITS.map(function(sk){var on=sk===cur;return '<button onclick="setHomeSplit(\''+sk+'\')" style="flex:1;min-width:70px;padding:6px 8px;border-radius:8px;font-size:11px;cursor:pointer;'+(on?'border:1px solid #22d3ee;background:rgba(34,211,238,.14);color:#22d3ee':'border:1px solid var(--b2);background:var(--s3);color:var(--mu)')+'">'+HOME_SPLIT_META[sk].nm+'<div style="font-size:8px;opacity:.8">'+HOME_SPLIT_META[sk].sb+'</div></button>';}).join('')+'</div>')
     +'</div>';
 }
 // GMWD plate breakdown shown on the exercise card.

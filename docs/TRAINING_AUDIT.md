@@ -109,10 +109,15 @@ These changes were made at the user's explicit request. Where they reverse earli
   | --- | --- | --- |
   | Build Strength | One cluster set on the main lift | Clusters preserve velocity and force within a session ([Latella et al. 2019](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC6851217/)). Chronic strength gains match straight sets (Jukic et al. 2021; [Davies et al. 2021](https://edisciplinas.usp.br/pluginfile.php/8499875/mod_resource/content/0/intervalo_entre_repeticoes_forca_hipertrofia_davies_2021.pdf)). |
   | Muscle + Strength | Cluster on the main lift; rest-pause on an accessory | As above |
-  | Build Muscle | Drop set on the last isolation / machine exercises; one set to technical failure on a machine isolation | Drop sets match normal sets for hypertrophy in less time ([Sødal et al. 2023](https://doaj.org/article/21e0b210caf1433594359186eee617b9)). Failure adds a trivial-to-small benefit ([Refalo et al. 2023](https://pmc.ncbi.nlm.nih.gov/articles/PMC9935748)). Never on free-weight compounds. |
-  | Lose & Tone | Drop sets on two isolation exercises | Time-efficient volume while cutting (Sødal 2023) |
-  | Endurance | Rest-pause on accessories | Greater local muscular endurance than straight sets ([Prestes et al. 2019](https://pubmed.ncbi.nlm.nih.gov/28617715/)) |
+  | Build Muscle | Drop set on the last isolation / machine exercises; one set to technical failure on a machine isolation | Drop sets showed no significant hypertrophy difference from traditional sets, with time savings in some protocols ([Sødal et al. 2023](https://pubmed.ncbi.nlm.nih.gov/37523092/)). Training to momentary failure has not been shown superior to stopping 1–3 reps short ([Refalo et al. 2023](https://pubmed.ncbi.nlm.nih.gov/36334240/)), so it is one optional extra set. Never on free-weight compounds. |
+  | Lose & Tone | Drop sets on two isolation exercises | Keeps volume up in less time while cutting; hypertrophy comparable to traditional sets (Sødal 2023) |
+  | Endurance | Rest-pause on accessories | In a small trained sample, rest-pause gave greater leg-press muscular endurance than straight sets ([Prestes et al. 2019](https://pubmed.ncbi.nlm.nih.gov/28617715/)): a bounded rationale, not a universal advantage. |
   | General Fitness | One drop set on the final isolation exercise | — |
+
+  ACSM's resistance-training guidance treats advanced techniques (drop, rest-pause, cluster,
+  failure) as optional and supports varying load and volume by goal; it does not validate this
+  app's specific six-focus algorithm. The table above is the rationale for each choice, not a
+  claim that the technique is required or superior.
 
   Specialty sets have their own switch (Settings → Specialty sets, or the ✨ chip on Today), independent of supersets. Supersets remain antagonist-paired and are no longer gated on the specialty-set switch ([Zhang et al. 2025](https://eprints.leedsbeckett.ac.uk/id/eprint/11908)).
 - **Work-set doses.** Main lifts get 4 sets for Strength, Muscle + Strength and Build Muscle, and 3 for General, Tone and Endurance. This follows the NSCA ranges: strength 2–6, hypertrophy 3–6, general and endurance 2–3. Accessories stay at 3.

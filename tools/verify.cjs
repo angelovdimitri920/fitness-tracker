@@ -776,6 +776,89 @@ let server, browser;
       applyWorkoutTemplate(3); const g=S.sessions[k].gym, i=names(g).indexOf('Smith Machine Squat (Calf Raise)'); check(i>=0,'template exercise missing');
       const w=Number(g.exercises[i].sets[0].weight); check(w>0&&w<=130,'Smith calf raise prescribed at '+w+' lb from a 400 lb squat');
     });
+    // ── Codex comprehensive review (PR #4 @ d7f5029) regressions ────────────────
+    test('a saved Home workout keeps its split: the banner locks and a resave keeps the history identity', () => {
+      const k=homeReset('hpush'); const h=S.sessions[k].home; const first=h.exList[0].n;
+      h.exercises[0].sets[0]={...h.exercises[0].sets[0],weight:'40',reps:'10',done:true}; doSaveWorkout(3,'home push');
+      buildTodayWorkout();
+      check(!document.querySelector('#swapWorkoutBanner button[onclick*="setHomeSplit"]'),'split buttons still offered on a saved Home workout');
+      setHomeSplit('hlegs'); buildTodayWorkout();
+      check(wkTpl(k)==='hpush'&&el('todaySub').textContent.indexOf(HOME_SPLIT_META.hlegs.nm)<0,'saved Home relabelled: '+wkTpl(k)+' / '+el('todaySub').textContent);
+      S.homeConfig[k]={split:'hlegs'}; buildTodayWorkout(); check(wkTpl(k)==='hpush','homeConfig outranks the saved split');
+      doSaveWorkout(3,'home push correction'); const e=S.history.find(x=>x.type==='home');
+      check(e.split==='hpush'&&e.exercises[0].name===first,'resave changed the identity: '+e.split+' / '+e.exercises[0].name);
+      // history-only (an imported backup): no session object, conflicting config, after reload
+      delete S.sessions[k].home; S.homeConfig[k]={split:'hcore'}; saveS(); S=loadS();
+      check(homeSplitFor(k)==='hpush','history-only Home day reads its config instead of its saved split');
+      cMode='gym';
+    });
+    test('ending Home without saving leaves the Gym rest countdown running', () => {
+      const k=liveReset('upper'); switchPage('today'); cMode='gym'; buildTodayWorkout(); stopTimer();
+      startTimer(180,true); const deadline=_restEndAt; check(deadline>Date.now(),'rest timer did not start');
+      switchMode('home'); discardWorkout();
+      check(_restEndAt===deadline&&JSON.parse(localStorage.getItem('pf_restTimer')||'{}').e===deadline,'Home discard cancelled the Gym rest timer');
+      startTimer(90,true); check(_restOwner===k+'|home','home rest not owned by Home'); discardWorkout();
+      check(!_restEndAt&&!localStorage.getItem('pf_restTimer'),'Home discard kept its own rest timer');
+      // an older saved timer with no owner is left alone
+      localStorage.setItem('pf_restTimer',JSON.stringify({e:Date.now()+60000,l:null,t:60})); restoreRestTimer(); const legacy=_restEndAt;
+      switchMode('gym'); discardWorkout(); check(_restEndAt===legacy&&legacy>0,'discard stopped an unowned legacy timer');
+      stopTimer(); cMode='gym';
+    });
+    test('Workouts CSV and the printable report include Home workouts', () => {
+      reset(); const today=dKey(new Date()); let csv=null; const dl=_downloadFile;
+      try{
+        _downloadFile=(n,c)=>{csv=c;return true;};
+        S.history=[{id:1,date:today,day:'Monday',type:'home',focus:'Home · Push',split:'hpush',intensity:'quick',sets:3,volume:400,calories:90,duration:35,notes:'a "quoted", note',exercises:[]}];
+        exportCSV('workouts'); check(csv&&/Home/.test(csv.split('\r\n')[1]),'Home-only CSV missing: '+csv);
+        check(csv.indexOf('"a ""quoted"", note"')>=0,'CSV escaping broken');
+        S.history.push({id:2,date:today,day:'Monday',type:'gym',focus:'Upper',split:'upper',intensity:'standard',sets:9,volume:5000,exercises:[]},{id:3,date:today,type:'run',distance:3,duration:27});
+        csv=null; exportCSV('workouts'); const rows=csv.split('\r\n');
+        check(rows[0].split(',')[2]==='Type'&&rows.length===3&&rows.some(r=>/,Gym,/.test(r))&&rows.some(r=>/,Home,/.test(r)),'mixed CSV wrong: '+csv);
+        csv=null; exportCSV('runs'); check(csv&&csv.split('\r\n').length===2,'runs CSV changed');
+      } finally { _downloadFile=dl; }
+      printReport(); const rep=el('printReport').textContent;
+      check(/Workouts \(1 home\)/.test(rep)&&rep.indexOf('🏠')>=0,'printable report leaves out Home');
+      S.history=[];
+    });
+    test('weekly volume bars add up to the weekly total, Home included', () => {
+      reset(); const now=new Date(),dow=now.getDay(),mon=new Date(now); mon.setDate(now.getDate()-((dow===0?7:dow)-1)); const d0=dKey(mon), d1=dKey(new Date(mon.getTime()+864e5));
+      S.history=[{id:1,date:d0,type:'home',volume:400,sets:1,exercises:[]},{id:2,date:d1,type:'gym',volume:1000,sets:3,exercises:[]},{id:3,date:d1,type:'home',volume:250,sets:2,exercises:[]}];
+      const db=drawBar; let bars=null;
+      try{ drawBar=function(id,data){ if(id==='volChart') bars=data; return db.apply(this,arguments); }; updateProgress(); } finally { drawBar=db; }
+      const sum=bars.reduce((a,b)=>a+b,0); check(bars[0]===400&&bars[1]===1250,'bars '+JSON.stringify(bars));
+      check(sum===1650,'bars sum '+sum+' ≠ weekly total 1650');
+      S.prefs.weightUnit='kg'; if(S.profile) S.profile.weightUnit='kg'; bars=null;
+      try{ drawBar=function(id,data){ if(id==='volChart') bars=data; return db.apply(this,arguments); }; updateProgress(); } finally { drawBar=db; }
+      check(Math.abs(bars[1]-toDisplayWeight(1250))<0.01,'kg bars not converted on the summed value: '+bars[1]);
+      S.history=[];
+    });
+    test('history detail shows levels for level gear and seconds for timed holds', () => {
+      reset(); check(isLevelExercise('Hand Gripper Squeeze')&&isTimedHold('Side Plank'),'fixture names changed');
+      S.history=[{id:77,date:'2026-10-05',day:'Monday',type:'home',split:'hcore',focus:'Home · Core',volume:0,sets:3,exercises:[
+        {name:'Hand Gripper Squeeze',sets:[{weight:'',reps:'15',level:'5',type:'wk',done:true}]},
+        {name:'Side Plank',sets:[{weight:'',reps:'30',type:'wk',done:true}]},
+        {name:'Bench Press (Barbell)',sets:[{weight:'135',reps:'8',type:'wk',done:true}]}]}];
+      saveS(); S=loadS(); openHistDetail(77); const t=document.querySelector('.mo.show').textContent;
+      check(/Level 5 × 15 reps/.test(t),'level missing: '+t.slice(0,300)); check(/30 sec/.test(t)&&!/0 lbs × 30/.test(t),'hold shown as reps');
+      check(/135 lbs × 8 reps/.test(t),'loaded set formatting changed');
+      document.querySelectorAll('.mo').forEach(m=>m.classList.remove('show')); S.history=[];
+    });
+    test('Home can be saved as a template on every day type', () => {
+      for(const type of ['rest','run','gym','both']){
+        const k=liveReset('upper'); S.dayConfig[k]={type}; switchPage('today'); cMode='gym'; buildTodayWorkout(); switchMode('home');
+        check(el('saveTemplateBtn').style.display==='block','Save as Template hidden for Home on a '+type+' day');
+      }
+      cMode='gym';
+    });
+    test('every Home Quick session is planned within 30–45 min, with or without specialty sets and supersets', () => {
+      const bad=[];
+      for(const sp of HOME_SPLITS) for(const f of Object.keys(FOCUS_META)) for(const adv of [false,true]) for(const ss of [false,true]){
+        const k=homeReset(sp); S.prefs.autoSuperset=ss; _advSuggestEnabled=adv; S.weekFocus=f; S.sessions[k].home={exercises:{},cardio:{},cardioBlocks:{},intensity:'quick'}; buildTodayWorkout();
+        const est=Number(el('intEstLine').getAttribute('data-est-mid')), n=S.sessions[k].home.exList.length;
+        if(!(est>=30&&est<=45)||n<3) bad.push(sp+'/'+f+(adv?'/spec':'')+(ss?'/ss':'')+': '+est+' min, '+n+' ex');
+      }
+      _advSuggestEnabled=false; cMode='gym'; check(!bad.length,bad.join('; '));
+    });
     reset(); saveS();
     return results;
   });
