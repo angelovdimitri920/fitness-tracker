@@ -23,7 +23,7 @@ CHROMIUM_PATH=/path/to/chromium npm test         # if Playwright's bundled brows
 node tools/serve.js 8753                         # then open http://localhost:8753/pf_workout_tracker.html
 ```
 
-- `tools/verify.cjs` parses every inline `<script>`. It runs about 140 checks in one page at
+- `tools/verify.cjs` parses every inline `<script>`. It runs 152 checks in one page at
   430 × 932 (the target device is an iPhone 14 Pro Max), sweeps 10 pages and all modals for
   horizontal overflow, and does a real save → reload → file-import → offline-reload cycle.
   Results go to `.verification/results.json`; screenshots to `.verification/*.png`.
@@ -64,6 +64,7 @@ node tools/serve.js 8753                         # then open http://localhost:87
 | `buildSwapWorkoutBanner` / `confirmSplitSwitch` | The switcher is shown for any live session (not hidden after logging) and no longer wipes the session. |
 | `setIntensity` | Mid-workout on a live session it now re-plans instead of refusing. |
 | `applyWorkoutTemplate` | Sets `gym.planKey` after installing the template, so the re-planner doesn't undo the pin. |
+| `autoSplitFor` (Auto-Rotate) | Rewritten in the Codex round: walks forward from `AUTO_SPLIT_EPOCH` (2024-01-01) via `_autoSplitPinned` / `_nextAutoSplit`, so a day's split never depends on query order or cache state. **This shifts the projected rotation users saw before**; logged days and manual overrides are unchanged. |
 
 ### 3.2 End without saving (criterion 5)
 `discardWorkout()` is reached from 🗑 in `renderTimerBar` and the `#discardBtn` button (`refreshDiscardBtn()`, called from `updateStats`).
@@ -112,7 +113,7 @@ node tools/serve.js 8753                         # then open http://localhost:87
 | Saving and history | `doSaveWorkout` writes `type:'home'`, `gymId:'home'`, deduped per (date, type). `isSessionComplete(k,key)`. `priorGymHistory` and the last-session, PREV, stall and RPE readers filter by `isWkHistType`, so progression stays per location. `getRecentMuscles`, `weeklyMuscleSets`, `recomputePBs`, the calories chart and nutrition `activityBurn` include home. History gets a 🏠 filter and icon, and the `-Infinity lbs` display for bodyweight exercises is fixed. |
 
 ### 3.6 Other
-- `sw.js` `CACHE_VERSION` → `pf-cache-v9`.
+- `sw.js` `CACHE_VERSION` → `pf-cache-v10`.
 - `tools/verify.cjs`: `CHROMIUM_PATH` support. The backup-restore assertion is now date-independent; it failed on `main` once the real date moved past Oct 1.
 - Docs: `CLAUDE.md` §2, `docs/TRAINING_AUDIT.md` addendum, `docs/HOME_EQUIPMENT.md`.
 
@@ -130,11 +131,11 @@ node tools/serve.js 8753                         # then open http://localhost:87
 
 1. **The `GS()` conversion.** Any function still reading `S.sessions[k].gym` while Home is showing writes to the wrong session. Excluded on purpose (gym-only): `getEffTpl`, `autoSwapOut`/`autoSwapIn`, `buildWeeklyMGSets`, `calcTimeToGoal`, `confirmSplitSwitch` path, the plan calendar.
 2. **Re-plan merge in `buildGym`.** Duplicate names, a carried exercise that later reappears, user-added sets on a kept exercise (trimmed to the new prescribed count when unlogged), drop-set chains (`addContinueDrop`) on a re-planned exercise, and supersets right after a re-plan.
-3. **`applyTodaySplitSwitch` undo** when the user also edits future days on the Plan page between switches, and with `S.prefs.autoRotateSplits` on (the shift logic predates auto-rotate and only reads `dayConfig`/`daySched`).
-4. **`getExType` fallback changes:** suggested starting weights for formerly-"machine" exercises (EZ-bar, trap-bar, landmine, Smith, plate-loaded variants).
+3. **`applyTodaySplitSwitch` + the new `autoSplitFor`.** Fixed in the Codex round (§6a #1–2). Please re-check: a switch, then a Plan edit, then auto-rotate toggled on or off between switches; a switch on a day before a logged session; and whether the epoch walk misbehaves for dates before 2024 or far in the future.
+4. **Starting weights.** The `getExType` fallback changed in this PR, and `inferStrengthRef` / `STRENGTH_REF_PATTERNS` were added in the Codex round for unmapped variants. Check the pattern order (first match wins) for names the tests don't cover, and dumbbell (`compound_db`) or cable names that should *not* get an inferred reference.
 5. **Global mode state:** `cMode` + `_homeParked` + the `getActiveGym` override. Check page switches mid-workout, `resyncAllTimers` on visibility change, and notifications.
 6. **Specialty planner edge cases:** Quick intensity, pinned templates, user-linked supersets, `_advSuggestEnabled` default (`true` unless `pf_advSuggest==='0'`).
-7. **Home loads:** GMWD warm-up ramps (`getWarmupSets` / `warmupWeightFor`) produce weights that may not land on a bumper combination. These are cosmetic warm-up rows, not checked by tests.
+7. **Warm-up rows.** `getWarmupSets` now snaps rows down to loadable weights and drops any that are not lighter than the work load. A light work load can therefore produce 0 or 1 warm-up rows instead of 2. Check that nothing downstream assumes exactly two (warm-up checkboxes keyed by index, save completion %).
 
 ## 6. Already reviewed and fixed (don't re-report unless still broken)
 
