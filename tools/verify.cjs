@@ -506,6 +506,112 @@ let server, browser;
       switchPage('today'); check(cMode==='home'&&getActiveGym().id===HOME_PROFILE_ID,'home not restored');
       cMode='gym';
     });
+    // ── Codex review (PR #4 @ cc74234) regressions ──────────────────────────────
+    const laterDays = (k,n=7) => { const out=[]; for(let i=1;i<=n;i++){const d=new Date(k+'T12:00:00');d.setDate(d.getDate()+i);out.push(dKey(d));} return out; };
+    test('Today split switching works with Auto-Rotate Splits on', () => {
+      const k=liveReset('upper'); delete S.dayConfig[k].split; S.prefs.autoRotateSplits=true; _autoSplitCache={};
+      buildTodayWorkout(); const later=laterDays(k), week=()=>{_autoSplitCache={};return later.map(dk=>getDayType(dk)==='rest'?'-':getEffTpl(dk)).join(',');};
+      const orig=getEffTpl(k), original=week(), alt=['push','pull','lower','arms'].filter(x=>x!==orig);
+      confirmSplitSwitch(alt[0]); check(getEffTpl(k)===alt[0],'today did not switch with auto-rotate on');
+      const nextGym=later.find(dk=>getDayType(dk)==='gym'||getDayType(dk)==='both'); check(getEffTpl(nextGym)===orig,'skipped '+orig+' not moved to the next gym day ('+getEffTpl(nextGym)+')');
+      const once=week(); confirmSplitSwitch(alt[1]); check(week()===once,'second switch shifted the week again');
+      check(names(S.sessions[k].gym).length>0&&getEffTpl(k)===alt[1],'exercises not rebuilt for the new split');
+      confirmSplitSwitch(orig); check(week()===original,'switching back did not restore the auto-rotated week: '+original+' vs '+week());
+      check(getEffTpl(k)===orig,'today not back on the rotated split');
+    });
+    test('a future Plan edit made between two Today switches survives', () => {
+      const k=liveReset('upper'); buildTodayWorkout(); const later=laterDays(k);
+      confirmSplitSwitch('lower');
+      const target=later.filter(dk=>getDayType(dk)==='gym'||getDayType(dk)==='both')[1]; check(target,'no second upcoming gym day');
+      openDayModal(target); setSplit('arms'); saveDayConfig(); check(getEffTpl(target)==='arms','plan edit not applied');
+      vDate=new Date(k+'T12:00:00');
+      confirmSplitSwitch('push'); check(getEffTpl(target)==='arms','second switch overwrote the plan edit: '+getEffTpl(target));
+      confirmSplitSwitch('upper'); check(getEffTpl(target)==='arms','switching back overwrote the plan edit: '+getEffTpl(target));
+    });
+    test('the Home workout clock shows on a scheduled rest day', () => {
+      const k=liveReset('upper'); S.dayConfig[k]={type:'rest'}; switchPage('today'); cMode='gym'; buildTodayWorkout(); switchMode('home');
+      renderTimerBar(); check(el('workoutTimerBar').style.display!=='none','timer bar hidden for home on a rest day');
+      check(S.sessions[k].home&&S.sessions[k].home.exList.length>=3,'no home workout on the rest day');
+      startWorkoutTimer(); check(_wTimerActive,'clock did not start'); discardWorkout(); cMode='gym';
+    });
+    test('a home cardio countdown alone keeps the screen awake', () => {
+      const k=liveReset('upper'); S.prefs.keepAwake=true; const sv=[_wTimerActive,timerInt];
+      try{ _wTimerActive=false; timerInt=null; S.sessions[k]={home:{exercises:{},cardioBlocks:{f0:{timer:{running:true,endAt:Date.now()+60000}}}}};
+        check(wakeLockWanted(),'home-only cardio timer did not request the wake lock');
+        S.sessions[k].home.cardioBlocks.f0.timer.running=false; check(!wakeLockWanted(),'wake lock wanted with nothing running');
+      } finally { _wTimerActive=sv[0]; timerInt=sv[1]; }
+    });
+    test('GMWD warm-up rows are loadable for every valid working load', () => {
+      homeReset('hpush');
+      for(const n of ['GMWD Chest Press (Flat)','GMWD Single-Arm Press']) for(const f of Object.keys(FOCUS_META)){
+        S.weekFocus=f; const base=getBaseWeight(n), per=gmwdPerArmLoads(), arms=/Single-Arm/.test(n)?1:2;
+        for(const p of per){ const L=base+arms*p; check(isLoadableWeight(n,L),n+' '+L+' not loadable');
+          for(const w of getWarmupSets(L,n)){ check(isLoadableWeight(n,w.weight),f+': '+n+' @'+L+' warm-up '+w.weight+' unloadable'); check(w.weight<L&&w.weight>=base,f+': '+n+' @'+L+' warm-up '+w.weight+' out of range'); }
+        }
+      }
+      cMode='gym';
+    });
+    test('home workouts feed recovery and rest-day suggestions', () => {
+      reset(); const tk=dKey(new Date());
+      S.history=[{id:1,date:tk,type:'home',split:'hpush',exercises:[{name:'Push-Ups',sets:[set(0,15),set(0,15),set(0,15)]},{name:'Diamond Push-Up',sets:[set(0,12),set(0,12),set(0,12)]}]}];
+      check(/× (trained|solid|volume)/.test(buildWeeklyMuscleStatusCard()),'weekly muscle load ignores the home session');
+      check(!/Log some workouts first/.test(buildRestDayRecovery()),'rest-day recovery ignores the home session');
+      const recs=getSmartRestRecommendations(tk); S.history=[]; const none=getSmartRestRecommendations(tk);
+      check(JSON.stringify(recs)!==JSON.stringify(none),'smart rest recommendations ignore the home session');
+    });
+    test('weekly plan completion never exceeds 100% and lists home sessions separately', () => {
+      reset(); const now=new Date(),dow=now.getDay(),mon=new Date(now); mon.setDate(now.getDate()-((dow===0?7:dow)-1)); S.history=[];
+      for(let i=0;i<7;i++){ const d=new Date(mon); d.setDate(mon.getDate()+i); const dk=dKey(d);
+        S.history.push({id:i*3+1,date:dk,type:'gym',exercises:[],volume:0,sets:0},{id:i*3+2,date:dk,type:'run',distance:3},{id:i*3+3,date:dk,type:'home',exercises:[]}); }
+      updateProgress(); const pct=parseInt(el('wkPct').textContent,10);
+      check(pct<=100,'weekly completion '+pct+'%'); check(/\+7 home/.test(el('wkLbl').textContent),'home sessions not listed: '+el('wkLbl').textContent);
+      S.history=[];
+    });
+    test('live Home calories use home exercises even while the Gym tab shows', () => {
+      const k=homeReset('hpush'); const h=S.sessions[k].home;
+      const met=n=>{const t=getExType(n);return (t==='compound'||t==='plate_machine')?5:(t==='cable'||t==='bodyweight')?4:3.5;};
+      const hi=0; (h.exercises[hi].sets||[]).forEach(s=>{s.done=true;s.reps='10';s.type='wk';});
+      const gymName=['Leg Extension Machine','Cable Lateral Raise','Bench Press (Barbell)'].find(n=>met(n)!==met(h.exList[hi].n));
+      const asHome=getWorkoutCalsBurned(); check(asHome>0,'no home calories'); cMode='gym'; buildTodayWorkout();
+      S.swaps[k+':'+hi]={n:gymName,t:'x',sets:3,reps:8};   // a gym-only identity at the same index
+      check(getWorkoutCalsBurned('home')===asHome,'home calories changed with the gym tab: '+asHome+' vs '+getWorkoutCalsBurned('home'));
+      delete S.swaps[k+':'+hi];
+    });
+    test('turning supersets off leaves a saved Home session untouched', () => {
+      const k=homeReset('hpush'); S.prefs.autoSuperset=true; buildTodayWorkout(); const h=S.sessions[k].home;
+      h.supersets={0:1,1:0}; h.exercises[0].sets[0]={...h.exercises[0].sets[0],reps:'10',done:true}; saveS(); doSaveWorkout(4,'home saved');
+      const before=JSON.stringify(S.sessions[k].home.supersets); S.prefs.autoSuperset=false; applySupersetPrefToSession();
+      check(JSON.stringify(S.sessions[k].home.supersets)===before&&!S.sessions[k].home.userUnlinkedSupersets,'saved home session mutated');
+      cMode='gym';
+    });
+    test('each focus gets exactly its specialty-set mix; Quick gets one', () => {
+      const want={power:{cl:1},hybrid:{cl:1,rp:1},muscle:{ds:2},tone:{ds:2},endurance:{rp:2},general:{ds:1}};
+      for(const sp of ['push','pull','upper','lower']) for(const f of Object.keys(want)) for(const it of ['standard','full','quick']){
+        const k=liveReset(sp); _advSuggestEnabled=true; S.weekFocus=f; S.sessions[k]={gym:{exercises:{},cardio:{},cardioBlocks:{},intensity:it}}; buildTodayWorkout(); const g=S.sessions[k].gym;
+        const got={}; let total=0; g.exList.forEach((e,i)=>(g.exercises[i].sets||[]).forEach(s=>{ if(s.spec){ got[s.type]=(got[s.type]||0)+1; total++; } }));
+        const ctx=sp+'/'+f+'/'+it+' '+JSON.stringify(got);
+        if(it==='quick'){ check(total<=1,ctx+': quick has '+total); check(!total||got[Object.keys(want[f])[0]]===1,ctx+': quick used the wrong technique'); continue; }
+        for(const [t,n] of Object.entries(want[f])) check((got[t]||0)<=n,ctx+': too many '+t);
+        for(const t of Object.keys(got)) check(want[f][t]!=null||(f==='muscle'&&t==='fl'),ctx+': '+t+' does not belong to '+f);
+        if(f==='muscle') check((got.fl||0)<=1,ctx+': more than one failure set');
+        if(f!=='power'&&f!=='hybrid') check(total>=1,ctx+': no specialty set at all');
+        if(f==='muscle'){ const eligible=planSpecialtySets(g.exList,'muscle',it,g.exercises); check(!Object.values(eligible).includes('fl')||got.fl===1,ctx+': eligible failure set missing'); }
+      }
+      _advSuggestEnabled=false;
+    });
+    test('EZ / trap-bar / landmine / Smith / plate-loaded starting loads are plausible and loadable', () => {
+      reset(); S.history=[];
+      const pool=[...new Set(Object.values(ELIB).flat().map(e=>e.n))].filter(n=>/\bez\b|trap bar|landmine|smith|plate-loaded|hack|t-bar/i.test(n)&&getExType(n)!=='bodyweight'&&!/carry|march|jump|twist|rotation|clean|thruster/i.test(n));
+      check(pool.length>80,'pool too small: '+pool.length);
+      const light=/curl|raise|extension|skull|tate|pullover|jm press|wrist|jefferson/i;
+      for(const n of pool) for(const f of Object.keys(FOCUS_META)){
+        S.weekFocus=f; const reps=Array.isArray(FOCUS_META[f].reps)?FOCUS_META[f].reps:[8,12]; const w=getProgression(n,reps,3,focusLoadFactor(f,reps)).weight, b=getBaseWeight(n);
+        check(w>0&&w>=b,f+': '+n+' starts at '+w+' (base '+b+')'); check(isLoadableWeight(n,w),f+': '+n+' '+w+' not loadable');
+        check(w<=(light.test(n)&&!/calf|leg curl/i.test(n)?80:400),f+': '+n+' starts implausibly heavy at '+w);
+      }
+      check(getProgression('EZ Bar Wrist Curl',[10,14],3,1).weight<=40,'wrist curl starts too heavy');
+      check(getProgression('Landmine Lateral Raise',[10,14],3,1).weight<=30,'landmine lateral raise starts too heavy');
+    });
     reset(); saveS();
     return results;
   });

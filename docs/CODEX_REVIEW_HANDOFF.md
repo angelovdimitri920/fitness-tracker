@@ -3,8 +3,9 @@
 **For:** an independent reviewer (Codex) to check every change on branch
 `claude/plan-sync-focus-home-workout` and confirm it works.
 **PR:** https://github.com/angelovdimitri920/fitness-tracker/pull/4 (base `main` @ `c9b45cc`)
-**Status when handed off (Oct 11, 2026):** 141 browser checks pass, 0 failures, 0 browser errors.
-One code-review pass has already been done and its findings fixed (section 6).
+**Status (Oct 12, 2026):** 152 browser checks pass, 0 failures, 0 browser errors.
+Two review passes have been done and their findings fixed: the first code review (section 6)
+and Codex's review of `cc74234` (section 6a).
 
 Please review for **correctness first**, then for regressions in existing features. The app is
 one file, `pf_workout_tracker.html`: inline CSS and vanilla JS, no build step. Read `CLAUDE.md`
@@ -152,6 +153,28 @@ node tools/serve.js 8753                         # then open http://localhost:87
 
 Each fix has a regression test in `tools/verify.cjs` (search "Review follow-ups").
 
+## 6a. Codex review of `cc74234`: fixed
+
+| # | Finding | Fix |
+| --- | --- | --- |
+| 1 | A future Plan edit was overwritten by the next Today switch | Undoing a switch leaves any day whose split no longer matches what the switch wrote, and the re-shift skips it (`applyTodaySplitSwitch` `protect`) |
+| 2 | Today switching broke with Auto-Rotate Splits on | Root cause: `autoSplitFor` recursed to a depth cap and anchored there, so a day's split depended on which day was asked first after a cache clear (with a cold cache every day came out the same). It now walks forward from a fixed epoch (`AUTO_SPLIT_EPOCH`), and `shiftWeekSplitsForward` shifts the effective (rotated) plan |
+| 3 | Home clock hidden on scheduled rest days | `renderTimerBar`, interval launcher and notes exempt `cMode==='home'` |
+| 4 | Home-only cardio countdown did not request the wake lock | `wakeLockWanted` checks both `gym` and `home` cardio blocks |
+| 5 | GMWD warm-up rows could be unloadable (e.g. 30 lb) | `warmupWeightFor` snaps down with `snapToLoadable`; `getWarmupSets` keeps only rows lighter than the work load, de-duplicated |
+| 6 | Home sessions ignored by four recovery builders | `isResistanceWorkout(h)` (gym or home) in all four |
+| 7 | Weekly completion could exceed 100% | Home sessions listed separately (`+N home`), percentage capped |
+| 8 | Live home calories used gym exercise identities | `getWorkoutCalsBurned(key)` reads that session's `exList` and swap namespace |
+| 9 | Turning supersets off mutated a saved Home session | Guard is `isSessionComplete(k, wkKey(k))` |
+| gap | Implausible starting loads for unmapped bar / landmine / Smith variants (EZ-bar wrist curl at 90 lb) | `inferStrengthRef` infers a reference lift from the movement when `EX_TO_STRENGTH` has none |
+
+Each has a regression in `tools/verify.cjs` (search "Codex review"). All ten regressions were
+confirmed to fail against `cc74234` and pass now. Test gaps closed as well: auto-rotate on; a
+Plan edit between two switches; Home on a rest day; the wake lock with only home cardio;
+nutrition's home calories while the Gym tab shows; GMWD warm-ups for every loadable total and
+every focus; the exact specialty mix per focus × intensity on four splits; starting-load
+plausibility for 120+ bar / machine variants.
+
 ## 7. Judgement calls (flag if you disagree)
 
 - PRs are per exercise and therefore shared between gym and home. Progression history is per location.
@@ -161,7 +184,7 @@ Each fix has a regression test in `tools/verify.cjs` (search "Review follow-ups"
 
 ## 8. Known limitations / not covered by automated tests
 
-- Real iPhone behaviour: background timers, wake lock, notifications, PWA update with `pf-cache-v9`.
+- Real iPhone behaviour: background timers, wake lock, notifications, PWA update with `pf-cache-v10`.
 - Template save/apply on the Home tab works through the shared code, but has no dedicated test.
 - `autoSwapIn` iterates `sess.gym.exercises` with `.forEach`, but it is an object. This bug predates this PR and is caught by its `try`. It was left untouched.
 - The Plan page does not show the home workout. Home is chosen on Today only.

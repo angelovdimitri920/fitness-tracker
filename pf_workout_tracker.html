@@ -4422,6 +4422,36 @@ function getProgression(exName, targetReps, targetSets, weightMult){
   }catch(e){}
   return res;
 }
+// Movement-pattern reference for loaded exercises the strength map does not name.
+// First match wins, so the specific patterns sit above the general ones.
+var STRENGTH_REF_PATTERNS=[
+  [/wrist curl|wrist roller|jefferson/i,'ezcurl',0.45],
+  [/lateral raise|front raise|rear delt/i,'dblateral',1.2],
+  [/curl/i,'ezcurl',0.85],
+  [/skull|tricep|tate press|jm press|extension|pullover/i,'skullcrush',0.8],
+  [/upright row|high pull/i,'ohp',0.7],
+  [/shrug/i,'deadlift',0.6],
+  [/calf/i,'calfstand',0.7],
+  [/hip thrust|glute bridge/i,'hipthrust',0.7],
+  [/good morning/i,'bbrdl',0.5],
+  [/romanian|\brdl\b|stiff-leg/i,'bbrdl',0.75],
+  [/trap bar deadlift/i,'deadlift',0.9],
+  [/deadlift/i,'deadlift',0.7],
+  [/split squat|lunge|step-up|lateral squat/i,'squat',0.45],
+  [/squat/i,'squat',0.7],
+  [/overhead|shoulder|push press|viking|military|landmine press|split press/i,'ohp',0.8],
+  [/press/i,'bench',0.6],
+  [/row/i,'bbrow',0.6]
+];
+function inferStrengthRef(exName){
+  var t=getExType(exName);
+  if(t!=='compound'&&t!=='plate_machine') return null;
+  for(var i=0;i<STRENGTH_REF_PATTERNS.length;i++){
+    var r=STRENGTH_REF_PATTERNS[i];
+    if(r[0].test(exName)) return {key:r[1],scale:r[2]};
+  }
+  return null;
+}
 function _getProgressionRaw(exName, targetReps, targetSets, weightMult){
 // Active strength program drives its main lifts (top working set headline; per-set ramp
 // is applied in the set renderer). Accessories fall through to focus-based progression.
@@ -4495,6 +4525,16 @@ if(/^(weighted vest|ankle weight|bumper plate)/i.test(exName)){var _lo=getExerci
 var directKey = getStrKey(exName);        // direct match (barbell → same key)
 var refKey = directKey || EX_TO_STRENGTH[exName];  // fallback to closest ref
 var refWorking = refKey ? (S.strength[refKey]||0) : 0;
+// Barbell / Smith / trap-bar / landmine / plate-loaded variants with no mapped reference
+// used to fall to a flat 95 lb (an EZ-bar wrist curl at 90 lb). Infer the reference from
+// the movement instead, scaled down because a variant is rarely as strong as the parent.
+if(!refKey){
+  var _inf=inferStrengthRef(exName);
+  if(_inf&&(S.strength[_inf.key]||0)>0){
+    var _base=getBaseWeight(exName);
+    return {weight:applyMult(Math.max(_base,S.strength[_inf.key]*_inf.scale)), reps:targetReps, sets:targetSets, badge:'est', msg:'estimated'};
+  }
+}
 
 if(refWorking > 0){
 var estWeight;
@@ -4966,32 +5006,27 @@ function splitMuscles(splitKey){
   _splitMusclesCache[splitKey]=m; return m;
 }
 var _autoSplitCache={};
-function autoSplitFor(k,_depth){
-  _depth=_depth||0;
-  if(_autoSplitCache[k]) return _autoSplitCache[k];
+// The rotation is walked forward from a fixed epoch, so a day's split never depends on
+// which day happened to be asked for first after the cache was cleared (saveS clears it).
+// It used to recurse back to a depth cap and anchor there, which put every day on the
+// same split whenever the cache was cold, and shifted the week between renders.
+var AUTO_SPLIT_EPOCH='2024-01-01';
+function _autoSplitPinned(k,logged){
   // manual per-day override wins
   var cfg=S.dayConfig[k];
-  if(cfg&&cfg.split&&cfg.split!=='auto') return (_autoSplitCache[k]=cfg.split);
+  if(cfg&&cfg.split&&cfg.split!=='auto') return cfg.split;
   // a logged workout freezes the day to exactly what was trained
-  var logged=null;
-  for(var hi=0;hi<S.history.length;hi++){var h=S.history[hi]; if(h.date===k&&h.type==='gym'&&h.split){logged=h.split; break;}}
-  if(logged) return (_autoSplitCache[k]=logged);
+  if(logged[k]) return logged[k];
   if(S.weekFocus==='hybrid'){
     var days=(S.setup.gymDays||[]).slice().sort(function(a,b){return ((a+6)%7)-((b+6)%7);});
     var rotation=days.length<=3?['fullbody']:days.length===4?['upper','lower','upper','lower']:days.length===5?['upper','lower','push','pull','lower']:['push','pull','lower','push','pull','lower'];
     var slot=days.indexOf(new Date(k+'T12:00:00').getDay());
-    return (_autoSplitCache[k]=rotation[Math.max(0,slot)%rotation.length]);
+    return rotation[Math.max(0,slot)%rotation.length];
   }
-
-  if(_depth>40) return AUTO_SPLIT_POOL[0]; // recursion anchor for long empty projections
-  // find the nearest prior gym/both day, then advance one slot from its split
-  var d0=new Date(k+'T12:00:00'), prevSplit=null;
-  for(var back=1;back<=14;back++){
-    var d=new Date(d0); d.setDate(d0.getDate()-back);
-    var pk=dKey(d), dt=getDayType(pk);
-    if(dt==='gym'||dt==='both'){ prevSplit=autoSplitFor(pk,_depth+1); break; }
-  }
-  if(prevSplit===null) return (_autoSplitCache[k]=AUTO_SPLIT_POOL[0]); // first gym day
+  return null;
+}
+function _nextAutoSplit(prevSplit){
+  if(prevSplit==null) return AUTO_SPLIT_POOL[0]; // first gym day
   var idx=AUTO_SPLIT_POOL.indexOf(prevSplit);
   // If the previous day's split isn't in the rotation pool (a manual odd split),
   // pick the pool split that overlaps it least so we still avoid back-to-back strain.
@@ -5001,9 +5036,31 @@ function autoSplitFor(k,_depth){
       var cm=splitMuscles(cand), ov=Object.keys(cm).filter(function(g){return pm[g];}).length;
       if(ov<bestOv){bestOv=ov; best=cand;}
     });
-    return (_autoSplitCache[k]=best);
+    return best;
   }
-  return (_autoSplitCache[k]=AUTO_SPLIT_POOL[(idx+1)%AUTO_SPLIT_POOL.length]);
+  return AUTO_SPLIT_POOL[(idx+1)%AUTO_SPLIT_POOL.length];
+}
+function autoSplitFor(k){
+  if(_autoSplitCache[k]) return _autoSplitCache[k];
+  var logged={};
+  for(var hi=0;hi<S.history.length;hi++){var h=S.history[hi]; if(h.type==='gym'&&h.split&&!logged[h.date]) logged[h.date]=h.split;}
+  var pin=_autoSplitPinned(k,logged);
+  if(pin) return (_autoSplitCache[k]=pin);
+  // Walk back to the nearest gym day whose split is already known, then resolve forward.
+  var chain=[k], prev=null, d0=new Date(k+'T12:00:00');
+  for(var back=1;;back++){
+    var d=new Date(d0); d.setDate(d0.getDate()-back);
+    var pk=dKey(d);
+    if(pk<AUTO_SPLIT_EPOCH) break;
+    var dt=getDayType(pk);
+    if(dt!=='gym'&&dt!=='both') continue;
+    if(_autoSplitCache[pk]){ prev=_autoSplitCache[pk]; break; }
+    var p=_autoSplitPinned(pk,logged);
+    if(p){ prev=(_autoSplitCache[pk]=p); break; }
+    chain.push(pk);
+  }
+  for(var ci=chain.length-1;ci>=0;ci--){ prev=_nextAutoSplit(prev); _autoSplitCache[chain[ci]]=prev; }
+  return _autoSplitCache[k];
 }
 function getEffTpl(k){var gym=S.sessions[k]&&S.sessions[k].gym;if(gym&&gym.split&&sessionHasActivity(gym)&&!isLiveSession(k,'gym'))return gym.split;var c=S.dayConfig[k];if(c&&c.split&&c.split!=='auto')return c.split;if(S.prefs&&S.prefs.autoRotateSplits)return autoSplitFor(k);var d=new Date(k+'T12:00:00'),dow=d.getDay();return S.daySched[dow]||'upper';}
 function getDayType(k){var c=S.dayConfig[k];if(c&&c.type){var _ct=c.type;if((S.prefs&&S.prefs.runMode===false)&&(_ct==='run'))return'rest';if((S.prefs&&S.prefs.runMode===false)&&(_ct==='both'))return'gym';return _ct;}var d=new Date(k+'T12:00:00'),dow=d.getDay(),isG=S.setup.gymDays.includes(dow),isR=S.setup.runDays.includes(dow)&&(S.prefs?S.prefs.runMode!==false:true);if(isG&&isR)return'both';if(isG)return'gym';if(isR)return'run';return'rest';}
@@ -5443,7 +5500,7 @@ function buildTodayWorkout(){
   if(bb){try{bb.style.display=checkBackupReminder()?'flex':'none';}catch(e){console.warn('checkBackupReminder failed:',e);}}
   var k=dKey(vDate),dow=vDate.getDay(),dtype=getDayType(k),isG=(dtype==='gym'||dtype==='both'),isR=(dtype==='run'||dtype==='both');
 // Interval/HIIT timer is for training days only — hide its launcher on rest days
-var _itl=el('intervalTimerLaunch'); if(_itl) _itl.style.display=(dtype==='rest')?'none':'flex';
+var _itl=el('intervalTimerLaunch'); if(_itl) _itl.style.display=(dtype==='rest'&&cMode!=='home')?'none':'flex';
 // Always hide swap banner; buildGym will show it if appropriate
 var _swb=el('swapWorkoutBanner'); if(_swb) _swb.style.display='none';
 if(!S.sessions[k])S.sessions[k]={};if(isG&&!S.sessions[k].gym)S.sessions[k].gym={exercises:{},cardio:{},intensity:S.setup.defaultIntensity||'standard'};if(isR&&!S.sessions[k].run)S.sessions[k].run={};var tabs=el('modeTabs');
@@ -6779,9 +6836,9 @@ function wakeLockWanted(){
   if(typeof _wTimerActive!=='undefined' && _wTimerActive && !_wTimerPaused) return true;
   if(typeof timerInt!=='undefined' && timerInt) return true;
   try{
-    var sess=S.sessions[dKey(vDate)]&&S.sessions[dKey(vDate)].gym;
-    var cb=sess&&sess.cardioBlocks;
-    if(cb&&Object.keys(cb).some(function(key){ return cb[key].timer&&cb[key].timer.running; })) return true;
+    // Either workout of the day (gym or home) can have a running cardio countdown.
+    var day=S.sessions[dKey(vDate)]||{};
+    if(['gym','home'].some(function(w){ var cb=day[w]&&day[w].cardioBlocks; return cb&&Object.keys(cb).some(function(key){ return cb[key].timer&&cb[key].timer.running; }); })) return true;
   }catch(e){}
   return false;
 }
@@ -8165,6 +8222,9 @@ function wkKey(k){ return (cMode==='home'&&k===dKey(vDate))?'home':'gym'; }
 // Home Workout module).
 // History entries comparable with the workout on screen: gym entries at the gym, home
 // entries at home.
+// Any resistance session — gym or home. For recovery and training-load features
+// (progression stays per location: isWkHistType / priorGymHistory).
+function isResistanceWorkout(h){ return !!h&&(h.type==='gym'||h.type==='home'); }
 function isWkHistType(h){ return !!h&&h.type===(isHomeMode()?'home':'gym'); }
 function wkTpl(k){ return (wkKey(k)==='home'&&typeof homeSplitFor==='function')?homeSplitFor(k):getEffTpl(k); }
 function GS(k){ var d=S.sessions&&S.sessions[k]; return d?d[wkKey(k)]:undefined; }
@@ -11495,7 +11555,7 @@ return '<div class="plateau-item">📊 <strong>'+p.name.split('(')[0].trim()+'</
 }
 var progAlertsEl=el('progAlerts');
 if(progAlertsEl) progAlertsEl.innerHTML=deloadHTML+plateauHTML;
-var now=new Date(),dow=now.getDay(),mon=new Date(now);mon.setDate(now.getDate()-((dow===0?7:dow)-1));var dates=[];for(var i=0;i<7;i++){var d=new Date(mon);d.setDate(mon.getDate()+i);dates.push(dKey(d));}var ws=S.history.filter(function(h){return dates.indexOf(h.date)>=0;}),exp=S.setup.gymDays.length+S.setup.runDays.length,done=ws.length,pct=exp>0?Math.round(done/exp*100):0;el('ringC').style.strokeDashoffset=188-(188*Math.min(1,done/Math.max(exp,1)));el('wkPct').textContent=pct+'%';el('wkLbl').textContent=done+' of '+exp;var wV=ws.reduce(function(a,h){return a+(h.volume||0);},0),wS=ws.reduce(function(a,h){return a+(h.sets||0);},0),wC=ws.reduce(function(a,h){return a+(h.type==='run'?(h.duration||0):(h.cardioMins||0));},0),wM=ws.filter(function(h){return h.type==='run';}).reduce(function(a,h){return a+(h.distance||0);},0);var _wuWk=getWeightUnit(),_wVD=toDisplayWeight(wV);var _vcLbl=el('volChartLbl');if(_vcLbl)_vcLbl.textContent='Volume This Week ('+_wuWk+')';el('wkStats').innerHTML='<div class="sb"><div class="sv">'+(_wVD>999?Math.round(_wVD/1000)+'k':Math.round(_wVD))+'</div><div class="sl">Vol '+_wuWk+'</div></div><div class="sb"><div class="sv">'+wS+'</div><div class="sl">Sets</div></div><div class="sb"><div class="sv">'+Math.round(wC)+'</div><div class="sl">Cardio</div></div><div class="sb"><div class="sv" style="color:var(--ru)">'+wM.toFixed(1)+'</div><div class="sl">Run mi</div></div>';drawBar('volChart',dates.map(function(d){var s=ws.find(function(h){return h.date===d&&h.type==='gym';});return s?toDisplayWeight(s.volume||0):0;}),['M','T','W','Th','F','Sa','Su'],'#f5c400');drawBar('runChart',dates.map(function(d){var s=ws.find(function(h){return h.date===d&&h.type==='run';});return s?s.distance:0;}),['M','T','W','Th','F','Sa','Su'],'#10b981');var lifts=[{k:'squat',n:'Squat'},{k:'bench',n:'Bench'},{k:'deadlift',n:'Deadlift'},{k:'ohp',n:'OHP'}];var _wuOrm=getWeightUnit();el('ormChart').innerHTML=lifts.map(function(l){return'<div class="fbet" style="padding:7px 0;border-bottom:1px solid var(--b1)"><div style="font-size:12px">'+l.n+'</div><div><span class="badge by">Est 1RM: '+toDisplayWeight(loggedLiftEstimate(l.k))+' '+_wuOrm+'</span><span style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--mu);margin-left:8px">Working: '+toDisplayWeight(S.strength[l.k]||0)+' '+_wuOrm+'</span></div></div>';}).join('');var pbs=Object.values(S.pbs);if(!pbs.length){el('pbList').innerHTML='<div style="color:var(--mu);font-size:12px">Log workouts to track PRs.</div>';return;}var byEx={};pbs.forEach(function(p){if(!byEx[p.exercise]||p.vol>byEx[p.exercise].vol)byEx[p.exercise]=p;});var _wuPB=getWeightUnit();el('pbList').innerHTML=Object.values(byEx).slice(0,8).map(function(p){return'<div class="fbet" style="padding:7px 0;border-bottom:1px solid var(--b1)"><div style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:65%">'+escapeHtml(p.exercise)+'</div><span class="badge by">🏆 '+toDisplayWeight(parseFloat(p.weight)||0)+' '+_wuPB+' × '+p.reps+'</span></div>';}).join('');
+var now=new Date(),dow=now.getDay(),mon=new Date(now);mon.setDate(now.getDate()-((dow===0?7:dow)-1));var dates=[];for(var i=0;i<7;i++){var d=new Date(mon);d.setDate(mon.getDate()+i);dates.push(dKey(d));}var ws=S.history.filter(function(h){return dates.indexOf(h.date)>=0;}),exp=S.setup.gymDays.length+S.setup.runDays.length,_homeN=ws.filter(function(h){return h.type==='home';}).length,done=ws.length-_homeN,pct=exp>0?Math.min(100,Math.round(done/exp*100)):0;el('ringC').style.strokeDashoffset=188-(188*Math.min(1,done/Math.max(exp,1)));el('wkPct').textContent=pct+'%';el('wkLbl').textContent=done+' of '+exp+(_homeN?' · +'+_homeN+' home':'');var wV=ws.reduce(function(a,h){return a+(h.volume||0);},0),wS=ws.reduce(function(a,h){return a+(h.sets||0);},0),wC=ws.reduce(function(a,h){return a+(h.type==='run'?(h.duration||0):(h.cardioMins||0));},0),wM=ws.filter(function(h){return h.type==='run';}).reduce(function(a,h){return a+(h.distance||0);},0);var _wuWk=getWeightUnit(),_wVD=toDisplayWeight(wV);var _vcLbl=el('volChartLbl');if(_vcLbl)_vcLbl.textContent='Volume This Week ('+_wuWk+')';el('wkStats').innerHTML='<div class="sb"><div class="sv">'+(_wVD>999?Math.round(_wVD/1000)+'k':Math.round(_wVD))+'</div><div class="sl">Vol '+_wuWk+'</div></div><div class="sb"><div class="sv">'+wS+'</div><div class="sl">Sets</div></div><div class="sb"><div class="sv">'+Math.round(wC)+'</div><div class="sl">Cardio</div></div><div class="sb"><div class="sv" style="color:var(--ru)">'+wM.toFixed(1)+'</div><div class="sl">Run mi</div></div>';drawBar('volChart',dates.map(function(d){var s=ws.find(function(h){return h.date===d&&h.type==='gym';});return s?toDisplayWeight(s.volume||0):0;}),['M','T','W','Th','F','Sa','Su'],'#f5c400');drawBar('runChart',dates.map(function(d){var s=ws.find(function(h){return h.date===d&&h.type==='run';});return s?s.distance:0;}),['M','T','W','Th','F','Sa','Su'],'#10b981');var lifts=[{k:'squat',n:'Squat'},{k:'bench',n:'Bench'},{k:'deadlift',n:'Deadlift'},{k:'ohp',n:'OHP'}];var _wuOrm=getWeightUnit();el('ormChart').innerHTML=lifts.map(function(l){return'<div class="fbet" style="padding:7px 0;border-bottom:1px solid var(--b1)"><div style="font-size:12px">'+l.n+'</div><div><span class="badge by">Est 1RM: '+toDisplayWeight(loggedLiftEstimate(l.k))+' '+_wuOrm+'</span><span style="font-family:\'DM Mono\',monospace;font-size:10px;color:var(--mu);margin-left:8px">Working: '+toDisplayWeight(S.strength[l.k]||0)+' '+_wuOrm+'</span></div></div>';}).join('');var pbs=Object.values(S.pbs);if(!pbs.length){el('pbList').innerHTML='<div style="color:var(--mu);font-size:12px">Log workouts to track PRs.</div>';return;}var byEx={};pbs.forEach(function(p){if(!byEx[p.exercise]||p.vol>byEx[p.exercise].vol)byEx[p.exercise]=p;});var _wuPB=getWeightUnit();el('pbList').innerHTML=Object.values(byEx).slice(0,8).map(function(p){return'<div class="fbet" style="padding:7px 0;border-bottom:1px solid var(--b1)"><div style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:65%">'+escapeHtml(p.exercise)+'</div><span class="badge by">🏆 '+toDisplayWeight(parseFloat(p.weight)||0)+' '+_wuPB+' × '+p.reps+'</span></div>';}).join('');
   buildReadyToProgressPanel();
   // Ensure correct tab panel is visible and its content is built
   var _pt = _activeProgTab || 'strength';
@@ -11801,7 +11861,7 @@ function applySupersetPrefToSession(){
   var k=dKey(vDate);
   var sess=GS(k);
   if(!sess) return;
-  if(S.history.some(function(h){return h.date===k&&h.type==='gym';})) return;
+  if(isSessionComplete(k, wkKey(k))) return;
   if(S.prefs.autoSuperset===false){
     sess.supersets={};
     sess.activeSuperset=undefined;
@@ -14200,19 +14260,25 @@ function isCompound(name){ return COMPOUND_EX.indexOf(name)>=0; }
 // With a base weight the ramp runs base → base + pct x (working - base).
 function warmupWeightFor(exName, workingW, pct){
   var base=(typeof getBaseWeight==='function')?getBaseWeight(exName):0;
-  if(!(base>0)) return Math.round(workingW*pct/5)*5;
-  var added=Math.max(0, workingW-base);
-  return Math.round((base+added*pct)/5)*5;
+  var raw=(base>0)?base+Math.max(0, workingW-base)*pct:workingW*pct;
+  // Snap DOWN to something the equipment can actually be loaded to (plates on a bar,
+  // bumper combinations on the GMWD arms, a fixed kettlebell…). Never below the base.
+  var w=(typeof snapToLoadable==='function')?snapToLoadable(exName,raw,'down'):Math.round(raw/5)*5;
+  if(!(w>0)) w=Math.round(raw/5)*5;
+  return Math.max(base>0?base:0,w);
 }
 function getWarmupSets(workingW, exName){
 if(!workingW||workingW<20) return [];
 var focus=S&&S.weekFocus||'general';
 var fm=(typeof FOCUS_META!=='undefined'&&FOCUS_META[focus])||{wuReps:[10,6],wuPct2:0.65};
 var r1=fm.wuReps[0], r2=fm.wuReps[1], pct2=fm.wuPct2||0.65;
-return [
-  {weight:warmupWeightFor(exName, workingW, 0.4),  reps:r1, type:'wu', label:'Warmup 40%'},
-  {weight:warmupWeightFor(exName, workingW, pct2), reps:r2, type:'wu', label:'Warmup '+(Math.round(pct2*100))+'%'}
-];
+// A warm-up row only makes sense when it is lighter than the work sets — a single fixed
+// implement (one kettlebell, one med ball) has no lighter option, so it gets none.
+var out=[], seen={};
+[{weight:warmupWeightFor(exName, workingW, 0.4),  reps:r1, type:'wu', label:'Warmup 40%'},
+ {weight:warmupWeightFor(exName, workingW, pct2), reps:r2, type:'wu', label:'Warmup '+(Math.round(pct2*100))+'%'}]
+ .forEach(function(w){ if(w.weight>0&&w.weight<workingW&&!seen[w.weight]){ seen[w.weight]=1; out.push(w); } });
+return out;
 }
 
 
@@ -14956,7 +15022,7 @@ function buildWeeklyMuscleStatusCard(){
   // Count muscle group sessions this week
   var weekCounts = {};
   Object.keys(MG_META).forEach(function(g){ weekCounts[g]=0; });
-  S.history.filter(function(h){ return h.type==='gym' && h.date>=mondayKey && h.date<=todayKey; })
+  S.history.filter(function(h){ return isResistanceWorkout(h) && h.date>=mondayKey && h.date<=todayKey; })
     .forEach(function(h){
       (h.exercises||[]).forEach(function(ex){
         var g=getMG(ex.name); if(g && weekCounts[g]!==undefined) weekCounts[g]++;
@@ -15037,7 +15103,7 @@ function buildRestDayRecovery(){
 // Look at last 7 days of gym history, find what was trained
 var cutoff=dKey(new Date(Date.now()-7*864e5));
 var trainedGroups={};
-S.history.filter(function(h){return h.type==='gym'&&h.date>=cutoff;}).forEach(function(h){
+S.history.filter(function(h){return isResistanceWorkout(h)&&h.date>=cutoff;}).forEach(function(h){
 (h.exercises||[]).forEach(function(ex){
 var g=getMG(ex.name); if(g) trainedGroups[g]=(trainedGroups[g]||0)+1;
 });
@@ -15537,7 +15603,7 @@ function _protocolVisible(p){
 function getSmartRestRecommendations(k){
   var cutoff7=dKey(new Date(Date.now()-7*864e5));
   var recentHistory=S.history.filter(function(h){return h.date>=cutoff7&&h.date<k;});
-  var gymDays=recentHistory.filter(function(h){return h.type==='gym';});
+  var gymDays=recentHistory.filter(function(h){return isResistanceWorkout(h);});
   var runDays=recentHistory.filter(function(h){return h.type==='run';});
   var totalIntensity=recentHistory.reduce(function(a,h){return a+(h.rpe||5);},0);
   var avgIntensity=recentHistory.length?totalIntensity/recentHistory.length:5;
@@ -15635,7 +15701,7 @@ function buildRestDayActivityCard(k){
   var rationale='';
   var cutoff7=dKey(new Date(Date.now()-7*864e5));
   var recentHistory=S.history.filter(function(h){return h.date>=cutoff7&&h.date<k;});
-  var gymDays=recentHistory.filter(function(h){return h.type==='gym';}).length;
+  var gymDays=recentHistory.filter(function(h){return isResistanceWorkout(h);}).length;
   var runDays=recentHistory.filter(function(h){return h.type==='run';}).length;
   if(gymDays||runDays){
     rationale='<div style="font-size:10px;color:var(--mu);margin-bottom:10px;line-height:1.6;background:rgba(255,255,255,.03);border-radius:8px;padding:8px 10px">'+
@@ -16185,7 +16251,8 @@ function renderTimerBar(){
   var bar=el('workoutTimerBar'), btns=el('wTimerBtns');
   if(!bar||!btns) return;
   var k=dKey(vDate), dtype=getDayType(k), isG=(dtype==='gym'||dtype==='both'), isR=(dtype==='run'||dtype==='both');
-  if(!isG&&!isR){ bar.style.display='none'; return; }
+  // The Home workout runs every day, rest days included.
+  if(!isG&&!isR&&cMode!=='home'){ bar.style.display='none'; return; }
   bar.style.display='flex';
   if(!_wTimerActive){
     btns.innerHTML='<button class="wt-btn wt-start" onclick="startWorkoutTimer()">▶ Start</button>';
@@ -16369,7 +16436,7 @@ function showTodayNotes(){
   var wrap=el('todayNotesWrap'); if(!wrap) return;
   var k=dKey(vDate), dtype=getDayType(k);
   var isG=(dtype==='gym'||dtype==='both'), isR=(dtype==='run'||dtype==='both');
-  if(!isG&&!isR){wrap.style.display='none';return;}
+  if(!isG&&!isR&&cMode!=='home'){wrap.style.display='none';return;}
   wrap.style.display='block';
   var ta=el('todayNotesTA'); if(ta) ta.value=(S.workoutNotes&&S.workoutNotes[k])||'';
   buildDayScoreRow();
@@ -25822,16 +25889,17 @@ function getWorkoutCalsBurned(keyOverride){
 
   var bw = (S.weights && S.weights.length) ? S.weights[S.weights.length-1].w : 200;
   var bwKg = bw / 2.205;
-  var tplKey = wkTpl(k);
-  var tpl = WTPL[tplKey];
-  var exs = getRenderedExList(k);
+  // Resolve the exercise list and swap namespace from the session asked for, not from
+  // whichever Today tab happens to be showing (nutrition asks for home while on gym).
+  var exs = Array.isArray(sess[_wk].exList) ? sess[_wk].exList : (_wk===wkKey(k) ? getRenderedExList(k) : []);
+  var swPre = (_wk==='home'?'home:':'')+k+':';
 
   // Lifting calories: count actual done sets (same MET logic as updateStats)
   var liftingCals = 0;
   Object.entries(sess[_wk].exercises||{}).forEach(function(entry){
     var ei=parseInt(entry[0]), exD=entry[1];
     if(exD.skipped)return;
-    var exName=(S.swaps[swapKeyOf(k,ei)]&&S.swaps[swapKeyOf(k,ei)].n)||(exs[ei]&&exs[ei].n)||'';
+    var exName=(S.swaps[swPre+ei]&&S.swaps[swPre+ei].n)||(exs[ei]&&exs[ei].n)||'';
     var exType = getExType(exName);
     var met = (exType==='compound'||exType==='plate_machine') ? 5.0 :
               (exType==='cable'||exType==='bodyweight') ? 4.0 : 3.5;
@@ -28714,31 +28782,34 @@ function confirmSplitSwitch(newSplit){
 // back to the originally planned split leaves the rest of the week exactly as it was.
 function applyTodaySplitSwitch(k,newSplit){
   if(!S.dayConfig[k]) S.dayConfig[k]={};
-  var cfg=S.dayConfig[k], prior=cfg.todaySwitch;
-  var original=prior?prior.orig:getEffTpl(k);
-  if(prior&&prior.changed){
-    Object.keys(prior.changed).forEach(function(dk){
-      var c=S.dayConfig[dk]; if(!c||c.split!==prior.changed[dk].set) return; // user edited it since: leave it
+  var cfg=S.dayConfig[k], prior=cfg.todaySwitch, protect={};
+  // 1) Undo the previous switch. A shifted day the user has edited since is theirs:
+  //    left as it is and protected from the re-shift below.
+  if(prior){
+    Object.keys(prior.changed||{}).forEach(function(dk){
+      var c=S.dayConfig[dk];
+      if(!c||c.split!==prior.changed[dk].set){ protect[dk]=1; return; }
       if(prior.changed[dk].prev==null) delete c.split; else c.split=prior.changed[dk].prev;
     });
+    if(prior.prevSplit==null) delete cfg.split; else cfg.split=prior.prevSplit;
+    delete cfg.todaySwitch;
   }
-  delete cfg.todaySwitch;
-  if(newSplit===original){
-    if(prior&&prior.prevSplit!==undefined){ if(prior.prevSplit==null) delete cfg.split; else cfg.split=prior.prevSplit; }
-    else cfg.split=newSplit;
-    return;
-  }
-  var record={orig:original,prevSplit:prior?prior.prevSplit:(cfg.split===undefined?null:cfg.split),changed:{}};
+  _autoSplitCache={};
+  var original=prior?prior.orig:getEffTpl(k);
+  if(newSplit===original){ _autoSplitCache={}; return; }
+  var record={orig:original,prevSplit:(cfg.split===undefined?null:cfg.split),changed:{}};
+  // 2) Shift the week from the plan the user was actually going to get (auto-rotate
+  //    included) — computed while today still has its original split.
+  shiftWeekSplitsForward(k, original, newSplit, record.changed, protect);
   cfg.split=newSplit;
-  shiftWeekSplitsForward(k, original, newSplit, record.changed);
   cfg.todaySwitch=record;
+  _autoSplitCache={};
 }
 
-function shiftWeekSplitsForward(todayKey, skippedSplit, newSplit, changedOut){
-  // Find remaining gym days this week (after today) that don't have history logged
+function shiftWeekSplitsForward(todayKey, skippedSplit, newSplit, changedOut, protect){
+  protect=protect||{};
   var today=new Date(todayKey+'T12:00:00');
-  var gymDays=S.setup.gymDays.slice().sort(function(a,b){return a-b;});
-  // Collect the next 7 days that are gym days and not yet logged
+  // The next 7 days' gym days that are not logged and not protected (user-edited).
   var upcoming=[];
   for(var di=1;di<=7;di++){
     var d=new Date(today); d.setDate(today.getDate()+di);
@@ -28746,18 +28817,15 @@ function shiftWeekSplitsForward(todayKey, skippedSplit, newSplit, changedOut){
     var dtype=getDayType(dk);
     if(dtype==='gym'||dtype==='both'){
       var alreadyDone=S.history.some(function(h){return h.date===dk&&h.type==='gym';});
-      if(!alreadyDone) upcoming.push({key:dk,dow:d.getDay()});
+      if(!alreadyDone&&!protect[dk]) upcoming.push({key:dk,dow:d.getDay()});
     }
   }
   if(!upcoming.length) return;
-  // Build the current split sequence for upcoming days
-  var currentSequence=upcoming.map(function(u){
-    var cfg=S.dayConfig[u.key];
-    if(cfg&&cfg.split&&cfg.split!=='auto') return cfg.split;
-    return S.daySched[u.dow]||'upper';
-  });
-  // Insert the skipped split at the front, shift others forward
-  // The day we just changed to newSplit means skippedSplit needs to go to next slot
+  // The EFFECTIVE plan for those days — the same getEffTpl the app renders with, so
+  // auto-rotated days shift what the user would really have trained.
+  _autoSplitCache={};
+  var currentSequence=upcoming.map(function(u){ return getEffTpl(u.key); });
+  // The skipped workout takes the next slot; everything else moves one slot later.
   var newSequence=[skippedSplit].concat(currentSequence.slice(0,currentSequence.length-1));
   upcoming.forEach(function(u,i){
     if(!S.dayConfig[u.key]) S.dayConfig[u.key]={};
@@ -28765,6 +28833,7 @@ function shiftWeekSplitsForward(todayKey, skippedSplit, newSplit, changedOut){
     S.dayConfig[u.key].split=newSequence[i];
     if(changedOut) changedOut[u.key]={prev:_prev===undefined?null:_prev,set:newSequence[i]};
   });
+  _autoSplitCache={};
 }
 
 // ═══════════════════════════════════════════════════════════════
