@@ -859,6 +859,15 @@ let server, browser;
       }
       _advSuggestEnabled=false; cMode='gym'; check(!bad.length,bad.join('; '));
     });
+    test('a past day with no Home workout yet can still pick its split (backfilling)', () => {
+      reset(); const d=new Date(); d.setDate(d.getDate()-2); d.setHours(12,0,0,0); vDate=d; const k=dKey(d);
+      S.dayConfig={}; S.dayConfig[k]={type:'rest'}; S.history=[]; S.sessions={}; S.homeConfig={}; showToast=()=>{};
+      switchPage('today'); cMode='gym'; buildTodayWorkout(); switchMode('home');
+      check(document.querySelector('#swapWorkoutBanner button[onclick*="setHomeSplit"]'),'split buttons hidden on an empty past day');
+      check(!/Saved/.test(el('swapWorkoutBanner').textContent),'empty past day labelled as saved');
+      setHomeSplit('hcore'); check(wkTpl(k)==='hcore','past-day split pick refused');
+      cMode='gym';
+    });
     reset(); saveS();
     return results;
   });

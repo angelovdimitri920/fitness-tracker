@@ -30986,9 +30986,16 @@ function homeSplitFor(k){
   if(S.sessions&&S.sessions[k]&&S.sessions[k].home){ if(!S.homeConfig) S.homeConfig={}; S.homeConfig[k]={split:best,auto:true}; }
   return best;
 }
+// A Home workout's split is fixed once it is saved, or once a past day's session has
+// logged work. A past day with nothing logged yet can still be set up (backfilling).
+function homeSplitLocked(k){
+  if(isSessionComplete(k,'home')) return true;
+  var hs=S.sessions&&S.sessions[k]&&S.sessions[k].home;
+  return !!(hs&&sessionHasActivity(hs)&&!isLiveSession(k,'home'));
+}
 function setHomeSplit(sk){
   var k=dKey(vDate);
-  if(!isLiveSession(k,'home')){ showToast('This home workout is saved — its split stays as trained'); return; }
+  if(homeSplitLocked(k)){ showToast(isSessionComplete(k,'home')?'This home workout is saved — its split stays as trained':'This past home workout keeps the split it was logged as'); return; }
   if(!S.homeConfig) S.homeConfig={};
   S.homeConfig[k]={split:sk};
   saveS(); buildTodayWorkout();
@@ -30999,14 +31006,14 @@ function getHomeFocus(){ return S.weekFocus||'general'; }
 // Banner on the Home tab: today's split, why it was picked, and a quick switcher.
 function buildHomeBanner(k){
   var banner=el('swapWorkoutBanner'); if(!banner) return;
-  var cur=homeSplitFor(k), _hc=S.homeConfig&&S.homeConfig[k], auto=!(_hc&&_hc.split)||!!_hc.auto, _locked=!isLiveSession(k,'home');
+  var cur=homeSplitFor(k), _hc=S.homeConfig&&S.homeConfig[k], auto=!(_hc&&_hc.split)||!!_hc.auto, _locked=homeSplitLocked(k);
   var gymNote='';
   var dt=getDayType(k);
   if(dt==='gym'||dt==='both'){ var gt=WTPL[getEffTpl(k)]; if(gt) gymNote='Gym today: '+gt.focus+'. '; }
   banner.style.display='block';
   banner.innerHTML='<div class="card" style="border-color:rgba(34,211,238,.35);background:rgba(34,211,238,.04)">'
     +'<div class="slbl" style="margin:0;color:#22d3ee">🏠 Home workout · '+HOME_SPLIT_META[cur].nm+'</div>'
-    +'<div style="font-size:11px;color:var(--mu);margin:3px 0 8px;line-height:1.5">'+escapeHtml(gymNote)+(_locked?'✓ Saved — this workout keeps the split it was trained as.':(auto?'Picked from the daily rotation to avoid muscles you are training at the gym today or trained in the last 48 h.':'Your pick for today.'))+' Extra session — saved separately from the gym workout.</div>'
+    +'<div style="font-size:11px;color:var(--mu);margin:3px 0 8px;line-height:1.5">'+escapeHtml(gymNote)+(_locked?(isSessionComplete(k,'home')?'✓ Saved — this workout keeps the split it was trained as.':'Logged on a past day — this workout keeps its split.'):(auto?'Picked from the daily rotation to avoid muscles you are training at the gym today or trained in the last 48 h.':'Your pick for today.'))+' Extra session — saved separately from the gym workout.</div>'
     +(_locked?'':'<div style="display:flex;gap:6px;flex-wrap:wrap">'+HOME_SPLITS.map(function(sk){var on=sk===cur;return '<button onclick="setHomeSplit(\''+sk+'\')" style="flex:1;min-width:70px;padding:6px 8px;border-radius:8px;font-size:11px;cursor:pointer;'+(on?'border:1px solid #22d3ee;background:rgba(34,211,238,.14);color:#22d3ee':'border:1px solid var(--b2);background:var(--s3);color:var(--mu)')+'">'+HOME_SPLIT_META[sk].nm+'<div style="font-size:8px;opacity:.8">'+HOME_SPLIT_META[sk].sb+'</div></button>';}).join('')+'</div>')
     +'</div>';
 }

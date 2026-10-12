@@ -3,7 +3,7 @@
 **For:** an independent reviewer (Codex) to check every change on branch
 `claude/plan-sync-focus-home-workout` and confirm it works.
 **PR:** https://github.com/angelovdimitri920/fitness-tracker/pull/4 (base `main` @ `c9b45cc`)
-**Status (Oct 12, 2026):** 170 browser checks pass, 0 failures, 0 browser errors.
+**Status (Oct 12, 2026):** 171 browser checks pass, 0 failures, 0 browser errors.
 Six review passes have been done and their findings fixed: the first code review (section 6),
 Codex's review of `cc74234` (6a), its re-review of `30e18e0` (6b), round 3 on `9f0ddaa` (6c),
 round 4 on `1a42daa` (6d) and the comprehensive review of `d7f5029` (6e).
@@ -24,7 +24,7 @@ CHROMIUM_PATH=/path/to/chromium npm test         # if Playwright's bundled brows
 node tools/serve.js 8753                         # then open http://localhost:8753/pf_workout_tracker.html
 ```
 
-- `tools/verify.cjs` parses every inline `<script>`. It runs 170 checks in one page at
+- `tools/verify.cjs` parses every inline `<script>`. It runs 171 checks in one page at
   430 × 932 (the target device is an iPhone 14 Pro Max), sweeps 10 pages and all modals for
   horizontal overflow, and does a real save → reload → file-import → offline-reload cycle.
   Results go to `.verification/results.json`; screenshots to `.verification/*.png`.
@@ -249,7 +249,7 @@ and the saved-day Plan modal UX.
 
 | # | Finding | Fix |
 | --- | --- | --- |
-| F1 (P2) | A saved Home workout could be relabelled by the split buttons, and a resave rewrote its history split | `homeSplitFor` reads the saved Home split first (`loggedSplitsOf('home')`, the same per-type index the gym uses), then a non-live session snapshot, then `homeConfig`. `setHomeSplit` refuses a non-live Home session. The banner hides the split buttons and says "✓ Saved". |
+| F1 (P2) | A saved Home workout could be relabelled by the split buttons, and a resave rewrote its history split | `homeSplitFor` reads the saved Home split first (`loggedSplitsOf('home')`, the same per-type index the gym uses), then a non-live session snapshot, then `homeConfig`. `homeSplitLocked(k)` is true once the Home workout is saved, or once a past day's session has logged work. `setHomeSplit` refuses a locked day, and the banner hides its split buttons and says why. A past day with nothing logged can still pick a split, so a forgotten Home workout can be backfilled (follow-up commit, with its own regression). |
 | F2 (P2) | Ending Home without saving cancelled the Gym rest countdown | The rest timer stays a single person-level countdown, but now records its owner (`_restOwner` = `date|gym` or `date|home`, persisted in `pf_restTimer.o`). `discardWorkout` stops it only when it belongs to the discarded session. An older saved timer with no owner is never stopped by a discard. |
 | F3 (P2) | The Workouts CSV left out Home | `exportCSV('workouts')` uses `isResistanceWorkout` and has a new **Type** column (Gym / Home). The printable report (`printReport`) had the same gap and now counts Home ("Workouts (N home)") and marks Home rows 🏠. |
 | F4 (P2) | Weekly volume bars ignored Home | Each day's bar sums gym + home volume, converting units on the summed value, so the bars add up to the weekly total. |
