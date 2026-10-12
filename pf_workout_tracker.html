@@ -4422,30 +4422,53 @@ function getProgression(exName, targetReps, targetSets, weightMult){
   }catch(e){}
   return res;
 }
-// Movement-pattern reference for loaded exercises the strength map does not name.
-// First match wins, so the specific patterns sit above the general ones.
+// Reference lift for loaded exercises the strength map does not name. The exercise's own
+// muscle group (getMG → its ELIB group) decides the movement family first, so a Z-press
+// or Bradford press is an overhead press however it is spelled; patterns only pick within
+// that family. First match wins inside a group; a null pattern is the group's default.
+var STRENGTH_REF_BY_GROUP={
+  shoulders:[[/lateral raise|front raise|rear delt|\braise\b/i,'dblateral',1.2],[/upright row|high pull/i,'ohp',0.7],[/shrug/i,'deadlift',0.6],[null,'ohp',0.8]],
+  triceps:[[/upright row/i,'ohp',0.7],[/bench|floor press/i,'bench',0.6],[null,'skullcrush',0.8]],
+  biceps:[[/wrist/i,'ezcurl',0.45],[null,'ezcurl',0.85]],
+  chest:[[/pullover/i,'skullcrush',0.8],[null,'bench',0.6]],
+  back:[[/pullover/i,'skullcrush',0.8],[/shrug/i,'deadlift',0.6],[/deadlift|rack pull|block pull/i,'deadlift',0.7],[null,'bbrow',0.6]],
+  quads:[[/split squat|lunge|step-up|lateral squat|single-leg/i,'squat',0.45],[null,'squat',0.7]],
+  glutes:[[/hip thrust|bridge|frog pump/i,'hipthrust',0.7],[/squat/i,'squat',0.7],[/deadlift/i,'deadlift',0.7]],
+  hamstrings:[[/good morning/i,'bbrdl',0.5],[/romanian|\brdl\b|stiff-leg/i,'bbrdl',0.75],[null,'deadlift',0.7]],
+  calves:[[null,'calfstand',0.7]],
+  lowerback:[[/jefferson/i,'deadlift',0.25],[/good morning/i,'bbrdl',0.5],[null,'deadlift',0.7]]
+};
+// Functional / core / strongman names carry no family, so they fall back to the name.
 var STRENGTH_REF_PATTERNS=[
-  [/wrist curl|wrist roller|jefferson/i,'ezcurl',0.45],
+  [/wrist curl|wrist roller/i,'ezcurl',0.45],
+  [/jefferson/i,'deadlift',0.25],
   [/lateral raise|front raise|rear delt/i,'dblateral',1.2],
+  [/tricep|skull|tate press|jm press|pullover|(?:curl-grip|overhead|lying) extension/i,'skullcrush',0.8],  // before /curl/: a curl-grip extension is triceps work
   [/curl/i,'ezcurl',0.85],
-  [/skull|tricep|tate press|jm press|extension|pullover/i,'skullcrush',0.8],
   [/upright row|high pull/i,'ohp',0.7],
   [/shrug/i,'deadlift',0.6],
   [/calf/i,'calfstand',0.7],
   [/hip thrust|glute bridge/i,'hipthrust',0.7],
   [/good morning/i,'bbrdl',0.5],
   [/romanian|\brdl\b|stiff-leg/i,'bbrdl',0.75],
-  [/trap bar deadlift/i,'deadlift',0.9],
+  [/trap bar deadlift|hex bar deadlift/i,'deadlift',0.9],
   [/deadlift/i,'deadlift',0.7],
   [/split squat|lunge|step-up|lateral squat/i,'squat',0.45],
   [/squat/i,'squat',0.7],
-  [/overhead|shoulder|push press|viking|military|landmine press|split press/i,'ohp',0.8],
+  [/overhead|shoulder|push press|viking|military|z-press|bradford|behind-the-neck|log press|landmine press|split press/i,'ohp',0.8],
   [/press/i,'bench',0.6],
   [/row/i,'bbrow',0.6]
 ];
 function inferStrengthRef(exName){
   var t=getExType(exName);
   if(t!=='compound'&&t!=='plate_machine') return null;
+  var g=getMG(exName), rules=STRENGTH_REF_BY_GROUP[g];
+  if(rules){
+    for(var gi=0;gi<rules.length;gi++){
+      var gr=rules[gi];
+      if(!gr[0]||gr[0].test(exName)) return {key:gr[1],scale:gr[2]};
+    }
+  }
   for(var i=0;i<STRENGTH_REF_PATTERNS.length;i++){
     var r=STRENGTH_REF_PATTERNS[i];
     if(r[0].test(exName)) return {key:r[1],scale:r[2]};
@@ -5012,11 +5035,12 @@ var _autoSplitCache={};
 // same split whenever the cache was cold, and shifted the week between renders.
 var AUTO_SPLIT_EPOCH='2024-01-01';
 function _autoSplitPinned(k,logged){
-  // manual per-day override wins
+  // a logged workout freezes the day to exactly what was trained — it outranks any
+  // override, so the next day rotates on from what was really done
+  if(logged[k]) return logged[k];
+  // then a manual per-day override
   var cfg=S.dayConfig[k];
   if(cfg&&cfg.split&&cfg.split!=='auto') return cfg.split;
-  // a logged workout freezes the day to exactly what was trained
-  if(logged[k]) return logged[k];
   if(S.weekFocus==='hybrid'){
     var days=(S.setup.gymDays||[]).slice().sort(function(a,b){return ((a+6)%7)-((b+6)%7);});
     var rotation=days.length<=3?['fullbody']:days.length===4?['upper','lower','upper','lower']:days.length===5?['upper','lower','push','pull','lower']:['push','pull','lower','push','pull','lower'];
@@ -5040,12 +5064,31 @@ function _nextAutoSplit(prevSplit){
   }
   return AUTO_SPLIT_POOL[(idx+1)%AUTO_SPLIT_POOL.length];
 }
+// Before the epoch the rotation simply runs backwards from it: the last gym day before
+// the epoch is one slot behind the first one after it, and so on. Deterministic, and days
+// that early can only be pinned by their own override or log.
+function _preEpochAutoSplit(k){
+  var n=0, d=new Date(k+'T12:00:00');
+  for(;;){
+    var dk=dKey(d);
+    if(dk>=AUTO_SPLIT_EPOCH) break;
+    var dt=getDayType(dk);
+    if(dt==='gym'||dt==='both') n++;
+    d.setDate(d.getDate()+1);
+  }
+  // n gym days from k up to the epoch, k included: k sits n slots before slot 0. A rest
+  // day counts only the gym days after it, so it shows the next gym day's split — the
+  // same convention as after the epoch.
+  var L=AUTO_SPLIT_POOL.length;
+  return AUTO_SPLIT_POOL[((-n%L)+L)%L];
+}
 function autoSplitFor(k){
   if(_autoSplitCache[k]) return _autoSplitCache[k];
   var logged={};
   for(var hi=0;hi<S.history.length;hi++){var h=S.history[hi]; if(h.type==='gym'&&h.split&&!logged[h.date]) logged[h.date]=h.split;}
   var pin=_autoSplitPinned(k,logged);
   if(pin) return (_autoSplitCache[k]=pin);
+  if(k<AUTO_SPLIT_EPOCH) return (_autoSplitCache[k]=_preEpochAutoSplit(k));
   // Walk back to the nearest gym day whose split is already known, then resolve forward.
   var chain=[k], prev=null, d0=new Date(k+'T12:00:00');
   for(var back=1;;back++){
@@ -28783,22 +28826,28 @@ function confirmSplitSwitch(newSplit){
 function applyTodaySplitSwitch(k,newSplit){
   if(!S.dayConfig[k]) S.dayConfig[k]={};
   var cfg=S.dayConfig[k], prior=cfg.todaySwitch, protect={};
-  // 1) Undo the previous switch. A shifted day the user has edited since is theirs:
-  //    left as it is and protected from the re-shift below.
+  // 1) Undo the previous switch. A shifted day the user has edited since, or has trained
+  //    and saved, is theirs: left exactly as it is and protected from every later
+  //    re-shift for as long as this switch stands (prior.protect carries it forward —
+  //    an excluded day never appears in `changed`, so that alone would forget it).
   if(prior){
+    Object.keys(prior.protect||{}).forEach(function(dk){ protect[dk]=1; });
     Object.keys(prior.changed||{}).forEach(function(dk){
       var c=S.dayConfig[dk];
-      if(!c||c.split!==prior.changed[dk].set){ protect[dk]=1; return; }
+      if(!c||c.split!==prior.changed[dk].set||isSessionComplete(dk,'gym')){ protect[dk]=1; return; }
       if(prior.changed[dk].prev==null) delete c.split; else c.split=prior.changed[dk].prev;
     });
     if(prior.prevSplit==null) delete cfg.split; else cfg.split=prior.prevSplit;
     delete cfg.todaySwitch;
   }
   _autoSplitCache={};
-  var original=prior?prior.orig:getEffTpl(k);
+  // 2) What today is under the CURRENT settings with the earlier switch undone. Not the
+  //    split recorded at the first switch: Auto-Rotate may have been toggled since, and
+  //    then "back to the original" would land on a split nobody asked for.
+  var original=getEffTpl(k);
   if(newSplit===original){ _autoSplitCache={}; return; }
-  var record={orig:original,prevSplit:(cfg.split===undefined?null:cfg.split),changed:{}};
-  // 2) Shift the week from the plan the user was actually going to get (auto-rotate
+  var record={orig:original,prevSplit:(cfg.split===undefined?null:cfg.split),changed:{},protect:protect};
+  // 3) Shift the week from the plan the user was actually going to get (auto-rotate
   //    included) — computed while today still has its original split.
   shiftWeekSplitsForward(k, original, newSplit, record.changed, protect);
   cfg.split=newSplit;

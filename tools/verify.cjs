@@ -612,6 +612,88 @@ let server, browser;
       check(getProgression('EZ Bar Wrist Curl',[10,14],3,1).weight<=40,'wrist curl starts too heavy');
       check(getProgression('Landmine Lateral Raise',[10,14],3,1).weight<=30,'landmine lateral raise starts too heavy');
     });
+    // ── Codex re-review (PR #4 @ 30e18e0) regressions ───────────────────────────
+    // A live Monday with Monday–Friday gym days on upper / lower / push / pull / fullbody.
+    const monReset = (autoRotate, todaySplit) => {
+      reset(); const d=new Date(); d.setDate(d.getDate()+3); while(d.getDay()!==1) d.setDate(d.getDate()+1); d.setHours(12,0,0,0);
+      vDate=d; const k=dKey(d); S.setup.gymDays=[1,2,3,4,5]; S.setup.runDays=[]; S.daySched={1:'upper',2:'lower',3:'push',4:'pull',5:'fullbody'};
+      S.dayConfig={}; S.dayConfig[k]={type:'gym'}; if(todaySplit) S.dayConfig[k].split=todaySplit; S.history=[]; S.sessions={};
+      S.prefs.autoRotateSplits=autoRotate; _autoSplitCache={}; showToast=()=>{}; showConfirm=(m,yes)=>yes(); buildTodayWorkout(); return k;
+    };
+    const addDays = (k,n) => { const d=new Date(k+'T12:00:00'); d.setDate(d.getDate()+n); return dKey(d); };
+    const reloadState = () => { saveS(); S=loadS(); _autoSplitCache={}; };
+    const toggleAR = () => { S.prefs.autoRotateSplits=!S.prefs.autoRotateSplits; _autoSplitCache={}; };
+    test('a Plan edit stays protected through every later Today switch (with reload and Auto-Rotate toggles)', () => {
+      for(const ar of [false,true]) for(const flip of [false,true]){
+        const k=monReset(ar), wed=addDays(k,2), orig=getEffTpl(k), sw=['lower','push','pull','core','arms'].filter(x=>x!==orig);
+        confirmSplitSwitch(sw[0]);
+        openDayModal(wed); setSplit('glutes'); saveDayConfig(); vDate=new Date(k+'T12:00:00');
+        if(flip) toggleAR();
+        const ctx='AR '+ar+(flip?' toggled':'');
+        confirmSplitSwitch(sw[1]); check(getEffTpl(wed)==='glutes',ctx+': 2nd switch overwrote the edit');
+        reloadState();
+        confirmSplitSwitch(sw[2]); check(getEffTpl(wed)==='glutes',ctx+': 3rd switch overwrote the edit ('+getEffTpl(wed)+')');
+        confirmSplitSwitch(sw[3]); check(getEffTpl(wed)==='glutes',ctx+': 4th switch overwrote the edit ('+getEffTpl(wed)+')');
+        confirmSplitSwitch(orig); check(getEffTpl(wed)==='glutes',ctx+': returning to the original overwrote the edit');
+      }
+    });
+    test('Today gets the requested split after Auto-Rotate is toggled, in both directions', () => {
+      for(const ar of [false,true]){
+        const k=monReset(ar), a=getEffTpl(k), b=['push','pull','core'].find(x=>x!==a);
+        S.prefs.autoRotateSplits=!ar; _autoSplitCache={}; const other=getEffTpl(k); S.prefs.autoRotateSplits=ar; _autoSplitCache={};
+        check(other!==a,'precondition: both settings give '+a+' for Monday');
+        confirmSplitSwitch(b); reloadState(); toggleAR();
+        confirmSplitSwitch(a); check(getEffTpl(k)===a,'AR '+ar+'→'+!ar+': asked for '+a+', got '+getEffTpl(k));
+        check(wkTpl(k)===a&&S.sessions[k].gym.planKey&&S.sessions[k].gym.planKey.indexOf(a+'|')===0,'workout not rebuilt for '+a);
+      }
+    });
+    test('undoing a switch never rewrites a shifted day that has since been trained and saved', () => {
+      const k=monReset(true,'upper'), tue=addDays(k,1), wed=addDays(k,2), thu=addDays(k,3);
+      S.dayConfig[tue]={type:'gym',split:'arms'}; S.dayConfig[thu]={type:'gym',split:'pull'};
+      S.history.push({id:7,date:thu,type:'gym',split:'push',exercises:[{name:'Bench Press (Barbell)',sets:[set(100,8)]}]});  // logged before the switch, override differs
+      _autoSplitCache={};
+      confirmSplitSwitch('lower'); check(getEffTpl(tue)==='upper','upper not shifted to Tuesday');
+      vDate=new Date(tue+'T12:00:00'); buildTodayWorkout(); S.sessions[tue].gym.exercises[0].sets[0]=set(100,8); doSaveWorkout(3,'tuesday upper');
+      const hist=JSON.stringify(S.history);
+      vDate=new Date(k+'T12:00:00'); confirmSplitSwitch('upper');
+      check(JSON.stringify(S.history)===hist,'history changed');
+      check(S.dayConfig[tue].split==='upper','saved day\'s override restored to '+S.dayConfig[tue].split);
+      _autoSplitCache={}; check(autoSplitFor(tue)==='upper'&&getEffTpl(tue)==='upper','Tuesday no longer reads as the upper it trained');
+      check(getEffTpl(wed)===_nextAutoSplit('upper'),'Wednesday does not rotate on from the logged upper: '+getEffTpl(wed));
+      check(S.dayConfig[thu].split==='pull'&&autoSplitFor(thu)==='push','already-logged Thursday touched');
+      confirmSplitSwitch('push'); check(S.dayConfig[tue].split==='upper','a later switch shifted the saved day');
+    });
+    test('inferred starting loads follow the right reference lift and ignore unrelated ones', () => {
+      reset(); S.history=[];
+      const want={'Barbell Z-Press':'ohp','Barbell Bradford Press':'ohp','Behind-the-Neck Barbell Press':'ohp','Log Press':'ohp',
+        'EZ Bar Standing Overhead Curl-Grip Extension':'skullcrush','EZ Bar Wrist Curl':'ezcurl','EZ Bar Drag Curl':'ezcurl','Barbell Pullover':'skullcrush',
+        'Trap Bar Deadlift':'deadlift','Barbell Block Pull':'deadlift','Landmine Lateral Raise':'dblateral','Smith Machine Split Squat':'squat',
+        'Trap Bar Romanian Deadlift':'bbrdl','Trap Bar Hip Thrust':'hipthrust','Trap Bar Calf Raise':'calfstand','Landmine Meadows Row':'bbrow','Barbell Floor Press':'bench'};
+      const keys=Object.keys(S.strength).filter(x=>typeof S.strength[x]==='number');
+      for(const [n,key] of Object.entries(want)){
+        check(!getStrKey(n)&&!EX_TO_STRENGTH[n],n+' already has a mapped reference');
+        const r=inferStrengthRef(n); check(r&&r.key===key,n+' → '+(r&&r.key)+' (want '+key+')');
+        const w0=getProgression(n,10,3,1).weight, saved={...S.strength};
+        keys.filter(x=>x!==key).forEach(x=>S.strength[x]*=3); check(getProgression(n,10,3,1).weight===w0,n+' moved with an unrelated lift');
+        S.strength={...saved}; S.strength[key]*=3; check(getProgression(n,10,3,1).weight>w0,n+' ignores '+key);
+        S.strength=saved;
+      }
+      // Every inferred reference belongs to the exercise's own movement family.
+      const fam={shoulders:['ohp','dblateral','deadlift'],triceps:['skullcrush','bench','ohp'],biceps:['ezcurl'],chest:['bench','skullcrush'],back:['bbrow','deadlift','skullcrush'],
+        quads:['squat'],glutes:['hipthrust','squat','deadlift'],hamstrings:['bbrdl','deadlift'],calves:['calfstand'],lowerback:['deadlift','bbrdl']};
+      for(const g of Object.keys(fam)) for(const e of ELIB[g]){ const r=inferStrengthRef(e.n); if(r&&!getStrKey(e.n)&&!EX_TO_STRENGTH[e.n]) check(fam[g].includes(r.key),e.n+' ('+g+') → '+r.key); }
+      for(const n of [...new Set(Object.values(ELIB).flat().map(e=>e.n))]) if(/^(dumbbell|db |cable)/i.test(n)) check(!inferStrengthRef(n),n+' got an inferred barbell reference');
+    });
+    test('Auto-Rotate keeps rotating before its epoch and joins the epoch seamlessly', () => {
+      reset(); S.setup.gymDays=[1,2,3,4,5]; S.setup.runDays=[]; S.dayConfig={}; S.history=[]; S.prefs.autoRotateSplits=true;
+      const days=[]; for(let d=new Date('2023-12-18T12:00:00');dKey(d)<='2024-01-12';d.setDate(d.getDate()+1)) days.push(dKey(d));
+      const gym=days.filter(dk=>getDayType(dk)==='gym');
+      _autoSplitCache={}; const warm=gym.map(dk=>autoSplitFor(dk));
+      const cold=gym.map(dk=>{_autoSplitCache={};return autoSplitFor(dk);});
+      check(JSON.stringify(warm)===JSON.stringify(cold),'cold and warm caches disagree');
+      for(let i=1;i<warm.length;i++) check(warm[i]===_nextAutoSplit(warm[i-1]),gym[i]+' '+warm[i]+' does not follow '+gym[i-1]+' '+warm[i-1]);
+      S.dayConfig['2023-12-26']={type:'gym',split:'arms'}; _autoSplitCache={}; check(autoSplitFor('2023-12-26')==='arms','pre-epoch override ignored');
+    });
     reset(); saveS();
     return results;
   });

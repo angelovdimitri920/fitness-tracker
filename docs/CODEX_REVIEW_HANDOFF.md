@@ -3,9 +3,9 @@
 **For:** an independent reviewer (Codex) to check every change on branch
 `claude/plan-sync-focus-home-workout` and confirm it works.
 **PR:** https://github.com/angelovdimitri920/fitness-tracker/pull/4 (base `main` @ `c9b45cc`)
-**Status (Oct 12, 2026):** 152 browser checks pass, 0 failures, 0 browser errors.
-Two review passes have been done and their findings fixed: the first code review (section 6)
-and Codex's review of `cc74234` (section 6a).
+**Status (Oct 12, 2026):** 157 browser checks pass, 0 failures, 0 browser errors.
+Three review passes have been done and their findings fixed: the first code review (section 6),
+Codex's review of `cc74234` (section 6a) and Codex's re-review of `30e18e0` (section 6b).
 
 Please review for **correctness first**, then for regressions in existing features. The app is
 one file, `pf_workout_tracker.html`: inline CSS and vanilla JS, no build step. Read `CLAUDE.md`
@@ -23,7 +23,7 @@ CHROMIUM_PATH=/path/to/chromium npm test         # if Playwright's bundled brows
 node tools/serve.js 8753                         # then open http://localhost:8753/pf_workout_tracker.html
 ```
 
-- `tools/verify.cjs` parses every inline `<script>`. It runs 152 checks in one page at
+- `tools/verify.cjs` parses every inline `<script>`. It runs 157 checks in one page at
   430 × 932 (the target device is an iPhone 14 Pro Max), sweeps 10 pages and all modals for
   horizontal overflow, and does a real save → reload → file-import → offline-reload cycle.
   Results go to `.verification/results.json`; screenshots to `.verification/*.png`.
@@ -113,7 +113,7 @@ node tools/serve.js 8753                         # then open http://localhost:87
 | Saving and history | `doSaveWorkout` writes `type:'home'`, `gymId:'home'`, deduped per (date, type). `isSessionComplete(k,key)`. `priorGymHistory` and the last-session, PREV, stall and RPE readers filter by `isWkHistType`, so progression stays per location. `getRecentMuscles`, `weeklyMuscleSets`, `recomputePBs`, the calories chart and nutrition `activityBurn` include home. History gets a 🏠 filter and icon, and the `-Infinity lbs` display for bodyweight exercises is fixed. |
 
 ### 3.6 Other
-- `sw.js` `CACHE_VERSION` → `pf-cache-v10`.
+- `sw.js` `CACHE_VERSION` → `pf-cache-v11`.
 - `tools/verify.cjs`: `CHROMIUM_PATH` support. The backup-restore assertion is now date-independent; it failed on `main` once the real date moved past Oct 1.
 - Docs: `CLAUDE.md` §2, `docs/TRAINING_AUDIT.md` addendum, `docs/HOME_EQUIPMENT.md`.
 
@@ -176,6 +176,29 @@ nutrition's home calories while the Gym tab shows; GMWD warm-ups for every loada
 every focus; the exact specialty mix per focus × intensity on four splits; starting-load
 plausibility for 120+ bar / machine variants.
 
+## 6b. Codex re-review of `30e18e0`: fixed
+
+| # | Finding | Fix |
+| --- | --- | --- |
+| F1 | A Plan edit was protected for one switch, then overwritten by the next | `todaySwitch.protect` persists the protected dates and every undo carries them forward, for as long as the switch stands (it ends when Today returns to its planned split). |
+| F2 | After toggling Auto-Rotate, "back to the original" landed on the stale recorded split | After undoing, `applyTodaySplitSwitch` takes "original" from `getEffTpl(k)` under the *current* settings. If that already equals the request there is no override. Otherwise it is a fresh switch from the current plan. |
+| F3 | Undo restored the old override on a shifted day that had since been saved | A changed day with a saved gym session is never undone, and it is protected from later shifts. `_autoSplitPinned` now ranks a logged split above an override, so the next day rotates on from what was trained. History is never written. |
+| F4 | Broad name patterns picked the wrong reference (Z-press → bench; curl-grip extension → curl) | `inferStrengthRef` decides the movement family from the exercise's own ELIB group (`getMG`) via `STRENGTH_REF_BY_GROUP`. Name patterns pick only within a family, or for family-less groups (functional, core, strongman). The fallback patterns gained the overhead-press names and put extension before curl. |
+| F5 | Dates before `AUTO_SPLIT_EPOCH` all resolved to Push | `_preEpochAutoSplit` runs the rotation backwards from the epoch, so 2023 days rotate and join 2024 seamlessly. Earlier days honour only their own override or log; that limitation is documented in the code. |
+
+Regressions are in `tools/verify.cjs` (search "Codex re-review"). All five fail at `30e18e0` with the
+reported symptoms and pass now. They cover:
+- F1 under all four combinations (initial Auto-Rotate state × toggled or not), through four
+  non-original switches with a save → reload in the middle, then a return to the original.
+- F2 in both toggle directions, with Monday left unpinned and a save → reload between the steps.
+- F3 through the real build/save path. It checks the history is byte-identical, plus a date that
+  was already logged before the first switch with a differing override.
+- F4 by reference identity, and by tripling every unrelated strength field (the weight must not
+  move) and then the referenced one (it must). A family sweep over every ELIB group, and no
+  dumbbell or cable name ever gets an inferred reference.
+- F5 cold vs warm caches and step-by-step succession across 2023-12-18 → 2024-01-12, plus a
+  pre-epoch override.
+
 ## 7. Judgement calls (flag if you disagree)
 
 - PRs are per exercise and therefore shared between gym and home. Progression history is per location.
@@ -185,7 +208,7 @@ plausibility for 120+ bar / machine variants.
 
 ## 8. Known limitations / not covered by automated tests
 
-- Real iPhone behaviour: background timers, wake lock, notifications, PWA update with `pf-cache-v10`.
+- Real iPhone behaviour: background timers, wake lock, notifications, PWA update with `pf-cache-v11`.
 - Template save/apply on the Home tab works through the shared code, but has no dedicated test.
 - `autoSwapIn` iterates `sess.gym.exercises` with `.forEach`, but it is an object. This bug predates this PR and is caught by its `try`. It was left untouched.
 - The Plan page does not show the home workout. Home is chosen on Today only.
