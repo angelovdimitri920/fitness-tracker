@@ -4459,6 +4459,13 @@ var STRENGTH_REF_PATTERNS=[
   [/press/i,'bench',0.6],
   [/row/i,'bbrow',0.6]
 ];
+// Words that describe HOW a movement is done (tempo, pauses, set scheme) rather than WHAT
+// it is. A suffix made only of these leaves the exercise's movement unchanged.
+var NEUTRAL_SUFFIX_WORD=/^(slow|slowed|pause|paused|pauses|tempo|controlled|eccentric|eccentrics|negative|negatives|explosive|speed|strict|light|heavy|deload|top|set|sets|back-?off|warm-?up|amrap|ladder|myo|partial|partials|rep|reps|second|seconds|sec|secs|s|count|hold|iso|variation|alt|alternate|my|v\d+|[a-c]|x|\d+([.:\/x-]\d+)*s?)$/i;
+function isNeutralExerciseSuffix(text){
+  var words=String(text||'').split(/[\s,+&]+/).filter(Boolean);
+  return words.length>0&&words.every(function(w){ return NEUTRAL_SUFFIX_WORD.test(w); });
+}
 function elibExactGroup(n){
   for(var g in ELIB){ var list=ELIB[g]; for(var i=0;i<list.length;i++) if(list[i].n===n) return g; }
   return null;
@@ -4468,9 +4475,15 @@ function inferStrengthRef(exName){
   if(t!=='compound'&&t!=='plate_machine') return null;
   // Only catalogue metadata picks the family. getMG's fallback for unknown names is a
   // substring guess ("lateral" contains "lat" → back), which must never outrank a clear
-  // movement name. A suffixed copy of a catalogue name ("… (Slow)") inherits its group.
+  // movement name. A catalogue name with only movement-neutral annotations after it
+  // ("… (Slow)", "… (Slow) (Paused)", "… (3-1-1 tempo)") inherits that entry's group; a
+  // suffix that names a movement ("… (Calf Raise)", "… (Romanian)") keeps its full-name
+  // meaning and goes to the movement patterns below.
   var g=elibExactGroup(exName);
-  if(!g){ var _base=exName.replace(/\s*\([^()]*\)\s*$/,''); if(_base!==exName) g=elibExactGroup(_base); }
+  if(!g){
+    var _base=exName, _m;
+    while(!g&&(_m=_base.match(/^(.*\S)\s*\(([^()]*)\)\s*$/))&&isNeutralExerciseSuffix(_m[2])){ _base=_m[1]; g=elibExactGroup(_base); }
+  }
   var rules=g&&STRENGTH_REF_BY_GROUP[g];
   if(rules){
     for(var gi=0;gi<rules.length;gi++){

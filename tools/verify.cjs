@@ -753,6 +753,29 @@ let server, browser;
       openDayModal(tue); check(el('dayPreviewArea').textContent.indexOf(WTPL.upper.focus)>=0,'Plan day view shows '+el('dayPreviewArea').textContent.slice(0,60)); closeModal('dayModal');
       check(JSON.stringify(S.history)===hist,'history changed'); switchPage('today');
     });
+    // ── Codex round 4 (PR #4 @ 1a42daa) regressions ─────────────────────────────
+    test('a suffix that names a movement keeps its meaning; neutral tempo suffixes still inherit', () => {
+      reset(); S.history=[];
+      const want={'Smith Machine Squat (Calf Raise)':'calfstand','Deadlifts (Barbell) (Romanian)':'bbrdl','Hack Squat Machine (Calf Raise)':'calfstand',
+        'Landmine Lateral Raise (Slow)':'dblateral','Landmine Lateral Raise (Slow) (Paused)':'dblateral','Barbell Z-Press (Tempo (3 seconds))':'ohp',
+        'Barbell Z-Press (3-1-1 tempo)':'ohp','Trap Bar Romanian Deadlift (Paused)':'bbrdl','EZ Bar Standing Overhead Curl-Grip Extension (Slow)':'skullcrush'};
+      const keys=Object.keys(S.strength).filter(x=>typeof S.strength[x]==='number');
+      for(const [n,key] of Object.entries(want)){
+        check(!getStrKey(n)&&!EX_TO_STRENGTH[n],n+' unexpectedly has a mapped reference');
+        const r=inferStrengthRef(n); check(r&&r.key===key,n+' → '+(r&&r.key)+' (want '+key+')');
+        const w0=getProgression(n,10,3,1).weight, saved={...S.strength};
+        keys.filter(x=>x!==key).forEach(x=>S.strength[x]*=3); check(getProgression(n,10,3,1).weight===w0,n+' moved with an unrelated lift');
+        S.strength={...saved}; S.strength[key]*=3; check(getProgression(n,10,3,1).weight>w0,n+' ignores '+key); S.strength=saved;
+      }
+      check(isNeutralExerciseSuffix('Slow')&&isNeutralExerciseSuffix('3-1-1 tempo')&&isNeutralExerciseSuffix('Paused, 2 sec'),'neutral annotations not recognised');
+      check(!isNeutralExerciseSuffix('Calf Raise')&&!isNeutralExerciseSuffix('Romanian')&&!isNeutralExerciseSuffix('Slow Romanian')&&!isNeutralExerciseSuffix(''),'a movement word treated as neutral');
+      // rendered: General Fitness template at a gym with a Smith machine, squat 400 / standing calf 130
+      const k=liveReset('lower'); S.weekFocus='general'; S.strength.squat=400; S.strength.calfstand=130;
+      const gp=getActiveGym(); if(!gp.equipment.includes('Smith Machine')) gp.equipment.push('Smith Machine'); buildTodayWorkout();
+      S.workoutTemplates=[{id:3,v:2,name:'Smith calves',baseSplit:'lower',intensity:'standard',focus:'general',exercises:[{n:'Smith Machine Squat (Calf Raise)',t:'Calves',sets:3,reps:10,rest:60},{n:'Leg Extension Machine',t:'Quads',sets:3,reps:10,rest:60},{n:'Leg Curl Machine',t:'Hamstrings',sets:3,reps:10,rest:60}]}];
+      applyWorkoutTemplate(3); const g=S.sessions[k].gym, i=names(g).indexOf('Smith Machine Squat (Calf Raise)'); check(i>=0,'template exercise missing');
+      const w=Number(g.exercises[i].sets[0].weight); check(w>0&&w<=130,'Smith calf raise prescribed at '+w+' lb from a 400 lb squat');
+    });
     reset(); saveS();
     return results;
   });

@@ -3,9 +3,10 @@
 **For:** an independent reviewer (Codex) to check every change on branch
 `claude/plan-sync-focus-home-workout` and confirm it works.
 **PR:** https://github.com/angelovdimitri920/fitness-tracker/pull/4 (base `main` @ `c9b45cc`)
-**Status (Oct 12, 2026):** 162 browser checks pass, 0 failures, 0 browser errors.
-Four review passes have been done and their findings fixed: the first code review (section 6),
-Codex's review of `cc74234` (6a), its re-review of `30e18e0` (6b) and round 3 on `9f0ddaa` (6c).
+**Status (Oct 12, 2026):** 163 browser checks pass, 0 failures, 0 browser errors.
+Five review passes have been done and their findings fixed: the first code review (section 6),
+Codex's review of `cc74234` (6a), its re-review of `30e18e0` (6b), round 3 on `9f0ddaa` (6c)
+and round 4 on `1a42daa` (6d).
 
 Please review for **correctness first**, then for regressions in existing features. The app is
 one file, `pf_workout_tracker.html`: inline CSS and vanilla JS, no build step. Read `CLAUDE.md`
@@ -23,7 +24,7 @@ CHROMIUM_PATH=/path/to/chromium npm test         # if Playwright's bundled brows
 node tools/serve.js 8753                         # then open http://localhost:8753/pf_workout_tracker.html
 ```
 
-- `tools/verify.cjs` parses every inline `<script>`. It runs 162 checks in one page at
+- `tools/verify.cjs` parses every inline `<script>`. It runs 163 checks in one page at
   430 × 932 (the target device is an iPhone 14 Pro Max), sweeps 10 pages and all modals for
   horizontal overflow, and does a real save → reload → file-import → offline-reload cycle.
   Results go to `.verification/results.json`; screenshots to `.verification/*.png`.
@@ -113,7 +114,7 @@ node tools/serve.js 8753                         # then open http://localhost:87
 | Saving and history | `doSaveWorkout` writes `type:'home'`, `gymId:'home'`, deduped per (date, type). `isSessionComplete(k,key)`. `priorGymHistory` and the last-session, PREV, stall and RPE readers filter by `isWkHistType`, so progression stays per location. `getRecentMuscles`, `weeklyMuscleSets`, `recomputePBs`, the calories chart and nutrition `activityBurn` include home. History gets a 🏠 filter and icon, and the `-Infinity lbs` display for bodyweight exercises is fixed. |
 
 ### 3.6 Other
-- `sw.js` `CACHE_VERSION` → `pf-cache-v12`.
+- `sw.js` `CACHE_VERSION` → `pf-cache-v13`.
 - `tools/verify.cjs`: `CHROMIUM_PATH` support. The backup-restore assertion is now date-independent; it failed on `main` once the real date moved past Oct 1.
 - Docs: `CLAUDE.md` §2, `docs/TRAINING_AUDIT.md` addendum, `docs/HOME_EQUIPMENT.md`.
 
@@ -225,6 +226,25 @@ Accepted by Codex and unchanged: switch protection ends when the switch transact
 switches rebase on the current plan. Pre-epoch calendar walks are a bounded cost (about 5 ms for a
 2023 month on desktop) and were left as they are.
 
+## 6d. Codex round 4 on `1a42daa`: fixed
+
+| # | Finding | Fix |
+| --- | --- | --- |
+| R4-1 (P2) | A trailing parenthetical was stripped even when it named a different movement ("Smith Machine Squat (Calf Raise)" → squat, prescribed 245 lb from a 400 lb squat; "Deadlifts (Barbell) (Romanian)" → deadlift) | A suffix is stripped only when it is a movement-neutral annotation: `isNeutralExerciseSuffix`. Every word must match `NEUTRAL_SUFFIX_WORD`, which covers tempo, pause, eccentric, set-scheme words and numbers such as `3-1-1` or `2 sec`. Stacked neutral groups are stripped one at a time, so "(Slow) (Paused)" reaches its catalogue base. Any other suffix keeps the full name, which goes to the movement patterns: (Calf Raise) → `calfstand`, (Romanian) → `bbrdl`. The exact original-name lookup still runs first. |
+
+The regression is in `tools/verify.cjs` (search "Codex round 4"). It fails at `1a42daa` with the
+reported symptom and passes now. It checks:
+- Reference identity for nine names: both movement-changing repros, a hack-squat calf variant,
+  and the neutral `(Slow)`, `(Slow) (Paused)`, nested, `3-1-1 tempo`, `(Paused)` and extension cases.
+- Unrelated-field perturbation on every name (tripling every other strength field must not move
+  the weight; tripling the referenced one must).
+- Direct checks of `isNeutralExerciseSuffix`.
+- The rendered General Fitness Smith-machine template with squat 400 and calf 130. The calf raise
+  must be ≤ 130 lb.
+
+Accepted by Codex and unchanged: the history-index cache design (no in-place split writer exists)
+and the saved-day Plan modal UX.
+
 ## 7. Judgement calls (flag if you disagree)
 
 - PRs are per exercise and therefore shared between gym and home. Progression history is per location.
@@ -234,7 +254,7 @@ switches rebase on the current plan. Pre-epoch calendar walks are a bounded cost
 
 ## 8. Known limitations / not covered by automated tests
 
-- Real iPhone behaviour: background timers, wake lock, notifications, PWA update with `pf-cache-v12`.
+- Real iPhone behaviour: background timers, wake lock, notifications, PWA update with `pf-cache-v13`.
 - Template save/apply on the Home tab works through the shared code, but has no dedicated test.
 - `autoSwapIn` iterates `sess.gym.exercises` with `.forEach`, but it is an object. This bug predates this PR and is caught by its `try`. It was left untouched.
 - The Plan page does not show the home workout. Home is chosen on Today only.
