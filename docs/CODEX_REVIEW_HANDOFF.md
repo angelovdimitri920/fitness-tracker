@@ -3,9 +3,9 @@
 **For:** an independent reviewer (Codex) to check every change on branch
 `claude/plan-sync-focus-home-workout` and confirm it works.
 **PR:** https://github.com/angelovdimitri920/fitness-tracker/pull/4 (base `main` @ `c9b45cc`)
-**Status (Oct 12, 2026):** 157 browser checks pass, 0 failures, 0 browser errors.
-Three review passes have been done and their findings fixed: the first code review (section 6),
-Codex's review of `cc74234` (section 6a) and Codex's re-review of `30e18e0` (section 6b).
+**Status (Oct 12, 2026):** 162 browser checks pass, 0 failures, 0 browser errors.
+Four review passes have been done and their findings fixed: the first code review (section 6),
+Codex's review of `cc74234` (6a), its re-review of `30e18e0` (6b) and round 3 on `9f0ddaa` (6c).
 
 Please review for **correctness first**, then for regressions in existing features. The app is
 one file, `pf_workout_tracker.html`: inline CSS and vanilla JS, no build step. Read `CLAUDE.md`
@@ -23,7 +23,7 @@ CHROMIUM_PATH=/path/to/chromium npm test         # if Playwright's bundled brows
 node tools/serve.js 8753                         # then open http://localhost:8753/pf_workout_tracker.html
 ```
 
-- `tools/verify.cjs` parses every inline `<script>`. It runs 157 checks in one page at
+- `tools/verify.cjs` parses every inline `<script>`. It runs 162 checks in one page at
   430 × 932 (the target device is an iPhone 14 Pro Max), sweeps 10 pages and all modals for
   horizontal overflow, and does a real save → reload → file-import → offline-reload cycle.
   Results go to `.verification/results.json`; screenshots to `.verification/*.png`.
@@ -113,7 +113,7 @@ node tools/serve.js 8753                         # then open http://localhost:87
 | Saving and history | `doSaveWorkout` writes `type:'home'`, `gymId:'home'`, deduped per (date, type). `isSessionComplete(k,key)`. `priorGymHistory` and the last-session, PREV, stall and RPE readers filter by `isWkHistType`, so progression stays per location. `getRecentMuscles`, `weeklyMuscleSets`, `recomputePBs`, the calories chart and nutrition `activityBurn` include home. History gets a 🏠 filter and icon, and the `-Infinity lbs` display for bodyweight exercises is fixed. |
 
 ### 3.6 Other
-- `sw.js` `CACHE_VERSION` → `pf-cache-v11`.
+- `sw.js` `CACHE_VERSION` → `pf-cache-v12`.
 - `tools/verify.cjs`: `CHROMIUM_PATH` support. The backup-restore assertion is now date-independent; it failed on `main` once the real date moved past Oct 1.
 - Docs: `CLAUDE.md` §2, `docs/TRAINING_AUDIT.md` addendum, `docs/HOME_EQUIPMENT.md`.
 
@@ -199,6 +199,32 @@ reported symptoms and pass now. They cover:
 - F5 cold vs warm caches and step-by-step succession across 2023-12-18 → 2024-01-12, plus a
   pre-epoch override.
 
+## 6c. Codex round 3 on `9f0ddaa`: fixed
+
+| # | Finding | Fix |
+| --- | --- | --- |
+| R3-1 (P1) | A backup containing a saved Home workout could not be restored | `validateBackupState` accepts `home` history and validates it exactly like `gym`, including each exercise being an object. `sessions[k].home` is validated like `sessions[k].gym`. **Paste Backup** (`importFromText`) previously skipped validation entirely; it now runs the same validator, so a malformed paste never replaces the saved data. |
+| R3-2 (P2) | Fuzzy `getMG` guesses for custom names overrode accurate movement patterns | `inferStrengthRef` trusts only an exact catalogue group (`elibExactGroup`), or the exact group of the name without a trailing `(…)` suffix. Every other name goes straight to the movement patterns; the fuzzy guess is never used here. |
+| R3-3 (P2) | With no session snapshot, the displayed split followed the override while the rotation followed history | New shared `loggedGymSplits()` index (cached on the history array and its length). `getEffTpl` reads it right after the completed-snapshot check and before any override, and `autoSplitFor` uses the same index. The Plan day preview shows the trained split, marked "✓ trained". A logged day is never live, so this can't fight the re-planner. |
+
+Regressions are in `tools/verify.cjs` (search "Codex round 3"), plus the rewritten backup round trip near the end.
+All fail at `9f0ddaa` with the reported symptoms and pass now. The one exception is the
+malformed-file check, which the old validator passed by rejecting every Home backup. Coverage:
+- A real Home save plus gym, run and nutrition data, exported through `exportData()`, caught as an
+  actual download, re-imported through the real file picker, then checked by type and content.
+- The same file with a broken Home entry, refused by the file picker with saved state byte-identical.
+- Seven malformed Home/session/type shapes rejected by the validator.
+- Paste Backup refusing a malformed backup without reaching the restore step, and accepting a valid one.
+- Seven suffixed or custom names, checked for reference identity and against unrelated-lift
+  changes, plus a rendered General Fitness template at a gym with a landmine station.
+- A history-only day with a conflicting override, after save → reload: `getEffTpl`, `autoSplitFor`,
+  `wkTpl`, Today's `#todaySub`, the Plan cell (done) and the Plan day preview all agree, the next
+  day rotates from the logged split, and history stays byte-identical.
+
+Accepted by Codex and unchanged: switch protection ends when the switch transaction ends, and later
+switches rebase on the current plan. Pre-epoch calendar walks are a bounded cost (about 5 ms for a
+2023 month on desktop) and were left as they are.
+
 ## 7. Judgement calls (flag if you disagree)
 
 - PRs are per exercise and therefore shared between gym and home. Progression history is per location.
@@ -208,7 +234,7 @@ reported symptoms and pass now. They cover:
 
 ## 8. Known limitations / not covered by automated tests
 
-- Real iPhone behaviour: background timers, wake lock, notifications, PWA update with `pf-cache-v11`.
+- Real iPhone behaviour: background timers, wake lock, notifications, PWA update with `pf-cache-v12`.
 - Template save/apply on the Home tab works through the shared code, but has no dedicated test.
 - `autoSwapIn` iterates `sess.gym.exercises` with `.forEach`, but it is an object. This bug predates this PR and is caught by its `try`. It was left untouched.
 - The Plan page does not show the home workout. Home is chosen on Today only.

@@ -694,6 +694,65 @@ let server, browser;
       for(let i=1;i<warm.length;i++) check(warm[i]===_nextAutoSplit(warm[i-1]),gym[i]+' '+warm[i]+' does not follow '+gym[i-1]+' '+warm[i-1]);
       S.dayConfig['2023-12-26']={type:'gym',split:'arms'}; _autoSplitCache={}; check(autoSplitFor('2023-12-26')==='arms','pre-epoch override ignored');
     });
+    // ── Codex round 3 (PR #4 @ 9f0ddaa) regressions ─────────────────────────────
+    test('backups with Home workouts validate; malformed Home data is rejected and changes nothing', () => {
+      const k=homeReset('hpush'); const h=S.sessions[k].home; h.exercises[0].sets[0]={...h.exercises[0].sets[0],reps:'10',done:true}; doSaveWorkout(4,'home');
+      cMode='gym'; buildTodayWorkout(); S.sessions[k].gym.exercises[0].sets[0]=set(100,8); doSaveWorkout(3,'gym');
+      S.history.push({id:99,date:k,type:'run',distance:3,duration:27}); S.nutLog[k]={lunch:[{n:'Meal',cal:300,pro:25,carb:30,fat:8}]};
+      const good=JSON.parse(JSON.stringify({...S,_version:4}));
+      check(['gym','home','run'].every(t=>good.history.some(x=>x.type===t)),'fixture missing a session type');
+      validateBackupState(JSON.parse(JSON.stringify(good)));   // must not throw
+      const bad=[
+        d=>{d.history.find(x=>x.type==='home').exercises='x';},
+        d=>{d.history.find(x=>x.type==='home').exercises[0].sets[0].reps='-4';},
+        d=>{d.history.find(x=>x.type==='home').exercises[0]=null;},
+        d=>{d.sessions[k].home.exercises=5;},
+        d=>{d.sessions[k].home='x';},
+        d=>{Object.values(d.sessions[k].home.exercises)[0].sets[0].weight='-20';},
+        d=>{d.history.push({date:k,type:'yoga'});}];
+      bad.forEach((mut,i)=>{ const d=JSON.parse(JSON.stringify(good)); mut(d); let threw=false; try{validateBackupState(d);}catch(e){threw=true;} check(threw,'malformed case '+i+' accepted'); });
+      // the paste path validates too and leaves the saved state alone
+      saveS(); const stored=localStorage.getItem(SK); const prompt=showTextPrompt, conf=showConfirm; let asked=0;
+      try{
+        const d=JSON.parse(JSON.stringify(good)); d.history.find(x=>x.type==='home').exercises='x';
+        showTextPrompt=(t,m,cb)=>cb(JSON.stringify(d)); showConfirm=()=>{asked++;}; importFromText();
+        check(asked===0&&localStorage.getItem(SK)===stored,'malformed paste reached the restore step');
+        showTextPrompt=(t,m,cb)=>cb(JSON.stringify(good)); importFromText(); check(asked===1,'valid Home backup refused by Paste Backup');
+      } finally { showTextPrompt=prompt; showConfirm=conf; }
+      cMode='gym';
+    });
+    test('custom-suffixed names keep their movement reference, independent of unrelated lifts', () => {
+      reset(); S.history=[];
+      const want={'Landmine Lateral Raise (Slow)':'dblateral','Plate-Loaded Shoulder Press (Paused)':'ohp','Landmine Shoulder Press (Paused)':'ohp',
+        'EZ Bar Standing Overhead Curl-Grip Extension (Slow)':'skullcrush','Barbell Z-Press (Tempo)':'ohp','Trap Bar Romanian Deadlift (Paused)':'bbrdl','My Landmine Lateral Raise':'dblateral'};
+      const keys=Object.keys(S.strength).filter(x=>typeof S.strength[x]==='number');
+      for(const [n,key] of Object.entries(want)){
+        if(getStrKey(n)||EX_TO_STRENGTH[n]) continue;
+        const r=inferStrengthRef(n); check(r&&r.key===key,n+' → '+(r&&r.key)+' (want '+key+')');
+        const w0=getProgression(n,10,3,1).weight, saved={...S.strength};
+        keys.filter(x=>x!==key).forEach(x=>S.strength[x]*=3); check(getProgression(n,10,3,1).weight===w0,n+' moved with an unrelated lift');
+        S.strength={...saved}; S.strength[key]*=3; check(getProgression(n,10,3,1).weight>w0,n+' ignores '+key); S.strength=saved;
+      }
+      // rendered: a General Fitness template at a gym with a landmine station
+      const k=liveReset('upper'); S.weekFocus='general'; const gp=getActiveGym(); if(!gp.equipment.includes('Landmine Station')) gp.equipment.push('Landmine Station'); buildTodayWorkout();
+      S.workoutTemplates=[{id:2,v:2,name:'Slow raise',baseSplit:'upper',intensity:'standard',focus:'general',exercises:[{n:'Landmine Lateral Raise (Slow)',t:'Shoulders',sets:3,reps:10,rest:60},{n:'Lat Pull-Down Machine',t:'Back',sets:3,reps:10,rest:60},{n:'Chest Press Machine',t:'Chest',sets:3,reps:10,rest:60}]}];
+      applyWorkoutTemplate(2); const g=S.sessions[k].gym, i=names(g).indexOf('Landmine Lateral Raise (Slow)'); check(i>=0,'template exercise missing');
+      const w=Number(g.exercises[i].sets[0].weight); check(w>0&&w<=30,'slow landmine raise suggested at '+w+' lb');
+    });
+    test('a saved split rules the day even without a session snapshot (Plan, Today and rotation agree)', () => {
+      const k=monReset(true), tue=addDays(k,1), wed=addDays(k,2);
+      S.history.push({id:5,date:tue,type:'gym',split:'upper',exercises:[{name:'Bench Press (Barbell)',sets:[set(100,8)]}]});
+      S.dayConfig[tue]={type:'gym',split:'arms'}; delete S.sessions[tue]; reloadState();
+      const hist=JSON.stringify(S.history);
+      check(getEffTpl(tue)==='upper','getEffTpl shows the override '+getEffTpl(tue)); check(autoSplitFor(tue)==='upper','rotation anchor differs');
+      check(getEffTpl(wed)===_nextAutoSplit('upper'),'Wednesday does not follow the saved upper');
+      vDate=new Date(tue+'T12:00:00'); switchPage('today'); cMode='gym'; buildTodayWorkout();
+      check(wkTpl(tue)==='upper'&&el('todaySub').textContent.indexOf(WTPL.upper.focus)>=0,'Today shows '+el('todaySub').textContent);
+      S.planView='month'; S.planOffset=0; switchPage('plan'); buildPlanCalendar();
+      const cell=document.querySelector('.pcell[onclick*="\''+tue+'\'"]'); check(cell&&cell.classList.contains('done-c'),'Plan cell for '+tue+' not shown as done');
+      openDayModal(tue); check(el('dayPreviewArea').textContent.indexOf(WTPL.upper.focus)>=0,'Plan day view shows '+el('dayPreviewArea').textContent.slice(0,60)); closeModal('dayModal');
+      check(JSON.stringify(S.history)===hist,'history changed'); switchPage('today');
+    });
     reset(); saveS();
     return results;
   });
@@ -718,21 +777,38 @@ let server, browser;
   await page.evaluate(()=>{document.querySelector('#wContent details').open=true;document.querySelector('#wContent details').scrollIntoView();});
   await page.screenshot({path:path.join(output,'guidance.png')});
   // Persist a real save, reload, then restore via the actual JSON-file import UI.
-  const savedState=await page.evaluate(()=>{
+  await page.evaluate(()=>{
     const k=dKey(vDate);S.sessions[k].gym.exercises[0].sets[0]={weight:'100',reps:'8',type:'wk',done:true};
     doSaveWorkout(3,'backup regression');
+    // A real Home save on a live day, plus a run, so the backup holds every session type.
+    const d=new Date();d.setDate(d.getDate()+3);d.setHours(12,0,0,0);vDate=d;const hk=dKey(d);
+    switchPage('today');cMode='gym';buildTodayWorkout();switchMode('home');
+    const h=S.sessions[hk].home;h.exercises[0].sets[0]={...h.exercises[0].sets[0],reps:'10',done:true};doSaveWorkout(4,'home backup');
+    switchMode('gym');vDate=new Date(k+'T12:00:00');
+    S.history.push({id:Date.now()+7,date:k,type:'run',distance:3.1,duration:28,status:'completed'});
     S.nutLog[k]={lunch:[{n:'Backup meal',cal:300,pro:25,carb:35,fat:7}],water:500};
-    saveS();return JSON.stringify(S);
+    saveS();
   });
   await page.reload();await page.waitForTimeout(2300);
   results.push({name:'reload retains selected goal',pass:await page.evaluate(()=>S.weekFocus==='tone')});
+  // Export through the app's own Export button path and keep the downloaded file.
+  const downloadPromise=page.waitForEvent('download');await page.evaluate(()=>exportData());
+  const exported=fs.readFileSync(await (await downloadPromise).path(),'utf8');
+  results.push({name:'export holds gym, home and run history',pass:['gym','home','run'].every(t=>JSON.parse(exported).history.some(h=>h.type===t))});
+  // A malformed Home entry is refused by the file picker and leaves the saved state alone.
+  const before=await page.evaluate(()=>localStorage.getItem(SK));
+  const badFile=JSON.parse(exported);badFile.history.find(h=>h.type==='home').exercises='broken';
+  let chooserPromise=page.waitForEvent('filechooser');await page.evaluate(()=>importData());
+  await (await chooserPromise).setFiles({name:'bad-backup.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(badFile))});
+  await page.waitForTimeout(300);
+  results.push({name:'malformed Home backup refused without touching saved data',pass:await page.evaluate(b=>!document.querySelector('#confirmModal.show')&&localStorage.getItem(SK)===b,before)});
   await page.evaluate(()=>{S.history=[];S.nutLog={};saveS();});
-  const chooserPromise=page.waitForEvent('filechooser');await page.evaluate(()=>importData());
-  const chooser=await chooserPromise;await chooser.setFiles({name:'test-backup.json',mimeType:'application/json',buffer:Buffer.from(savedState)});
-  await page.waitForSelector('#confirmModal.show');
-  await page.locator('#confirmModal button').filter({hasText:/confirm|yes|restore/i}).last().click();
-  await page.waitForTimeout(200);
-  results.push({name:'backup restored through real file picker',pass:await page.evaluate(()=>S.weekFocus==='tone'&&S.history.length===1&&S.history[0].notes==='backup regression'&&S.history[0].exercises[0].sets[0].weight==='100'&&Object.values(S.nutLog).some(d=>d&&d.lunch&&d.lunch[0]&&d.lunch[0].n==='Backup meal'))});
+  chooserPromise=page.waitForEvent('filechooser');await page.evaluate(()=>importData());
+  const chooser=await chooserPromise;await chooser.setFiles({name:'test-backup.json',mimeType:'application/json',buffer:Buffer.from(exported)});
+  const confirmShown=await page.waitForSelector('#confirmModal.show',{timeout:5000}).then(()=>true,()=>false);
+  if(confirmShown){await page.locator('#confirmModal button').filter({hasText:/confirm|yes|restore/i}).last().click();await page.waitForTimeout(200);}
+  else results.push({name:'exported backup accepted by import',pass:false,error:await page.evaluate(()=>(el('toast')||{}).textContent||'restore prompt never shown')});
+  results.push({name:'backup with Gym + Home + Run restored through real file picker',pass:await page.evaluate(()=>S.weekFocus==='tone'&&S.history.length===3&&['gym','home','run'].every(t=>S.history.some(h=>h.type===t))&&S.history.find(h=>h.type==='gym').notes==='backup regression'&&S.history.find(h=>h.type==='gym').exercises[0].sets[0].weight==='100'&&S.history.find(h=>h.type==='home').notes==='home backup'&&Object.values(S.nutLog).some(d=>d&&d.lunch&&d.lunch[0]&&d.lunch[0].n==='Backup meal'))});
   await page.evaluate(()=>navigator.serviceWorker.ready);
   await page.context().setOffline(true);await page.reload();
   await page.waitForFunction(()=>typeof S!=='undefined'&&S.weekFocus==='tone');

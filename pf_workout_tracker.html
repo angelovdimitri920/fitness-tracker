@@ -4459,10 +4459,19 @@ var STRENGTH_REF_PATTERNS=[
   [/press/i,'bench',0.6],
   [/row/i,'bbrow',0.6]
 ];
+function elibExactGroup(n){
+  for(var g in ELIB){ var list=ELIB[g]; for(var i=0;i<list.length;i++) if(list[i].n===n) return g; }
+  return null;
+}
 function inferStrengthRef(exName){
   var t=getExType(exName);
   if(t!=='compound'&&t!=='plate_machine') return null;
-  var g=getMG(exName), rules=STRENGTH_REF_BY_GROUP[g];
+  // Only catalogue metadata picks the family. getMG's fallback for unknown names is a
+  // substring guess ("lateral" contains "lat" → back), which must never outrank a clear
+  // movement name. A suffixed copy of a catalogue name ("… (Slow)") inherits its group.
+  var g=elibExactGroup(exName);
+  if(!g){ var _base=exName.replace(/\s*\([^()]*\)\s*$/,''); if(_base!==exName) g=elibExactGroup(_base); }
+  var rules=g&&STRENGTH_REF_BY_GROUP[g];
   if(rules){
     for(var gi=0;gi<rules.length;gi++){
       var gr=rules[gi];
@@ -5034,6 +5043,19 @@ var _autoSplitCache={};
 // It used to recurse back to a depth cap and anchor there, which put every day on the
 // same split whenever the cache was cold, and shifted the week between renders.
 var AUTO_SPLIT_EPOCH='2024-01-01';
+// date → split of the saved gym workout on that date. A saved workout is what was
+// actually trained, so getEffTpl and the rotation both read it ahead of any override.
+// Rebuilt whenever the history array is replaced or changes length (every save does both).
+var _loggedSplitIdx={ref:null,len:-1,map:{}};
+function loggedGymSplits(){
+  var h=S.history||[];
+  if(_loggedSplitIdx.ref!==h||_loggedSplitIdx.len!==h.length){
+    var m={};
+    for(var i=0;i<h.length;i++){var e=h[i]; if(e&&e.type==='gym'&&e.split&&!m[e.date]) m[e.date]=e.split;}
+    _loggedSplitIdx={ref:h,len:h.length,map:m};
+  }
+  return _loggedSplitIdx.map;
+}
 function _autoSplitPinned(k,logged){
   // a logged workout freezes the day to exactly what was trained — it outranks any
   // override, so the next day rotates on from what was really done
@@ -5084,8 +5106,7 @@ function _preEpochAutoSplit(k){
 }
 function autoSplitFor(k){
   if(_autoSplitCache[k]) return _autoSplitCache[k];
-  var logged={};
-  for(var hi=0;hi<S.history.length;hi++){var h=S.history[hi]; if(h.type==='gym'&&h.split&&!logged[h.date]) logged[h.date]=h.split;}
+  var logged=loggedGymSplits();
   var pin=_autoSplitPinned(k,logged);
   if(pin) return (_autoSplitCache[k]=pin);
   if(k<AUTO_SPLIT_EPOCH) return (_autoSplitCache[k]=_preEpochAutoSplit(k));
@@ -5105,7 +5126,7 @@ function autoSplitFor(k){
   for(var ci=chain.length-1;ci>=0;ci--){ prev=_nextAutoSplit(prev); _autoSplitCache[chain[ci]]=prev; }
   return _autoSplitCache[k];
 }
-function getEffTpl(k){var gym=S.sessions[k]&&S.sessions[k].gym;if(gym&&gym.split&&sessionHasActivity(gym)&&!isLiveSession(k,'gym'))return gym.split;var c=S.dayConfig[k];if(c&&c.split&&c.split!=='auto')return c.split;if(S.prefs&&S.prefs.autoRotateSplits)return autoSplitFor(k);var d=new Date(k+'T12:00:00'),dow=d.getDay();return S.daySched[dow]||'upper';}
+function getEffTpl(k){var gym=S.sessions[k]&&S.sessions[k].gym;if(gym&&gym.split&&sessionHasActivity(gym)&&!isLiveSession(k,'gym'))return gym.split;var _lg=loggedGymSplits()[k];if(_lg)return _lg;var c=S.dayConfig[k];if(c&&c.split&&c.split!=='auto')return c.split;if(S.prefs&&S.prefs.autoRotateSplits)return autoSplitFor(k);var d=new Date(k+'T12:00:00'),dow=d.getDay();return S.daySched[dow]||'upper';}
 function getDayType(k){var c=S.dayConfig[k];if(c&&c.type){var _ct=c.type;if((S.prefs&&S.prefs.runMode===false)&&(_ct==='run'))return'rest';if((S.prefs&&S.prefs.runMode===false)&&(_ct==='both'))return'gym';return _ct;}var d=new Date(k+'T12:00:00'),dow=d.getDay(),isG=S.setup.gymDays.includes(dow),isR=S.setup.runDays.includes(dow)&&(S.prefs?S.prefs.runMode!==false:true);if(isG&&isR)return'both';if(isG)return'gym';if(isR)return'run';return'rest';}
 var vDate=new Date(),cMode='gym',timerInt=null,timerSecs=0,ciMood=0,ciSleep='',editDK=null,mDayType='rest',mDaySplit='auto',_originalDtype='rest';
 function dKey(d){
@@ -8859,7 +8880,7 @@ function setDType(t){
 function refreshDTypeButtons(){['rest','gym','run','both'].forEach(function(t){var b=el('dtype-'+t);if(!b)return;b.className='dtype-btn'+(mDayType===t?' sel-'+t:'');});el('dayGymSect').style.display=(mDayType==='gym'||mDayType==='both')?'block':'none';}
 function buildSplitGrid(){var splits=Object.keys(SPLIT_META);el('splitGrid').innerHTML=splits.map(function(s){var m=SPLIT_META[s],active=mDaySplit===s;return'<div class="split-btn'+(active?' active':'')+'" onclick="setSplit(\''+s+'\')"><div class="split-nm">'+m.nm+'</div><div class="split-sb">'+m.sb+'</div></div>';}).join('');}
 function setSplit(s){mDaySplit=s;buildSplitGrid();buildDayPreview();}
-function buildDayPreview(){var p=el('dayPreviewArea');if(!p)return;if(mDayType==='rest'){p.innerHTML='<div style="text-align:center;color:var(--mu);font-size:13px;padding:10px 0">😴 Rest day</div>';return;}var h='';if(mDayType==='run'||mDayType==='both')h+='<div class="csm" style="margin-bottom:7px"><div style="font-size:11px;color:var(--ru);font-family:\'DM Mono\',monospace">🏃 Run session per marathon plan</div></div>';if(mDayType==='gym'||mDayType==='both'){var tplKey=mDaySplit==='auto'?getEffTpl(editDK):mDaySplit,tpl=WTPL[tplKey];if(tpl){h+='<div class="csm"><div style="font-size:12px;font-weight:600;margin-bottom:5px">🏋️ '+tpl.focus+(mDaySplit==='auto'&&S.prefs&&S.prefs.autoRotateSplits?' <span style="font-size:9px;color:#a78bfa">🔄 auto</span>':'')+'</div>'+tpl.exercises.slice(0,4).map(function(e){return'<div style="font-size:11px;color:var(--mu);margin:2px 0">• '+e.n+'</div>';}).join('');if(tpl.exercises.length>4)h+='<div style="font-size:10px;color:var(--mu);margin-top:2px">+'+( tpl.exercises.length-4)+' more</div>';h+='<div style="font-size:10px;color:var(--bl);margin-top:4px">📍 '+tpl.cardio[0].n+' ('+tpl.cardio[0].dur+'m)</div></div>';}}p.innerHTML=h;}
+function buildDayPreview(){var p=el('dayPreviewArea');if(!p)return;if(mDayType==='rest'){p.innerHTML='<div style="text-align:center;color:var(--mu);font-size:13px;padding:10px 0">😴 Rest day</div>';return;}var h='';if(mDayType==='run'||mDayType==='both')h+='<div class="csm" style="margin-bottom:7px"><div style="font-size:11px;color:var(--ru);font-family:\'DM Mono\',monospace">🏃 Run session per marathon plan</div></div>';if(mDayType==='gym'||mDayType==='both'){var _lgS=loggedGymSplits()[editDK];var tplKey=_lgS||(mDaySplit==='auto'?getEffTpl(editDK):mDaySplit),tpl=WTPL[tplKey];if(tpl){h+='<div class="csm"><div style="font-size:12px;font-weight:600;margin-bottom:5px">🏋️ '+tpl.focus+(_lgS?' <span style="font-size:9px;color:var(--gr)">✓ trained</span>':(mDaySplit==='auto'&&S.prefs&&S.prefs.autoRotateSplits?' <span style="font-size:9px;color:#a78bfa">🔄 auto</span>':''))+'</div>'+tpl.exercises.slice(0,4).map(function(e){return'<div style="font-size:11px;color:var(--mu);margin:2px 0">• '+e.n+'</div>';}).join('');if(tpl.exercises.length>4)h+='<div style="font-size:10px;color:var(--mu);margin-top:2px">+'+( tpl.exercises.length-4)+' more</div>';h+='<div style="font-size:10px;color:var(--bl);margin-top:4px">📍 '+tpl.cardio[0].n+' ('+tpl.cardio[0].dur+'m)</div></div>';}}p.innerHTML=h;}
 function saveDayConfig(){if(!editDK)return;if(!S.dayConfig[editDK])S.dayConfig[editDK]={};S.dayConfig[editDK].type=mDayType;S.dayConfig[editDK].split=mDaySplit;var _dniSave=el('dayNoteInput');if(_dniSave)S.dayConfig[editDK].note=_dniSave.value.trim();saveS();closeModal('dayModal');buildPlanCalendar();buildWeekStrip();buildTodayWorkout();showToast('✅ Day saved');}
 
 // ── Weekly Schedule Editor ────────────────────────────────────
@@ -12119,6 +12140,8 @@ function importFromText(){
     if(!data||typeof data!=='object'||(!data.sessions&&!data.weights&&!data.setup)){
       showToast('That does not look like a PF backup'); return;
     }
+    // Same checks as a file import — a malformed paste must never replace the saved data.
+    try{ validateBackupState(data); }catch(e){ showToast(e.message); return; }
     var when=data._exportDate?data._exportDate.slice(0,10):'unknown date';
     showConfirm('Restore backup from '+when+'? This will replace all current data.',function(){
       delete data._version; delete data._exportDate; delete data._appName;
@@ -12291,14 +12314,19 @@ function validateBackupState(data){
     });
   }
   data.history.forEach(function(h){
-    if(!object(h)||!date(h.date)||['gym','run'].indexOf(h.type)<0)fail('history entry');
-    if(h.type==='gym'){if(!Array.isArray(h.exercises))fail('gym exercises');h.exercises.forEach(function(e){if(typeof e.name!=='string')fail('exercise name');sets(e);});}
+    // Home workouts are resistance sessions like the gym ones and get the same checks.
+    if(!object(h)||!date(h.date)||['gym','home','run'].indexOf(h.type)<0)fail('history entry');
+    if(h.type==='gym'||h.type==='home'){if(!Array.isArray(h.exercises))fail(h.type+' exercises');h.exercises.forEach(function(e){if(!object(e)||typeof e.name!=='string')fail('exercise name');sets(e);});}
     ['distance','duration','volume','sets','cardioMins'].forEach(function(key){if(h[key]!=null&&(!isFinite(Number(h[key]))||Number(h[key])<0))fail(key);});
   });
   data.weights.forEach(function(w){if(!object(w)||!date(w.date)||!isFinite(Number(w.w))||Number(w.w)<=0)fail('body weight');});
   Object.keys(data.sessions).forEach(function(k){
     var session=data.sessions[k];if(!date(k)||!object(session))fail('session');
-    if(session.gym){if(!object(session.gym.exercises)&&!Array.isArray(session.gym.exercises))fail('gym session');Object.values(session.gym.exercises).forEach(sets);}
+    ['gym','home'].forEach(function(w){
+      if(session[w]==null)return;
+      if(!object(session[w])||(!object(session[w].exercises)&&!Array.isArray(session[w].exercises)))fail(w+' session');
+      Object.values(session[w].exercises).forEach(sets);
+    });
   });
   if(data.gymProfiles!=null&&(!Array.isArray(data.gymProfiles)||data.gymProfiles.some(function(g){return !object(g)||!Array.isArray(g.equipment)||g.equipment.some(function(e){return typeof e!=='string';});})))fail('gym equipment');
   return data;
