@@ -941,6 +941,39 @@ let server, browser;
       check(/Best: 460 lbs vol/.test(el('exStats').textContent),'volume stats changed: '+el('exStats').textContent);
       document.querySelectorAll('.mo').forEach(m=>m.classList.remove('show'));
     });
+    // ── Gym Quick fits 30–45 min: short-end rests, then skip the finisher ────────
+    test('every Gym Quick session is planned within 30–45 min with ≥3 work sets and in-range rests', () => {
+      const bad=[];
+      for(const sp of ['push','pull','lower','upper','fullbody','glutes','arms','core']) for(const f of Object.keys(FOCUS_META)) for(const adv of [false,true]) for(const ss of [false,true]){
+        const k=liveReset(sp); S.prefs.autoSuperset=ss; _advSuggestEnabled=adv; S.weekFocus=f; S.sessions[k]={gym:{exercises:{},cardio:{},cardioBlocks:{},intensity:'quick'}}; buildTodayWorkout();
+        const g=S.sessions[k].gym, est=Number(el('intEstLine').getAttribute('data-est-mid')), ctx=sp+'/'+f+(adv?'/spec':'')+(ss?'/ss':'');
+        // Full Body Strength keeps four heavy lifts at 3-min rests: documented to run just over.
+        const cap=(sp==='fullbody'&&f==='power')?48:45;
+        if(!(est>=30&&est<=cap)) bad.push(ctx+': '+est+' min');
+        g.exList.forEach(e=>{ if(e.sets<3) bad.push(ctx+': '+e.n+' '+e.sets+' sets'); if(e.rest>QUICK_REST_BY_FOCUS[f]) bad.push(ctx+': '+e.n+' rest '+e.rest); });
+        if(f==='tone'&&g.exList.some(e=>e.rest<60)) bad.push(ctx+': tone rest under 60 s');
+      }
+      _advSuggestEnabled=false; check(!bad.length,bad.slice(0,12).join('; '));
+    });
+    test('Standard and Home keep their normal rests; the rest timer follows the exercise', () => {
+      let k=liveReset('push'); S.weekFocus='hybrid'; S.sessions[k]={gym:{exercises:{},cardio:{},cardioBlocks:{},intensity:'standard'}}; buildTodayWorkout();
+      let g=S.sessions[k].gym, mi=g.exList.findIndex(e=>isMainStrengthMovement(e.n)); check(mi>=0&&g.exList[mi].rest===180,'standard hybrid main lift rest changed: '+(mi>=0&&g.exList[mi].rest));
+      const ai=g.exList.findIndex(e=>!isMainStrengthMovement(e.n)); if(ai>=0) check(getSupersetRestForExercise(ai,k,g.exList)===g.exList[ai].rest,'rest timer ignores the exercise rest');
+      k=homeReset('hpush'); S.weekFocus='hybrid'; S.sessions[k].home={exercises:{},cardio:{},cardioBlocks:{},intensity:'quick'}; buildTodayWorkout();
+      g=S.sessions[k].home; check(g.exList.some(e=>e.rest>QUICK_REST_BY_FOCUS.hybrid),'Home Quick got Gym Quick rests: '+g.exList.map(e=>e.rest));
+      cMode='gym';
+    });
+    test('a skipped Quick finisher is not rendered, never blocks completion, and a started one stays', () => {
+      const k=liveReset('fullbody'); S.weekFocus='power'; S.sessions[k]={gym:{exercises:{},cardio:{},cardioBlocks:{},intensity:'quick'}}; buildTodayWorkout();
+      const g=S.sessions[k].gym; check(g._cardioPlan.finisherMin===0,'fixture: finisher not skipped ('+g._cardioPlan.finisherMin+')');
+      check(/Skipped to keep this Quick session under 45 min/.test(el('wContent').textContent),'no skip note');
+      check(!Object.keys(g.cardioBlocks||{}).some(x=>/^finisher-/.test(x)),'skipped finisher still has a block');
+      g.exList.forEach((e,i)=>(g.exercises[i].sets||[]).forEach(s=>{ if((s.type||'wk')!=='wu'){ s.done=true; s.reps=s.reps||'5'; s.weight=s.weight||'100'; } }));
+      Object.values(g.cardioBlocks||{}).forEach(b=>{ b.done=true; });
+      check(isWorkoutFullyComplete(k),'skipped finisher blocks "workout complete"');
+      g.cardioBlocks['finisher-0']={duration:'10',done:true}; buildTodayWorkout();
+      check(!/Skipped to keep/.test(el('wContent').textContent),'a finisher already done was hidden');
+    });
     reset(); saveS();
     return results;
   });

@@ -48,6 +48,12 @@ persisted to `localStorage`. No backend, no accounts, no analytics.
     `_renderIntEstLine` renders it after supersets are seeded.
   - `FINISHER_CAP` (inside `selectWorkoutForDuration`) — cardio is capped per focus rather than
     stretched to fill the band; when the cap bites, the builder adds another **lift** instead.
+  - `QUICK_REST_BY_FOCUS` — **Gym** Quick sessions rest at the short end of each focus's own
+    range (Muscle / Muscle + Strength 90 s, Strength 3 min, General 60 s, Tone 70 s, Endurance 30 s)
+    so 3 exercises × 3 work sets fit 30–45 min; if the plan still runs over, the finisher is
+    shortened or skipped (`_cardioPlan.finisherMin` 0, shown as a note) before any exercise is
+    dropped. Passed as `prescriptionForFocus(ex, focus, quickGym)`. Home and Standard/Full rests are
+    unchanged. Full Body · Strength Quick is the one known exception (~46–48 min).
   - `getBaseWeight` / `BASE_WEIGHT_EXACT` / `BASE_WEIGHT_RULES` / `BASE_WEIGHT_NONE` — the
     pre-loaded weight of bars and plate-loaded machines, with `S.baseWeights` overrides. The
     weight STORED on a set is always the true total; `S.weightEntry` only changes what the input
