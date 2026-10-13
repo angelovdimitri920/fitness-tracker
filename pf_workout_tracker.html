@@ -15006,6 +15006,14 @@ if(btn) btn.classList.add('active');
 drawExChart();
 }
 
+// Volume chart label: the plain number below 1,000 (460, not "0k"), then one decimal
+// of thousands (1.6k, 12k) so nearby values don't collapse into the same label.
+function fmtVolLabel(v){
+  v=Math.round(Number(v)||0);
+  if(Math.abs(v)<1000) return String(v);
+  var k=Math.round(v/100)/10;
+  return (k%1?k.toFixed(1):String(k))+'k';
+}
 function drawExChart(){
 var c=el('exCanvas'); if(!c) return;
 var _kind=_exChartKind(_exChartName), _mode=_exChartMode;
@@ -15084,7 +15092,7 @@ var x=pL+i*xS,y=H-pB-(v-mn)*yS;
 ctx.fillStyle=color; ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fill();
 if(i===vals.length-1||i===0){
 ctx.fillStyle='#fff'; ctx.font='bold 8px sans-serif'; ctx.textAlign='center';
-ctx.fillText(_exChartMode==='volume'?Math.round(v/1000)+'k':v, x, y-5);
+ctx.fillText(_exChartMode==='volume'?fmtVolLabel(v):v, x, y-5);
 }
 if(i%Math.max(1,Math.floor(labels.length/4))===0||i===labels.length-1){
 ctx.fillStyle='#555'; ctx.font='8px sans-serif'; ctx.textAlign='center';
@@ -15095,7 +15103,7 @@ ctx.fillText(labels[i],x,H-6);
 ctx.fillStyle='#444'; ctx.font='8px sans-serif'; ctx.textAlign='right';
 [mn,mn+(mx-mn)/2,mx].forEach(function(v){
 var y=H-pB-(v-mn)*yS;
-ctx.fillText(_exChartMode==='volume'?Math.round(v/1000)+'k':Math.round(v),pL-3,y+3);
+ctx.fillText(_exChartMode==='volume'?fmtVolLabel(v):Math.round(v),pL-3,y+3);
 });
 }
 
