@@ -933,6 +933,14 @@ let server, browser;
       check(/Best: 1600 lbs vol/.test(st)&&/Change: -80 lbs vol/.test(st),'volume stats: '+st);
       document.querySelectorAll('.mo').forEach(m=>m.classList.remove('show'));
     });
+    test('low-volume chart labels show real numbers, not 0k', () => {
+      const want={0:'0',460:'460',999:'999',1000:'1k',1550:'1.6k',12000:'12k',1049:'1k',1050:'1.1k'};
+      for(const [v,out] of Object.entries(want)) check(fmtVolLabel(Number(v))===out,v+' → '+fmtVolLabel(Number(v))+' (want '+out+')');
+      reset(); S.history=[{id:1,date:'2026-10-01',type:'gym',exercises:[{name:'Bench Press (Barbell)',sets:[set(20,10),set(20,13)]}]}];
+      openExChart('Bench Press (Barbell)','gym'); document.querySelectorAll('.exc-tab')[2].click();
+      check(/Best: 460 lbs vol/.test(el('exStats').textContent),'volume stats changed: '+el('exStats').textContent);
+      document.querySelectorAll('.mo').forEach(m=>m.classList.remove('show'));
+    });
     reset(); saveS();
     return results;
   });
