@@ -4455,6 +4455,10 @@ var STRENGTH_REF_PATTERNS=[
   [/trap bar deadlift|hex bar deadlift/i,'deadlift',0.9],
   [/deadlift/i,'deadlift',0.7],
   [/split squat|lunge|step-up|lateral squat/i,'squat',0.45],
+  // A squat whose bracket names a split stance — "Smith Machine Squat (Split)",
+  // "(Bulgarian)", "(Rear-Foot Elevated)" — is a split squat, not a bilateral one. Only
+  // for squat names, so "Landmine Split Press" stays an overhead press.
+  [/squat\b[^()]*\((?:[^()]*[\s,])?(?:split|bulgarian|rear[- ]foot[- ]elevated|rfe|single[- ]leg)\b[^()]*\)/i,'squat',0.45],
   [/squat/i,'squat',0.7],
   [/overhead|shoulder|push press|viking|military|z-press|bradford|behind-the-neck|log press|landmine press|split press/i,'ohp',0.8],
   [/press/i,'bench',0.6],

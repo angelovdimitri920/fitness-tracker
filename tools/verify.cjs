@@ -974,6 +974,20 @@ let server, browser;
       g.cardioBlocks['finisher-0']={duration:'10',done:true}; buildTodayWorkout();
       check(!/Skipped to keep/.test(el('wContent').textContent),'a finisher already done was hidden');
     });
+    test('a squat with a split-stance bracket starts at the split-squat scale', () => {
+      reset(); S.history=[];
+      const split=['Smith Machine Squat (Split)','Smith Machine Squat (Split Stance)','Smith Machine Squat (Bulgarian)','Smith Machine Squat (Rear-Foot Elevated)','Barbell Squat (RFE)','Smith Machine Squat (Single-Leg)','Smith Machine Squat (Slow, Split Stance)'];
+      const bilateral=['Smith Machine Squat (Slow)','Smith Machine Squat (Front)','Smith Machine Squat (Wide)','Trap Bar Squat (Splitter Grip)'];
+      for(const n of split){ const r=inferStrengthRef(n); check(r&&r.key==='squat'&&r.scale===0.45,n+' → '+JSON.stringify(r)); }
+      for(const n of bilateral){ const r=inferStrengthRef(n); check(r&&r.key==='squat'&&r.scale===0.7,n+' → '+JSON.stringify(r)); }
+      check(inferStrengthRef('Landmine Split Press').key==='ohp','Landmine Split Press left the overhead-press family');
+      check(inferStrengthRef('Smith Machine Squat (Calf Raise)').key==='calfstand','calf-raise suffix lost its meaning');
+      // the split variant starts lighter than the bilateral one, and follows only the squat field
+      const sw=getProgression('Smith Machine Squat (Split)',10,3,1).weight, bw=getProgression('Smith Machine Squat (Slow)',10,3,1).weight;
+      check(sw<bw,'split '+sw+' not lighter than bilateral '+bw);
+      const saved={...S.strength}; Object.keys(S.strength).filter(x=>x!=='squat'&&typeof S.strength[x]==='number').forEach(x=>S.strength[x]*=3);
+      check(getProgression('Smith Machine Squat (Split)',10,3,1).weight===sw,'split squat moved with an unrelated lift'); S.strength=saved;
+    });
     reset(); saveS();
     return results;
   });
