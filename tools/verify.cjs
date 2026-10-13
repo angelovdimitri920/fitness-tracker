@@ -1040,6 +1040,57 @@ let server, browser;
       // 3 exercises × 2 between-set rests × 180 s × 1.15 slop ≈ 21 min apart
       check(long-short>=15,'estimates ignore the saved rests: 60 s → '+short+' min, 240 s → '+long+' min');
     });
+    test('a finisher stopped early keeps its logged minutes through Standard → Quick', () => {
+      const {k}=quickFinisherFixture(); startCardioTimer('finisher',0,10);
+      const t=S.sessions[k].gym.cardioBlocks['finisher-0'].timer; t.startedAt-=180000; t.endAt-=180000; stopCardioTimer('finisher',0);
+      const b0=S.sessions[k].gym.cardioBlocks['finisher-0']; check(b0.done&&b0.duration==='3','stop did not complete the block with 3 min: '+JSON.stringify({done:b0.done,duration:b0.duration}));
+      setIntensity('quick');
+      const g=S.sessions[k].gym, c=completedCardioBlocks({cardioBlocks:{'finisher-0':g.cardioBlocks['finisher-0']}})[0];
+      check(c&&c.duration===3,'stopped finisher credited '+(c&&c.duration)+' min after the re-plan, not 3');
+      check(!!document.getElementById('cardio-block-finisher-0'),'stopped finisher card not rendered');
+    });
+    test('consecutive sets on one superset card still get the exercise rest', () => {
+      const k=liveReset('push'); S.weekFocus='hybrid'; S.prefs.autoSuperset=false; S.prefs.autoTimer=true; showToast=()=>{};
+      buildTodayWorkout(); const g=S.sessions[k].gym; g.supersets={1:2,2:1}; g.activeSuperset=undefined; saveS(); buildTodayWorkout();
+      const rests=[];
+      const doSet=ei=>{ const sets=S.sessions[k].gym.exercises[ei].sets, si=sets.findIndex(s=>!s.done&&(s.type||'wk')==='wk');
+        sets[si].weight=sets[si].weight||'50'; sets[si].reps=sets[si].reps||'10'; stopTimer();
+        toggleSet(ei,si,document.createElement('button')); rests.push(_restEndAt?1:0); stopTimer(); };
+      [1,1,2,2].forEach(doSet);
+      check(rests.join('')==='0111','A, A, B, B rest pattern '+rests.join('')+' (want 0111: only the opening set skips rest)');
+      S.prefs.autoTimer=false;
+    });
+    test('a finisher carried into Quick is counted in the estimate', () => {
+      const {k,mins}=quickFinisherFixture(); startCardioTimer('finisher',0,mins); setIntensity('quick');
+      const m=/cardio (\d+)m/.exec(el('intEstLine').textContent), cardio=m?Number(m[1]):-1;
+      check(S.sessions[k].gym._cardioPlan.finisherMin===0,'fixture: Quick plan kept a finisher');
+      check(cardio>=mins,'estimate shows cardio '+cardio+'m with a '+mins+'-min finisher on screen');
+      clearAllCardioTimers();
+    });
+    test('a running mid-workout block stays on screen and in the estimate through Standard → Quick', () => {
+      const k=liveReset('push'); S.weekFocus='tone'; S.sessions[k]={gym:{exercises:{},cardio:{},cardioBlocks:{},intensity:'standard'}}; buildTodayWorkout();
+      check(!!document.getElementById('cardio-block-mid-0'),'fixture: Standard Tone push has no mid block');
+      startCardioTimer('mid',0,6); setIntensity('quick');
+      const g=S.sessions[k].gym, b=g.cardioBlocks['mid-0'];
+      check(b&&b.timer&&b.timer.running,'running mid block dropped');
+      check(!!document.getElementById('cardio-block-mid-0'),'running mid block kept but not rendered');
+      const m=/cardio (\d+)m/.exec(el('intEstLine').textContent); check(m&&Number(m[1])>=6+(g._cardioPlan.warmupMin||0),'estimate leaves out the mid block: '+(m&&m[0]));
+      stopCardioTimer('mid',0); clearAllCardioTimers();
+    });
+    test('logging the first set never changes the estimate (gym and home)', () => {
+      const bad=[], est=()=>Number(el('intEstLine').getAttribute('data-est-mid'));
+      const logOne=g=>{ const sets=g.exercises[0].sets, si=sets.findIndex(x=>(x.type||'wk')!=='wu'); sets[si]={...sets[si],weight:sets[si].weight||'50',reps:sets[si].reps||'10',done:true}; saveS(); buildTodayWorkout(); };
+      for(const sp of ['push','pull','lower','upper','fullbody','glutes','arms','core']) for(const f of Object.keys(FOCUS_META)) for(const int of ['quick','standard']){
+        const k=liveReset(sp); S.weekFocus=f; S.sessions[k]={gym:{exercises:{},cardio:{},cardioBlocks:{},intensity:int}}; buildTodayWorkout();
+        const before=est(); logOne(S.sessions[k].gym); const after=est();
+        if(Math.abs(after-before)>1) bad.push(sp+'/'+f+'/'+int+': '+before+' → '+after);
+      }
+      for(const sp of ['hpush','hpull','hlegs','hcore']){
+        const k=homeReset(sp); const before=est(); logOne(S.sessions[k].home); const after=est();
+        if(Math.abs(after-before)>1) bad.push('home '+sp+': '+before+' → '+after);
+      }
+      cMode='gym'; check(!bad.length,bad.slice(0,12).join('; '));
+    });
     reset(); saveS();
     return results;
   });

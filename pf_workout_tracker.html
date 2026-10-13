@@ -6100,7 +6100,11 @@ var _sel;
 if(_pinned||(_started&&sess.exList&&!_replan)){
   var _pLift=0; sess.exList.forEach(function(e){ try{_pLift+=_exLiftMinutes(e,intensity,fp,getWorkoutFocus(k),intensity==='quick'&&!isHomeMode(k),_pinned);}catch(err){_pLift+=6;} });
   var _pPlan=sess._cardioPlan||{warmupMin:(getWorkoutFocus(k)==='power')?4:6, midEachMin:6, finisherMin:10};
-  var _pCardio=(_pPlan.warmupMin||0)+(_pPlan.finisherMin||0), _pOver=TIME_MODEL.sessionOverheadMin;
+  // Same cardio and overhead terms as selectWorkoutForDuration: mid-workout blocks that
+  // render for this list, and the shorter Home overhead (no drive, no walking between machines).
+  var _pMid=(getMidCardio(tplKey,getWorkoutFocus(k),intensity)||[]).filter(function(mc){return mc.after!=null&&mc.after>=0&&mc.after<sess.exList.length;}).length;
+  var _pCardio=(_pPlan.warmupMin||0)+_pMid*(_pPlan.midEachMin||6)+(_pPlan.finisherMin||0);
+  var _pOver=isHomeMode(k)?Math.min(TIME_MODEL.sessionOverheadMin,2):TIME_MODEL.sessionOverheadMin;
   var _pEst=Math.round(_pLift+_pCardio+_pOver);
   _sel={exercises:sess.exList.slice(), plan:_pPlan, estMin:_pEst,
         estLowMin:Math.max(5,Math.round(_pEst*0.85)), estHighMin:Math.round(_pEst*1.18),
@@ -6204,7 +6208,7 @@ if(_sel.plan.warmupMin>0){
   html+=buildCardioBlock('warmup',warmupObj,warmupState,0,tplKey);
 }
 var midCards=getMidCardio(tplKey, getWorkoutFocus(k), intensity);
-var midCardByIndex={};
+var midCardByIndex={}, _midRendered={};
 midCards.forEach(function(mc,mci){midCardByIndex[mc.after]=mci;});
 
 // Apply saved exercise order (visual reorder - persisted per session)
@@ -6609,8 +6613,24 @@ if(mcObj&&_usedCardio.indexOf(mcObj.n)<0)_usedCardio.push(mcObj.n);
 if(mcObj)_cardioBySlot['mid-'+mci]=mcObj.n;
   var mcState=getCardioState(k,'mid',mci);
   html+=buildCardioBlock('mid',mcObj,mcState,mci,tplKey);
+  _midRendered[mci]=true;
 }
 }); // end orderedExs.forEach
+// A mid-workout block that is done or under way but has no slot in the current plan
+// (e.g. Standard → Quick, which has no mid circuits) stays on screen so it can be
+// paused, stopped or finished; it was kept by the re-plan, so it must stay visible.
+var _carriedCardioMin=0;
+Object.keys(sess.cardioBlocks||{}).forEach(function(key){
+  var m=/^mid-(\d+)$/.exec(key); if(!m) return;
+  var mci=Number(m[1]), b=sess.cardioBlocks[key];
+  if(_midRendered[mci]||!b||!(b.done||_cardioIsActive(b.timer))) return;
+  var mcObj=getCardioObj(sess,'mid',mci,{n:b.name||'Cardio',dur:Number(b.defaultDur)||6},tplKey,_usedCardio);
+  if(!mcObj) return;
+  if(_usedCardio.indexOf(mcObj.n)<0)_usedCardio.push(mcObj.n);
+  _cardioBySlot[key]=mcObj.n;
+  html+=buildCardioBlock('mid',mcObj,getCardioState(k,'mid',mci),mci,tplKey);
+  _carriedCardioMin+=Number(b.duration)||Number(b.defaultDur)||0;
+});
 // Apply smart set types now that all sets are initialized
 try{applySmartSetTypes(k);}catch(e){console.warn('applySmartSetTypes failed:',e);}
 // Initialize superset active state if not set
@@ -6649,7 +6669,15 @@ tpl.cardio.forEach(function(c,ci){
   if(finObj)_cardioBySlot['finisher-'+ci]=finObj.n;
   var finState=getCardioState(k,'finisher',ci);
   html+=buildCardioBlock('finisher',finObj,finState,ci,tplKey);
+  if(_finSkip) _carriedCardioMin+=Number(finState.duration)||Number(finState.defaultDur)||0;
 });
+}
+// Cardio the plan has no room for but that is already under way is still on screen:
+// the estimate has to include the blocks it is showing.
+if(_carriedCardioMin>0&&_sel){
+  _sel=Object.assign({},_sel,{estMin:_sel.estMin+_carriedCardioMin});
+  _sel.estLowMin=Math.max(5,Math.round(_sel.estMin*0.85)); _sel.estHighMin=Math.round(_sel.estMin*1.18);
+  if(_sel.breakdown) _sel.breakdown=Object.assign({},_sel.breakdown,{cardioMin:(_sel.breakdown.cardioMin||0)+_carriedCardioMin});
 }
 // Persist the final machine per slot so openCardioSwap can exclude in-use machines.
 sess._cardioBySlot=_cardioBySlot;
@@ -6799,6 +6827,13 @@ function toggleSet(ei,si,btn){
         saveS(); updateSupersetHighlight(k);
         startTimer(restSecs);
         showToast('Set logged  --  rest '+restSecs+'s');
+      } else if(_wkDone(ei)-_wkDone(partner)>=2){
+        // Another set on the same card instead of alternating: that is a straight set,
+        // so it gets this exercise's own rest. The partner is still next.
+        gym.activeSuperset=partner;
+        saveS(); updateSupersetHighlight(k);
+        startTimer(restSecs);
+        showToast('Set logged  --  rest '+restSecs+'s, then '+partnerName);
       } else if(_wkDone(ei)>_wkDone(partner)){
         // First half of a round → go straight to the partner, no rest.
         gym.activeSuperset=partner;
@@ -28731,9 +28766,16 @@ function stopCardioTimer(type, idx){
   var doneMin=Math.round(((t.total||0)*1000-leftMs)/60000);
   t.running=false; t.endAt=null; t.leftMs=0; t.startedAt=null;
   if(doneMin>0){
+    // "Logged" means credited: stopping early completes the block with the minutes done,
+    // so a later re-plan (e.g. Standard → Quick) keeps it like any finished block.
     updateCardioBlock(type,idx,'duration',String(doneMin));
+    var _sb=GS(dKey(vDate)), _blk=_sb&&_sb.cardioBlocks&&_sb.cardioBlocks[_cardioTimerKey(type,idx)];
+    if(_blk){ _blk.done=true; _blk.stoppedEarly=true; }
     var durInp=document.querySelector('#cardio-block-'+type+'-'+idx+' input[type=number]');
     if(durInp) durInp.value=doneMin;
+    var _db=document.querySelector('#cardio-block-'+type+'-'+idx+' .sdone');
+    if(_db) _db.classList.add('chk');
+    try{updateStats();}catch(e){}
     showToast('⏹ Stopped — '+doneMin+' min logged');
   } else {
     showToast('⏹ Timer stopped');
