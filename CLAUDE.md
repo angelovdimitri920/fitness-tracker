@@ -1,6 +1,6 @@
 # PF Fitness Tracker — Project Context & Development Notes
 
-> **Current verification:** Read [TRAINING_AUDIT.md](docs/TRAINING_AUDIT.md) before changing training logic. It supersedes older claims about automatic advanced sets, hypertrophy pyramids, named-program completeness and blanket verification. Run `npm ci` and `npm test` (Playwright browser required). Keep started-session focus/exercise snapshots stable; records and progression must use comparable completed work sets.
+> **Current verification:** Read [TRAINING_AUDIT.md](docs/TRAINING_AUDIT.md) before changing training logic — including its **October 11 addendum**, which supersedes earlier statements there about started-session snapshots and automatic advanced sets. Run `npm ci` and `npm test` (Playwright browser required; in a container with a preinstalled Chromium use `CHROMIUM_PATH=/opt/pw-browsers/chromium npm test`). A *live* session (today or later, unsaved) re-plans on split / focus / intensity / gym changes, carrying logged sets by exercise identity; saved and past sessions keep their snapshot. Records and progression must use comparable completed work sets — specialty extras (`spec:true`) never count.
 
 Context for the developer and for any future [Claude Code](https://claude.com/claude-code)
 session working on this repo. The user-facing overview lives in [`README.md`](README.md); this
@@ -76,6 +76,27 @@ persisted to `localStorage`. No backend, no accounts, no analytics.
   - `applySmartSetTypes()` — assigns advanced set types (drop/failure/rest-pause) per focus.
   - Cardio de-dup via `cardioTypeKey()` + `_cardioBySlot`; exercise availability via
     `getEquipmentSafeExercise()` / `isExerciseAvailable()` against the active gym profile.
+- **Gym vs Home session.** The workout on screen is `GS(k)` — `S.sessions[k].gym`, or
+  `S.sessions[k].home` while the Today page's 🏠 Home tab is showing (`cMode==='home'`,
+  `wkKey(k)`). Every Today-workout function reads the session through `GS(k)`, the split
+  through `wkTpl(k)` and swaps through `swapKeyOf(k,i)`, so one engine serves both. Don't
+  write `S.sessions[k].gym` in workout code. The Home module (its own `<script>` after the
+  main one) adds the home profile, gear, ~40 exercises, the `hpush/hpull/hlegs/hcore` templates
+  (`WTPL[...].home`), the rotation (`homeSplitFor`) and fixed loads (`loadingRules`). See
+  docs/HOME_EQUIPMENT.md. Home history entries are `type:'home'`.
+- **Live re-planning.** `sessionPlanKey(k)` (split|focus|intensity|gym) is stored on the
+  session. When it changes on a live session, `buildGym` calls `_replanSession` and rebuilds,
+  merging logged sets by exercise name (dropped-but-worked exercises stay as `carried`).
+  Today-switcher week shifts are recorded in `dayConfig[k].todaySwitch` so repeated switches
+  undo the previous shift (`applyTodaySplitSwitch`). User-added library exercises live in
+  `sess.addedEx` and survive re-plans.
+- **Specialty sets.** `SPECIALTY_BY_FOCUS` / `planSpecialtySets` / `applySpecialtySets` add one
+  extra set (cluster, drop, failure, rest-pause) after the work sets — never in place of one.
+  Switch: `_advSuggestEnabled` (Settings → Specialty sets, ✨ chip). Supersets are separate.
+- **Organisation.** `exerciseCategory(name)` / `equipmentCategory(item,section)` →
+  calisthenics / freeweight / plate / pin / bands / cardio; `BODY_AREAS` group ELIB muscle
+  groups. Used by the exercise library (`openExerciseLibrary`), swap list chips and the
+  Equipment page "By type" view, and as `getExType`'s fallback.
 - **Invariant (important):** `sess.exList` (set in `buildGym`) is the single source of truth for
   today's rendered exercises. Every index-keyed consumer must read it via `getRenderedExList(k)`
   — never re-derive a filtered template list (that historically dropped/misattributed sets).
