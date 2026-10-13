@@ -5715,10 +5715,17 @@ var TIME_MODEL={
 };
 // Seconds one exercise costs end to end: getting to it and set up, plus every work
 // set's effort and the rest between them, plus a compound's warm-up ramp.
-function _exLiftSeconds(rawEx, intensity, fp, focus, quickGym){
+// asPrescribed: rawEx already IS the prescription (a pinned template renders its saved
+// sets, reps and rests verbatim), so estimate it as-is instead of re-prescribing it.
+function _exLiftSeconds(rawEx, intensity, fp, focus, quickGym, asPrescribed){
   focus=focus||getWorkoutFocus();
-  var sets=_focusSetCount(rawEx, intensity, focus);
-  rawEx=prescriptionForFocus(rawEx,focus,quickGym);
+  var sets;
+  if(asPrescribed){
+    sets=Math.max(MIN_WORK_SETS, parseInt(rawEx&&rawEx.sets,10)||0);
+  } else {
+    sets=_focusSetCount(rawEx, intensity, focus);
+    rawEx=prescriptionForFocus(rawEx,focus,quickGym);
+  }
   var reps=parseInt(rawEx&&rawEx.reps,10);
   if(!(reps>0)) reps=Math.round(((fp&&fp.reps?fp.reps[0]:8)+(fp&&fp.reps?fp.reps[1]:12))/2);
   var isComp=(typeof isCompound==='function')&&isCompound(rawEx.n);
@@ -5734,8 +5741,8 @@ function _exLiftSeconds(rawEx, intensity, fp, focus, quickGym){
   var transition=isComp?TIME_MODEL.transitionCompoundSec:TIME_MODEL.transitionMachineSec;
   return sets*perSet + restTotal + wu + transition;
 }
-function _exLiftMinutes(rawEx, intensity, fp, focus, quickGym){
-  return _exLiftSeconds(rawEx, intensity, fp, focus, quickGym)/60;
+function _exLiftMinutes(rawEx, intensity, fp, focus, quickGym, asPrescribed){
+  return _exLiftSeconds(rawEx, intensity, fp, focus, quickGym, asPrescribed)/60;
 }
 // Supersets alternate round-for-round: the pair's rests overlap, so a supersetted pair
 // runs roughly 25% quicker than the two exercises done back to back.
@@ -5971,7 +5978,7 @@ function _supersetSavingMinutes(k, exs, intensity, fp, focus){
       if(b===undefined||seen[a]||seen[b]) return;
       seen[a]=seen[b]=true;
       if(!exs[a]||!exs[b]) return;
-      var _sqg=(intensity==='quick'&&!isHomeMode(k)), pairMin=_exLiftMinutes(exs[a],intensity,fp,focus,_sqg)+_exLiftMinutes(exs[b],intensity,fp,focus,_sqg);
+      var _sqg=(intensity==='quick'&&!isHomeMode(k)), _asIs=!!sess.exListPinned, pairMin=_exLiftMinutes(exs[a],intensity,fp,focus,_sqg,_asIs)+_exLiftMinutes(exs[b],intensity,fp,focus,_sqg,_asIs);
       saved+=pairMin*SUPERSET_TIME_SAVING;
     });
     return saved;
@@ -6038,7 +6045,8 @@ function _replanSession(k,gym){
   var cb=gym.cardioBlocks||{}, keep={}, cs=gym.cardioSwaps||{}, keepSw={};
   Object.keys(cb).forEach(function(key){
     var b=cb[key]; if(!b) return;
-    if(b.done||(b.timer&&b.timer.running)){keep[key]=b;if(cs[key])keepSw[key]=cs[key];else if(b.name)keepSw[key]={n:b.name,dur:Number(b.duration)||Number(b.defaultDur)||10};}
+    // Running OR paused (a countdown with time left) is in progress and must survive a re-plan.
+    if(b.done||_cardioIsActive(b.timer)){keep[key]=b;if(cs[key])keepSw[key]=cs[key];else if(b.name)keepSw[key]={n:b.name,dur:Number(b.duration)||Number(b.defaultDur)||10};}
   });
   gym.cardioBlocks=keep; gym.cardioSwaps=keepSw;
 }
@@ -6090,9 +6098,13 @@ var _recent48=(typeof getRecentMuscles==='function')?getRecentMuscles(48):{};
 var _pinned=!!(sess.exListPinned&&sess.exList&&sess.exList.length);
 var _sel;
 if(_pinned||(_started&&sess.exList&&!_replan)){
-  var _pLift=0; sess.exList.forEach(function(e){ try{_pLift+=_exLiftMinutes(e,intensity,fp,getWorkoutFocus(k),intensity==='quick'&&!isHomeMode(k));}catch(err){_pLift+=6;} });
+  var _pLift=0; sess.exList.forEach(function(e){ try{_pLift+=_exLiftMinutes(e,intensity,fp,getWorkoutFocus(k),intensity==='quick'&&!isHomeMode(k),_pinned);}catch(err){_pLift+=6;} });
   var _pPlan=sess._cardioPlan||{warmupMin:(getWorkoutFocus(k)==='power')?4:6, midEachMin:6, finisherMin:10};
-  _sel={exercises:sess.exList.slice(), plan:_pPlan, estMin:Math.round(_pLift+(_pPlan.warmupMin||0)+(_pPlan.finisherMin||0))};
+  var _pCardio=(_pPlan.warmupMin||0)+(_pPlan.finisherMin||0), _pOver=TIME_MODEL.sessionOverheadMin;
+  var _pEst=Math.round(_pLift+_pCardio+_pOver);
+  _sel={exercises:sess.exList.slice(), plan:_pPlan, estMin:_pEst,
+        estLowMin:Math.max(5,Math.round(_pEst*0.85)), estHighMin:Math.round(_pEst*1.18),
+        breakdown:{liftMin:Math.round(_pLift), cardioMin:Math.round(_pCardio), overheadMin:_pOver}};
 } else {
   _sel=selectWorkoutForDuration(tpl.exercises, intensity, fp, _recent48, tplKey, getActiveGym());
 }
@@ -6626,7 +6638,7 @@ if(isLiveSession(k)) html+='<button class="btn bfw mt8" onclick="openExerciseLib
 // can't hold up "workout complete".
 var _finSkip=!!(sess._cardioPlan&&sess._cardioPlan.finisherMin===0);
 var _finBlocks=sess.cardioBlocks||{};
-if(_finSkip&&!tpl.cardio.some(function(c,ci){var b=_finBlocks['finisher-'+ci];return b&&(b.done||(b.timer&&(b.timer.running||b.timer.startedAt)));})){
+if(_finSkip&&!tpl.cardio.some(function(c,ci){var b=_finBlocks['finisher-'+ci];return b&&(b.done||_cardioIsActive(b.timer)||(b.timer&&b.timer.startedAt));})){
   tpl.cardio.forEach(function(c,ci){ delete _finBlocks['finisher-'+ci]; });
   html+='<div class="slbl mt16">🏃 CARDIO FINISHER</div><div style="font-size:11px;color:var(--mu);margin:4px 0 8px">Skipped to keep this Quick session under 45 min. Switch to Standard for a finisher.</div>';
 } else {
@@ -6747,7 +6759,6 @@ function toggleSet(ei,si,btn){
     var partner=ss[ei];
     if(partner!==undefined){
       var partnerName=exs[partner]?exs[partner].n:'partner exercise';
-      var activeCrd=gym.activeSuperset;
       var setType=set.type||'wk';
 
       // Rest-Pause: continuous effort  --  complete fully on active card, no partner switch
@@ -6770,31 +6781,35 @@ function toggleSet(ei,si,btn){
         return;
       }
 
-      // If activeSuperset somehow undefined, default to lower-index card
-      if(activeCrd===undefined){ activeCrd=Math.min(ei,partner); gym.activeSuperset=activeCrd; }
-      if(activeCrd===ei){
-        // We just did a set on the ACTIVE card → switch to partner
+      // A round is decided by what has actually been logged, not by which card is
+      // highlighted: following the highlight moves it to the partner after the first set,
+      // so the partner's set used to look like "the active card again" and the round never
+      // completed — no rest timer, ever. Count completed work sets on both cards instead.
+      var _wkDone=function(ix){ return ((gym.exercises[ix]&&gym.exercises[ix].sets)||[]).filter(function(s){return s.done&&s.type!=='wu';}).length; };
+      if(setType==='wu'){
+        // Warm-ups belong to this card's own ramp; they don't advance the superset.
+        startTimer(30);
+        showToast('Warm-up logged  --  rest 30s');
+        return;
+      }
+      var ssRest=gym.supersetRestOverride?gym.supersetRestOverride:restSecs;
+      if(partnerAllDone){
+        // Partner is finished: stay on this card and rest between its remaining sets.
+        gym.activeSuperset=ei;
+        saveS(); updateSupersetHighlight(k);
+        startTimer(restSecs);
+        showToast('Set logged  --  rest '+restSecs+'s');
+      } else if(_wkDone(ei)>_wkDone(partner)){
+        // First half of a round → go straight to the partner, no rest.
         gym.activeSuperset=partner;
         saveS(); updateSupersetHighlight(k);
-        if(partnerAllDone){
-          // Partner is done, stay on this card
-          gym.activeSuperset=ei;
-          saveS(); updateSupersetHighlight(k);
-          startTimer(restSecs);
-        } else {
-          showToast('Now do: '+partnerName);
-        }
+        showToast('Now do: '+partnerName);
       } else {
-        // We just did a set on the PARTNER (non-active) card → round complete, back to primary
-        gym.activeSuperset=activeCrd!==undefined?activeCrd:Math.min(ei,partner);
-        // If that card is fully done, use the other
-        var primaryAllDone=(gym.exercises[gym.activeSuperset]&&gym.exercises[gym.activeSuperset].sets||[]).every(function(s){return s.done;});
-        if(primaryAllDone) gym.activeSuperset=ei;
+        // Second half → round complete. The partner opened this round, so it opens the next.
+        gym.activeSuperset=partner;
         saveS(); updateSupersetHighlight(k);
-        var isWuSet=set.type==='wu';
-        var ssRest=(!isWuSet&&gym.supersetRestOverride)?gym.supersetRestOverride:restSecs;
-        startTimer(isWuSet?30:ssRest);
-        showToast('Round done  --  rest '+(isWuSet?30:ssRest)+'s');
+        startTimer(ssRest);
+        showToast('Round done  --  rest '+ssRest+'s');
       }
       return;
     }
@@ -6907,7 +6922,7 @@ function setIntensity(lvl){
   var gym=GS(k);
   var prev=gym.intensity||'standard';
   if(prev===lvl) return;
-  if(Object.values(gym.exercises||{}).some(function(e){return (e.sets||[]).some(function(s){return s.done;});})||Object.values(gym.cardioBlocks||{}).some(function(c){return c.done||c.timer&&c.timer.running;})){
+  if(Object.values(gym.exercises||{}).some(function(e){return (e.sets||[]).some(function(s){return s.done;});})||Object.values(gym.cardioBlocks||{}).some(function(c){return c.done||_cardioIsActive(c.timer);})){
     if(!isLiveSession(k)){showToast('This workout is saved. Keep its exercise list; use swaps or extra sets to adjust it.');return;}
     // Mid-workout: re-plan for the new length; logged sets are carried across.
     gym.intensity=lvl; saveS(); buildTodayWorkout(); showToast('Intensity: '+lvl.toUpperCase()+' — logged sets kept');return;
@@ -28385,6 +28400,13 @@ function buildCardioBlock(type, cardioObj, stateObj, idx, tplKey){
     if(type==='warmup'&&_pl.warmupMin!=null) adjustedDur=_pl.warmupMin;
     else if(type==='mid'&&_pl.midEachMin!=null) adjustedDur=_pl.midEachMin;
     else if(type==='finisher'&&_pl.finisherMin!=null) adjustedDur=_pl.finisherMin;
+  }
+  // A block already under way (running, paused or done) keeps the duration it started
+  // with: a re-plan — e.g. Standard → Quick skipping the finisher — must not turn a
+  // 10-minute countdown in progress into a 0-minute block that credits nothing.
+  if(stateObj.done||_cardioIsActive(stateObj.timer)){
+    var _was=Number(stateObj.defaultDur)||(stateObj.timer&&stateObj.timer.total?Math.round(stateObj.timer.total/60):0);
+    if(_was>0) adjustedDur=_was;
   }
   // Store default duration as fallback when user hasn't entered actual time
   stateObj.defaultDur=adjustedDur;
