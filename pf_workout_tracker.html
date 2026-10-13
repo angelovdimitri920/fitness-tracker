@@ -14993,7 +14993,7 @@ tabs.forEach(function(t,i){
   t.classList.toggle('active',modes[i]===_exChartMode);
   if(i===0) t.textContent=kind==='level'?'Level':'Weight';
   if(i===1) t.textContent=kind==='hold'?'Seconds':'Reps';
-  if(i===2) t.style.display=(kind==='level'||unloaded)?'none':'';
+  if(i===2){ t.style.display=(kind==='level'||unloaded)?'none':''; t.textContent=kind==='hold'?'Load × time':'Volume'; }
 });
 drawExChart();
 openModal('exModal');
@@ -15008,49 +15008,56 @@ drawExChart();
 
 function drawExChart(){
 var c=el('exCanvas'); if(!c) return;
-var data=[], _kind=_exChartKind(_exChartName);
+var _kind=_exChartKind(_exChartName), _mode=_exChartMode;
+// One series per metric, each with its own rules, so a session missing one measurement
+// never becomes a zero in another:
+//  · Level  — only sets with a recorded level (a blank level is skipped, not Level 0)
+//  · Weight / Reps — comparable work sets only, the same sets records use
+//  · Volume — every completed non-warm-up set, matching the workout's saved volume
+var sessions=[];
 S.history.filter(function(h){return h.type===_exChartType;}).forEach(function(h){
 (h.exercises||[]).forEach(function(ex){
 if(ex.name!==_exChartName) return;
-// Any completed set with reps counts: unloaded work, holds and level gear included.
-var doneSets=(ex.sets||[]).filter(function(s){return s.done&&s.reps&&(s.type||'wk')!=='wu';});
-if(!doneSets.length) return;
-var maxW=Math.max.apply(null,doneSets.map(function(s){return _kind==='level'?(parseFloat(s.level)||0):(parseFloat(s.weight)||0);}));
-var maxR=Math.max.apply(null,doneSets.map(function(s){return parseInt(s.reps)||0;}));
-var vol=doneSets.reduce(function(a,s){return a+(parseFloat(s.weight)||0)*(parseInt(s.reps)||0);},0);
-data.push({date:h.date,weight:maxW,reps:maxR,volume:vol});
+var done=(ex.sets||[]).filter(function(s){return s.done&&(s.type||'wk')!=='wu'&&parseFloat(s.reps)>0;});
+if(!done.length) return;
+var work=done.filter(function(s){return (s.type||'wk')==='wk';});
+var lv=done.map(function(s){return parseFloat(s.level);}).filter(function(v){return isFinite(v)&&v>0;});
+sessions.push({date:h.date,
+  level:lv.length?Math.max.apply(null,lv):null,
+  weight:work.length?Math.max.apply(null,work.map(function(s){return parseFloat(s.weight)||0;})):null,
+  reps:work.length?Math.max.apply(null,work.map(function(s){return parseFloat(s.reps)||0;})):null,
+  volume:done.reduce(function(a,s){return a+(parseFloat(s.weight)||0)*(parseFloat(s.reps)||0);},0)});
 });
 });
-data.sort(function(a,b){return a.date.localeCompare(b.date);});
+sessions.sort(function(a,b){return a.date.localeCompare(b.date);});
+var _metric=(_mode==='weight'&&_kind==='level')?'level':_mode;
+var data=sessions.filter(function(d){return d[_metric]!=null;}).map(function(d){return {date:d.date,v:d[_metric]};});
 
-// Stats
+// Stats follow the tab on screen: Best is the highest value of that metric, Change is
+// last minus first.
 var statsEl=el('exStats');
-if(data.length>0&&statsEl){
-var first=data[0],last=data[data.length-1];
-var diff=(last.weight-first.weight);
-var _exWu=getWeightUnit(),_exDiffD=Math.round(toDisplayWeight(Math.abs(diff))*10)/10;
-var _where=_exChartType==='home'?' at home':' at the gym';
-if(_kind==='level'||_exChartMode==='reps'){
-  // Not a load chart: show the measured quantity instead of pounds.
-  var _q=_kind==='level'?'weight':'reps', _u=_kind==='level'?'':(_kind==='hold'?' sec':' reps');
-  var _b=Math.max.apply(null,data.map(function(d){return d[_q];})), _d=last[_q]-first[_q];
-  statsEl.innerHTML='Sessions'+_where+': <strong style="color:var(--ye)">'+data.length+'</strong>  |  '+
-  'Best: <strong style="color:var(--ye)">'+(_kind==='level'?'Level '+_b:_b+_u)+'</strong>  |  '+
-  'Change: <strong style="color:'+(_d>0?'var(--gr)':_d<0?'var(--re)':'var(--mu)')+'">'+(_d>0?'+':'')+_d+_u+'</strong>';
-} else {
-statsEl.innerHTML='Sessions'+_where+': <strong style="color:var(--ye)">'+data.length+'</strong>  |  '+
-'Best: <strong style="color:var(--ye)">'+toDisplayWeight(last.weight)+' '+_exWu+'</strong>  |  '+
-'Change: <strong style="color:'+(diff>0?'var(--gr)':diff<0?'var(--re)':'var(--mu)')+'">'+
-(diff>0?'+':diff<0?'-':'')+_exDiffD+' '+_exWu+'</strong>';
+var _where=_exChartType==='home'?' at home':' at the gym', _wu=getWeightUnit();
+function _fmt(v,signed){
+  var sign=signed?(v>0?'+':v<0?'-':''):'', a=signed?Math.abs(v):v;
+  if(_metric==='level') return sign+(signed?a:'Level '+a);
+  if(_metric==='reps') return sign+a+(_kind==='hold'?' sec':' reps');
+  return sign+(Math.round(toDisplayWeight(a)*10)/10)+' '+_wu+(_metric==='volume'?(_kind==='hold'?' × sec':' vol'):'');
 }
+if(data.length>0&&statsEl){
+var best=Math.max.apply(null,data.map(function(d){return d.v;})), diff=data[data.length-1].v-data[0].v;
+statsEl.innerHTML='Sessions'+_where+': <strong style="color:var(--ye)">'+data.length+'</strong>  |  '+
+'Best: <strong style="color:var(--ye)">'+_fmt(best,false)+'</strong>  |  '+
+'Change: <strong style="color:'+(diff>0?'var(--gr)':diff<0?'var(--re)':'var(--mu)')+'">'+_fmt(diff,true)+'</strong>';
 } else if(statsEl){
-statsEl.innerHTML='<span style="color:var(--mu)">No '+(_exChartType==='home'?'home':'gym')+' sessions of this exercise yet - log it to see progress.</span>';
+statsEl.innerHTML='<span style="color:var(--mu)">'+(sessions.length&&_metric==='level'
+  ?'No level recorded for this exercise'+_where+' yet - see the Reps tab.'
+  :'No '+(_exChartType==='home'?'home':'gym')+' sessions of this exercise yet - log it to see progress.')+'</span>';
 }
 
-if(!data.length){ var ctx2=c.getContext('2d');var W2=c.offsetWidth||300;c.width=W2*2;c.height=320;c.style.width=W2+'px';c.style.height='160px';ctx2.scale(2,2);ctx2.fillStyle='#333';ctx2.font='11px sans-serif';ctx2.textAlign='center';ctx2.fillText('No data yet',W2/2,80); return; }
+if(!data.length){ var ctx2=c.getContext('2d');var W2=c.offsetWidth||300;c.width=W2*2;c.height=320;c.style.width=W2+'px';c.style.height='160px';ctx2.scale(2,2);ctx2.fillStyle='#333';ctx2.font='11px sans-serif';ctx2.textAlign='center';ctx2.fillText('No data yet',W2/2,80);return;}
 
 var _ecMode=_exChartMode;
-var vals=data.map(function(d){var raw=d[_ecMode]||0;return ((_ecMode==='weight'&&_kind!=='level')||_ecMode==='volume')?toDisplayWeight(raw):raw;});
+var vals=data.map(function(d){return (_metric==='weight'||_metric==='volume')?toDisplayWeight(d.v):d.v;});
 var labels=data.map(function(d){return d.date.slice(5);});
 var ctx=c.getContext('2d'),W=c.offsetWidth||300,H=160;
 c.width=W*2; c.height=H*2; c.style.width=W+'px'; c.style.height=H+'px';

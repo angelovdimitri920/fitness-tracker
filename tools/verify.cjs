@@ -903,6 +903,36 @@ let server, browser;
       if(loaded) check(/40x10/.test(t),'loaded LAST lost its compact form');
       cMode='gym';
     });
+    // ── Codex re-review 7 (PR #4 @ 441169f) regressions ─────────────────────────
+    test('a blank level is never charted as Level 0, and the Reps tab shows reps', () => {
+      const k=homeReset('hcore'); if(!names(S.sessions[k].home).includes('Hand Gripper Squeeze')) addExerciseToToday('Hand Gripper Squeeze');
+      const ei=names(S.sessions[k].home).indexOf('Hand Gripper Squeeze'); check(ei>=0,'gripper not added');
+      updateSet(ei,0,'reps','20'); toggleSet(ei,0,document.createElement('button'));
+      const st0=S.sessions[k].home.exercises[ei].sets[0]; check(st0.done&&!st0.level,'fixture: set not completed with a blank level');
+      doSaveWorkout(3,'blank level'); saveS(); S=loadS();
+      openExChart('Hand Gripper Squeeze','home'); let st=el('exStats').textContent;
+      check(!/Level 0/.test(st),'blank level charted as Level 0: '+st);
+      // mixed history: Level 5 × 15 on one day, blank level × 20 on a later day
+      S.history=[{id:1,date:'2026-10-01',type:'home',exercises:[{name:'Hand Gripper Squeeze',sets:[{weight:'',reps:'15',level:'5',type:'wk',done:true}]}]},
+                 {id:2,date:'2026-10-03',type:'home',exercises:[{name:'Hand Gripper Squeeze',sets:[{weight:'',reps:'20',level:'',type:'wk',done:true}]}]}];
+      openExChart('Hand Gripper Squeeze','home'); st=el('exStats').textContent;
+      check(/Sessions at home: 1/.test(st)&&/Level 5/.test(st)&&!/-5/.test(st),'level stats invent a drop: '+st);
+      document.querySelectorAll('.exc-tab')[1].click(); st=el('exStats').textContent;
+      check(/Best: 20 reps/.test(st)&&/\+5 reps/.test(st),'Reps tab kept level stats: '+st);
+      document.querySelectorAll('.mo').forEach(m=>m.classList.remove('show')); cMode='gym';
+    });
+    test('chart Best is the highest value, and every tab shows its own stats', () => {
+      reset(); S.history=[{id:1,date:'2026-09-01',type:'gym',exercises:[{name:'Bench Press (Barbell)',sets:[set(100,8),set(100,8)]}]},
+        {id:2,date:'2026-09-02',type:'gym',exercises:[{name:'Bench Press (Barbell)',sets:[set(80,10),{...set(60,12,'ds'),spec:true},set(135,3,'wu')]}]}];
+      openExChart('Bench Press (Barbell)','gym'); let st=el('exStats').textContent;
+      check(/Best: 100 lbs/.test(st)&&/Change: -20 lbs/.test(st),'weight stats: '+st);
+      document.querySelectorAll('.exc-tab')[1].click(); st=el('exStats').textContent;
+      check(/Best: 10 reps/.test(st)&&/\+2 reps/.test(st),'reps stats: '+st);
+      document.querySelectorAll('.exc-tab')[2].click(); st=el('exStats').textContent;
+      // volume = all completed non-warm-up sets (drop set included, warm-up excluded): 1600 then 1520
+      check(/Best: 1600 lbs vol/.test(st)&&/Change: -80 lbs vol/.test(st),'volume stats: '+st);
+      document.querySelectorAll('.mo').forEach(m=>m.classList.remove('show'));
+    });
     reset(); saveS();
     return results;
   });
