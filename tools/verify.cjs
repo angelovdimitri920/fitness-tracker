@@ -868,6 +868,41 @@ let server, browser;
       setHomeSplit('hcore'); check(wkTpl(k)==='hcore','past-day split pick refused');
       cMode='gym';
     });
+    // ── Codex re-review 6 (PR #4 @ 07be11e) regressions ─────────────────────────
+    test('exercise charts open for the location they came from and chart levels and seconds', () => {
+      const k=homeReset('hpush'); const h=S.sessions[k].home, n=h.exList[0].n;
+      h.exercises[0].sets[0]={...h.exercises[0].sets[0],weight:'20',reps:'10',done:true}; doSaveWorkout(3,'home chart');
+      saveS(); S=loadS(); const id=S.history.find(x=>x.type==='home').id;
+      openHistDetail(id); const btn=document.querySelector('.mo.show button[data-ty="home"][data-nm]'); check(btn,'history detail chart button has no location');
+      btn.click(); let st=el('exStats').textContent;
+      check(/Sessions at home: 1/.test(st)&&/20 lbs/.test(st),'Home chart empty or wrong: '+st);
+      check(/HOME/.test(el('exModalTitle').textContent),'chart title does not say Home');
+      // same name at the gym is charted separately, never mixed
+      S.history.push({id:9001,date:'2026-09-20',type:'gym',exercises:[{name:n,sets:[set(300,5)]}]});
+      openExChart(n,'gym'); st=el('exStats').textContent; check(/Sessions at the gym: 1/.test(st)&&/300 lbs/.test(st),'gym chart: '+st);
+      openExChart(n,'home'); st=el('exStats').textContent; check(/Sessions at home: 1/.test(st)&&!/300/.test(st),'home chart mixed in gym data: '+st);
+      cMode='home'; openExChart(n); check(/at home/.test(el('exStats').textContent),'Today (Home tab) chart not Home');
+      // level gear and timed holds
+      S.history.push({id:9002,date:'2026-09-21',type:'home',exercises:[{name:'Hand Gripper Squeeze',sets:[{weight:'',reps:'15',level:'5',type:'wk',done:true}]},{name:'Side Plank',sets:[{weight:'',reps:'30',type:'wk',done:true}]}]});
+      saveS(); S=loadS();
+      openExChart('Hand Gripper Squeeze','home'); st=el('exStats').textContent; check(/Level 5/.test(st)&&document.querySelector('.exc-tab').textContent==='Level','level chart: '+st);
+      openExChart('Side Plank','home'); st=el('exStats').textContent; check(/30 sec/.test(st)&&document.querySelectorAll('.exc-tab')[1].textContent==='Seconds','hold chart: '+st);
+      document.querySelectorAll('.mo').forEach(m=>m.classList.remove('show')); cMode='gym';
+    });
+    test('the LAST line shows levels, seconds and unloaded reps; loaded sets stay compact', () => {
+      const k=homeReset('hcore'); const prev=new Date(k+'T12:00:00'); prev.setDate(prev.getDate()-1); const pk=dKey(prev);
+      const h0=S.sessions[k].home, loaded=h0.exList.find(e=>!isLevelExercise(e.n)&&!isTimedHold(e.n)&&getExType(e.n)!=='bodyweight');
+      S.history.push({id:4242,date:pk,type:'home',split:'hcore',exercises:[
+        {name:'Hand Gripper Squeeze',sets:[{weight:'',reps:'15',level:'5',type:'wk',done:true}]},
+        {name:'Side Plank',sets:[{weight:'',reps:'30',type:'wk',done:true}]},
+        {name:'Push-Ups',sets:[{weight:'',reps:'12',type:'wk',done:true}]}].concat(loaded?[{name:loaded.n,sets:[{weight:'40',reps:'10',type:'wk',done:true}]}]:[])});
+      ['Hand Gripper Squeeze','Side Plank','Push-Ups'].forEach(n=>{ if(!names(S.sessions[k].home).includes(n)) addExerciseToToday(n); });
+      buildTodayWorkout(); const t=el('wContent').textContent;
+      check(/Level 5 × 15 reps/.test(t),'level LAST missing'); check(/(^|[^0-9])30 sec/.test(t)&&!/0x30/.test(t),'hold LAST shown as 0x30');
+      check(fmtLoggedSet('Side Plank',{weight:'24',reps:'40'})==='24 lbs · 40 sec','loaded hold format'); check(/12 reps/.test(t)&&!/0x12/.test(t),'unloaded LAST shown as 0x12');
+      if(loaded) check(/40x10/.test(t),'loaded LAST lost its compact form');
+      cMode='gym';
+    });
     reset(); saveS();
     return results;
   });

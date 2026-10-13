@@ -6346,7 +6346,8 @@ var _lsData=getLastExSessionSets(ex.n);
 if(_lsData&&_lsData.sets&&_lsData.sets.length){
   var _lsSets=_lsData.sets.filter(function(s){return s.done&&(s.type||'wk')==='wk';});
   if(_lsSets.length){
-    var _lsParts=_lsSets.map(function(s){return toDisplayWeight(parseFloat(s.weight)||0)+'x'+s.reps;}).join(', ');
+    // Loaded sets stay compact (135x8); level gear, holds and unloaded work say what they are.
+    var _lsParts=_lsSets.map(function(s){return (isLevelExercise(ex.n)||isTimedHold(ex.n)||!(parseFloat(s.weight)>0))?fmtLoggedSet(ex.n,s):toDisplayWeight(parseFloat(s.weight)||0)+'x'+s.reps;}).join(', ');
     var _lsAgo=_lsData.daysAgo===0?'today':_lsData.daysAgo===1?'yesterday':_lsData.daysAgo+' days ago';
     var _anyDone=(exD.sets||[]).some(function(s){return s.done;});
     _lastSessLine='<div class="last-sess-bar" style="justify-content:space-between">'
@@ -8477,9 +8478,9 @@ var FOCUS_DETAIL = {
 var FOCUS_SPECIALTY_TEXT={
   power:'One <b>Cluster set</b> is added after the work sets on your main lift: the same load, the reps split with ~20 s pauses so every rep stays fast. Clusters preserve bar speed and force within a set (Latella 2019); long-term strength matches straight sets (Jukic 2021), so it is one more quality heavy set. No drops or failure — they add fatigue without helping strength.',
   hybrid:'A <b>Cluster set</b> on the main lift for one more crisp heavy set, and a <b>Rest-Pause set</b> on an accessory for extra muscle-building reps.',
-  muscle:'A <b>Drop set</b> after the work sets on the last isolation (or machine) exercises, and one set to technical <b>Failure</b> on a machine/cable isolation. Drop sets grew muscle about as well as normal sets in less time in some studies (Sødal 2023). Training to failure has not been shown to beat stopping 1–3 reps short (Refalo 2023), so it is one optional extra set on a machine, never on free-weight compounds.',
+  muscle:'A <b>Drop set</b> after the work sets on the last isolation (or machine) exercises, and one set to technical <b>Failure</b> on a machine/cable isolation. Drop sets grew muscle about as well as normal sets in less time in some studies (Sødal 2023). Training to failure has not been shown to beat non-failure training (Refalo 2023), so it is one optional extra set on a machine, never on free-weight compounds.',
   general:'One <b>Drop set</b> on the final isolation exercise — a little extra work at the end without changing your main sets.',
-  tone:'<b>Drop sets</b> on two isolation exercises: the most time-efficient way to keep training volume (and muscle) high while cutting.',
+  tone:'<b>Drop sets</b> on two isolation exercises: a time-efficient option for keeping training volume (and muscle) up while cutting.',
   endurance:'<b>Rest-Pause sets</b> on the last accessories: short 10–15 s pauses let you keep going. In one small study of trained lifters, rest-pause built more leg-press endurance than straight sets (Prestes 2019) — a reasonable rationale, not a guarantee.'
 };
 var FOCUS_LOAD_TEXT={power:'≈ 85–90 % of 1RM · stop 2 reps short',hybrid:'≈ 80–85 % of 1RM · 2 reps in reserve',muscle:'≈ 75–80 % of 1RM · 1 rep in reserve',general:'≈ 70–75 % of 1RM · 2–3 reps in reserve',tone:'≈ 70–75 % of 1RM · 2 reps in reserve',endurance:'≈ 60–65 % of 1RM · 3 reps in reserve'};
@@ -9470,7 +9471,7 @@ function deleteWeight(dateKey){
     saveS(); buildBodyPage(); showToast('Entry deleted');
   });
 }
-function updateCorr(){var corrEl=el('corrInfo');if(!corrEl)return;var gs=S.history.filter(function(h){return h.type==='gym';}),ws=S.weights;if(gs.length<3||ws.length<3){corrEl.innerHTML='<div style="color:var(--mu);font-size:12px">Log 3+ weight entries and workouts to see correlation.</div>';return;}var _wuC=getWeightUnit();var first=ws[0],last=ws[ws.length-1],lostLbs=first.w-last.w,lostD=toDisplayWeight(Math.abs(lostLbs)).toFixed(1),totV=gs.reduce(function(a,h){return a+(h.volume||0);},0),totVD=toDisplayWeight(totV),totR=S.history.filter(function(h){return h.type==='run';}).reduce(function(a,h){return a+(h.distance||0);},0);corrEl.innerHTML='<div class="alert alert-info" style="margin-bottom:8px">Since you started: '+(lostLbs>0?'<strong style="color:var(--gr)">-'+lostD+' '+_wuC+'</strong>':'No weight change yet - keep going!')+'</div><div style="font-size:12px;color:#bbb;line-height:1.8">🏋️ Total volume lifted: <strong style="color:var(--ye)">'+Math.round(totVD/1000)+'k '+_wuC+'</strong><br>🏃 Total miles run: <strong style="color:var(--ru)">'+totR.toFixed(1)+' mi</strong><br>📅 Gym sessions: <strong style="color:var(--ye)">'+gs.length+'</strong><br>'+(lostLbs>0?'<span style="color:var(--gr)">✅ Keep it up!</span>':'<span style="color:var(--or)">💡 Log nutrition to track your calorie deficit.</span>')+'</div>';}
+function updateCorr(){var corrEl=el('corrInfo');if(!corrEl)return;var gs=S.history.filter(function(h){return h.type==='gym';}),ws=S.weights;if(gs.length<3||ws.length<3){corrEl.innerHTML='<div style="color:var(--mu);font-size:12px">Log 3+ weight entries and workouts to see correlation.</div>';return;}var _wuC=getWeightUnit();var first=ws[0],last=ws[ws.length-1],lostLbs=first.w-last.w,lostD=toDisplayWeight(Math.abs(lostLbs)).toFixed(1),totV=gs.reduce(function(a,h){return a+(h.volume||0);},0),totVD=toDisplayWeight(totV),totR=S.history.filter(function(h){return h.type==='run';}).reduce(function(a,h){return a+(h.distance||0);},0);corrEl.innerHTML='<div class="alert alert-info" style="margin-bottom:8px">Since you started: '+(lostLbs>0?'<strong style="color:var(--gr)">-'+lostD+' '+_wuC+'</strong>':'No weight change yet - keep going!')+'</div><div style="font-size:12px;color:#bbb;line-height:1.8">🏋️ Total gym volume lifted: <strong style="color:var(--ye)">'+Math.round(totVD/1000)+'k '+_wuC+'</strong><br>🏃 Total miles run: <strong style="color:var(--ru)">'+totR.toFixed(1)+' mi</strong><br>📅 Gym sessions: <strong style="color:var(--ye)">'+gs.length+'</strong><br>'+(lostLbs>0?'<span style="color:var(--gr)">✅ Keep it up!</span>':'<span style="color:var(--or)">💡 Log nutrition to track your calorie deficit.</span>')+'</div>';}
 function getWK(){var d=new Date(),dw=d.getDay(),m=new Date(d);m.setDate(d.getDate()-((dw===0?7:dw)-1));return dKey(m);}
 function buildCheckinCard(){
   var ccEl=el('checkinContent');if(!ccEl)return;
@@ -11778,7 +11779,7 @@ if(!done.length) return;
 html+='<div style="margin-bottom:9px">'+
 '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:3px">'+
 '<div style="font-weight:600;font-size:12px">'+escapeHtml(ex.name)+'</div>'+
-'<button class="btn btn-g bsm" style="font-size:9px;padding:3px 8px" data-nm="'+escapeHtml(ex.name)+'" onclick="openExChart(this.dataset.nm)">📈</button></div>'+
+'<button class="btn btn-g bsm" style="font-size:9px;padding:3px 8px" data-nm="'+escapeHtml(ex.name)+'" data-ty="'+(s.type==='home'?'home':'gym')+'" onclick="openExChart(this.dataset.nm,this.dataset.ty)">📈</button></div>'+
 done.map(function(x,i){return'<div style="font-size:11px;color:var(--mu);font-family:\'DM Mono\',monospace">Set '+(i+1)+': '+fmtLoggedSet(ex.name,x)+(x.type&&x.type!=='wk'?' ['+x.type+']':'')+'</div>';}).join('')+
 '</div>';
 });
@@ -13657,7 +13658,7 @@ var ACHIEVEMENTS = [
   {id:'g_25',  icon:'💪', label:'25 Sessions',   desc:'Log 25 gym workouts',                    cat:'consistency', test:function(){return _gGymCount()>=25;}},
   {id:'g_100', icon:'🔥', label:'Century Club',  desc:'Log 100 gym workouts',                   cat:'consistency', test:function(){return _gGymCount()>=100;}},
   {id:'st_30', icon:'📅', label:'On Fire',       desc:'Hit a 30-day activity streak',           cat:'consistency', test:function(){return _gLongestStreak()>=30;}},
-  {id:'vol_1m',icon:'🏗️', label:'Million Club',   desc:'Move 1,000,000 lbs of lifetime volume',  cat:'consistency', test:function(){return _gLifetimeVolume()>=1000000;}},
+  {id:'vol_1m',icon:'🏗️', label:'Million Club',   desc:'Move 1,000,000 lbs of lifetime gym volume',  cat:'consistency', test:function(){return _gLifetimeVolume()>=1000000;}},
   // Schedule adherence — your weekly plan
   {id:'pw_1',  icon:'🎯', label:'Perfect Week',  desc:'Complete every scheduled session in a week', cat:'schedule', test:function(){return _gPerfectWeeks()>=1;}},
   {id:'pw_4',  icon:'🗓️', label:'Perfect Month', desc:'4 perfect weeks logged',                 cat:'schedule', test:function(){return _gPerfectWeeks()>=4;}},
@@ -14969,12 +14970,31 @@ return plateaus;
 // ═══ FEATURE 6: PER-EXERCISE PROGRESS CHART ═════════════════════
 var _exChartName='', _exChartMode='weight';
 
-function openExChart(name){
+// Progress chart for one exercise at ONE location (gym or home) — progression is tracked
+// per location, so the two histories are never mixed. It opens for the location it was
+// opened from: a history entry passes its own type, Today passes the tab on screen.
+// Level gear charts its level, timed holds their seconds, unloaded work its reps.
+var _exChartType='gym';
+function _exChartKind(name){
+  if(typeof isLevelExercise==='function'&&isLevelExercise(name)) return 'level';
+  if(typeof isTimedHold==='function'&&isTimedHold(name)) return 'hold';
+  return 'load';
+}
+function openExChart(name,type){
 _exChartName=name;
-_exChartMode='weight';
+_exChartType=(type==='home'||type==='gym')?type:(isHomeMode()?'home':'gym');
+var kind=_exChartKind(name);
+var unloaded=kind!=='level'&&!S.history.some(function(h){return h.type===_exChartType&&(h.exercises||[]).some(function(ex){return ex.name===name&&(ex.sets||[]).some(function(st){return st.done&&parseFloat(st.weight)>0;});});});
+_exChartMode=(kind==='hold'||(kind==='load'&&unloaded))?'reps':'weight';
 var titleEl=el('exModalTitle');
-if(titleEl) titleEl.textContent=name.toUpperCase();
-document.querySelectorAll('.exc-tab').forEach(function(t,i){t.classList.toggle('active',i===0);});
+if(titleEl) titleEl.textContent=name.toUpperCase()+(_exChartType==='home'?' · HOME':'');
+var tabs=document.querySelectorAll('.exc-tab'), modes=['weight','reps','volume'];
+tabs.forEach(function(t,i){
+  t.classList.toggle('active',modes[i]===_exChartMode);
+  if(i===0) t.textContent=kind==='level'?'Level':'Weight';
+  if(i===1) t.textContent=kind==='hold'?'Seconds':'Reps';
+  if(i===2) t.style.display=(kind==='level'||unloaded)?'none':'';
+});
 drawExChart();
 openModal('exModal');
 }
@@ -14988,13 +15008,14 @@ drawExChart();
 
 function drawExChart(){
 var c=el('exCanvas'); if(!c) return;
-var data=[];
-S.history.filter(function(h){return h.type==='gym';}).forEach(function(h){
+var data=[], _kind=_exChartKind(_exChartName);
+S.history.filter(function(h){return h.type===_exChartType;}).forEach(function(h){
 (h.exercises||[]).forEach(function(ex){
 if(ex.name!==_exChartName) return;
-var doneSets=(ex.sets||[]).filter(function(s){return s.done&&s.weight&&s.reps;});
+// Any completed set with reps counts: unloaded work, holds and level gear included.
+var doneSets=(ex.sets||[]).filter(function(s){return s.done&&s.reps&&(s.type||'wk')!=='wu';});
 if(!doneSets.length) return;
-var maxW=Math.max.apply(null,doneSets.map(function(s){return parseFloat(s.weight)||0;}));
+var maxW=Math.max.apply(null,doneSets.map(function(s){return _kind==='level'?(parseFloat(s.level)||0):(parseFloat(s.weight)||0);}));
 var maxR=Math.max.apply(null,doneSets.map(function(s){return parseInt(s.reps)||0;}));
 var vol=doneSets.reduce(function(a,s){return a+(parseFloat(s.weight)||0)*(parseInt(s.reps)||0);},0);
 data.push({date:h.date,weight:maxW,reps:maxR,volume:vol});
@@ -15008,18 +15029,28 @@ if(data.length>0&&statsEl){
 var first=data[0],last=data[data.length-1];
 var diff=(last.weight-first.weight);
 var _exWu=getWeightUnit(),_exDiffD=Math.round(toDisplayWeight(Math.abs(diff))*10)/10;
-statsEl.innerHTML='Sessions: <strong style="color:var(--ye)">'+data.length+'</strong>  |  '+
+var _where=_exChartType==='home'?' at home':' at the gym';
+if(_kind==='level'||_exChartMode==='reps'){
+  // Not a load chart: show the measured quantity instead of pounds.
+  var _q=_kind==='level'?'weight':'reps', _u=_kind==='level'?'':(_kind==='hold'?' sec':' reps');
+  var _b=Math.max.apply(null,data.map(function(d){return d[_q];})), _d=last[_q]-first[_q];
+  statsEl.innerHTML='Sessions'+_where+': <strong style="color:var(--ye)">'+data.length+'</strong>  |  '+
+  'Best: <strong style="color:var(--ye)">'+(_kind==='level'?'Level '+_b:_b+_u)+'</strong>  |  '+
+  'Change: <strong style="color:'+(_d>0?'var(--gr)':_d<0?'var(--re)':'var(--mu)')+'">'+(_d>0?'+':'')+_d+_u+'</strong>';
+} else {
+statsEl.innerHTML='Sessions'+_where+': <strong style="color:var(--ye)">'+data.length+'</strong>  |  '+
 'Best: <strong style="color:var(--ye)">'+toDisplayWeight(last.weight)+' '+_exWu+'</strong>  |  '+
 'Change: <strong style="color:'+(diff>0?'var(--gr)':diff<0?'var(--re)':'var(--mu)')+'">'+
 (diff>0?'+':diff<0?'-':'')+_exDiffD+' '+_exWu+'</strong>';
+}
 } else if(statsEl){
-statsEl.innerHTML='<span style="color:var(--mu)">No data yet - log this exercise to see progress.</span>';
+statsEl.innerHTML='<span style="color:var(--mu)">No '+(_exChartType==='home'?'home':'gym')+' sessions of this exercise yet - log it to see progress.</span>';
 }
 
 if(!data.length){ var ctx2=c.getContext('2d');var W2=c.offsetWidth||300;c.width=W2*2;c.height=320;c.style.width=W2+'px';c.style.height='160px';ctx2.scale(2,2);ctx2.fillStyle='#333';ctx2.font='11px sans-serif';ctx2.textAlign='center';ctx2.fillText('No data yet',W2/2,80); return; }
 
 var _ecMode=_exChartMode;
-var vals=data.map(function(d){var raw=d[_ecMode]||0;return (_ecMode==='weight'||_ecMode==='volume')?toDisplayWeight(raw):raw;});
+var vals=data.map(function(d){var raw=d[_ecMode]||0;return ((_ecMode==='weight'&&_kind!=='level')||_ecMode==='volume')?toDisplayWeight(raw):raw;});
 var labels=data.map(function(d){return d.date.slice(5);});
 var ctx=c.getContext('2d'),W=c.offsetWidth||300,H=160;
 c.width=W*2; c.height=H*2; c.style.width=W+'px'; c.style.height=H+'px';
@@ -26060,9 +26091,9 @@ function applySmartSetTypes(k){
 //  · Build Muscle: a DROP set on the last isolation exercises, and one set taken to
 //    technical FAILURE on a machine/cable isolation — drop sets showed no significant
 //    hypertrophy difference from traditional sets, with time savings in some protocols
-//    (Sødal et al. 2023); failure has NOT been shown superior to stopping short (Refalo
+//    (Sødal et al. 2023); failure has NOT been shown superior to non-failure training (Refalo
 //    et al. 2023), so it is one optional extra set, kept off free-weight compounds.
-//  · Lose & Tone: DROP sets on two isolation exercises — the most time-efficient way to
+//  · Lose & Tone: DROP sets on two isolation exercises — a time-efficient option to
 //    keep volume high while cutting.
 //  · Endurance: REST-PAUSE on accessories — in a small trained sample it gave greater
 //    leg-press muscular endurance than straight sets (Prestes et al. 2019); a bounded

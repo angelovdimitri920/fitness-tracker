@@ -3,10 +3,10 @@
 **For:** an independent reviewer (Codex) to check every change on branch
 `claude/plan-sync-focus-home-workout` and confirm it works.
 **PR:** https://github.com/angelovdimitri920/fitness-tracker/pull/4 (base `main` @ `c9b45cc`)
-**Status (Oct 12, 2026):** 171 browser checks pass, 0 failures, 0 browser errors.
-Six review passes have been done and their findings fixed: the first code review (section 6),
+**Status (Oct 13, 2026):** 173 browser checks pass, 0 failures, 0 browser errors.
+Seven review passes have been done and their findings fixed: the first code review (section 6),
 Codex's review of `cc74234` (6a), its re-review of `30e18e0` (6b), round 3 on `9f0ddaa` (6c),
-round 4 on `1a42daa` (6d) and the comprehensive review of `d7f5029` (6e).
+round 4 on `1a42daa` (6d), the comprehensive review of `d7f5029` (6e) and re-review 6 of `07be11e` (6f).
 
 Please review for **correctness first**, then for regressions in existing features. The app is
 one file, `pf_workout_tracker.html`: inline CSS and vanilla JS, no build step. Read `CLAUDE.md`
@@ -24,7 +24,7 @@ CHROMIUM_PATH=/path/to/chromium npm test         # if Playwright's bundled brows
 node tools/serve.js 8753                         # then open http://localhost:8753/pf_workout_tracker.html
 ```
 
-- `tools/verify.cjs` parses every inline `<script>`. It runs 171 checks in one page at
+- `tools/verify.cjs` parses every inline `<script>`. It runs 173 checks in one page at
   430 × 932 (the target device is an iPhone 14 Pro Max), sweeps 10 pages and all modals for
   horizontal overflow, and does a real save → reload → file-import → offline-reload cycle.
   Results go to `.verification/results.json`; screenshots to `.verification/*.png`.
@@ -114,7 +114,7 @@ node tools/serve.js 8753                         # then open http://localhost:87
 | Saving and history | `doSaveWorkout` writes `type:'home'`, `gymId:'home'`, deduped per (date, type). `isSessionComplete(k,key)`. `priorGymHistory` and the last-session, PREV, stall and RPE readers filter by `isWkHistType`, so progression stays per location. `getRecentMuscles`, `weeklyMuscleSets`, `recomputePBs`, the calories chart and nutrition `activityBurn` include home. History gets a 🏠 filter and icon, and the `-Infinity lbs` display for bodyweight exercises is fixed. |
 
 ### 3.6 Other
-- `sw.js` `CACHE_VERSION` → `pf-cache-v14`.
+- `sw.js` `CACHE_VERSION` → `pf-cache-v15`.
 - `tools/verify.cjs`: `CHROMIUM_PATH` support. The backup-restore assertion is now date-independent; it failed on `main` once the real date moved past Oct 1.
 - Docs: `CLAUDE.md` §2, `docs/TRAINING_AUDIT.md` addendum, `docs/HOME_EQUIPMENT.md`.
 
@@ -270,6 +270,25 @@ duration test). All seven fail at `d7f5029` with the reported symptoms and pass 
 - F6: all four day types.
 - Duration: all 96 Home Quick combinations land within 30–45 min, each with ≥ 3 exercises.
 
+## 6f. Codex re-review 6 of `07be11e`: fixed
+
+| # | Finding | Fix |
+| --- | --- | --- |
+| R1 (P2) | Exercise charts read gym history only: a Home exercise's chart said "No data yet", and a mixed history showed only gym data | `openExChart(name, type)` charts one location: the history-detail button passes its entry's type (`data-ty`), and Today defaults to the tab on screen. Locations are never mixed, which keeps the per-location progression contract. The title says "· HOME" and the stats say "Sessions at home / at the gym". Level gear charts its level (tab "Level"), timed holds chart seconds (tab "Seconds"), and unloaded work opens on Reps. The Volume tab is hidden where it means nothing. The empty state names the location. |
+| R2 (P3) | The LAST line showed `0x15` / `0x30` for level gear and holds | The LAST line uses `fmtLoggedSet` for level, hold and unloaded sets ("Level 5 × 15 reps", "30 sec", "12 reps"). Loaded sets keep the compact `40x10`. |
+| copy | Tone said "most time-efficient"; the Refalo wording implied exactly 1–3 RIR; two volume labels said "total" / "lifetime" while counting gym only | Changed to "a time-efficient option" and "non-failure training". The labels now read "Total gym volume lifted" and "lifetime gym volume". Gym-only scope is kept deliberately. |
+
+Regressions are in `tools/verify.cjs` (search "Codex re-review 6"). Both fail at `07be11e` and pass now:
+- R1:
+  - The real Home save → reload → the history detail's actual chart button.
+  - The same exercise name in gym and home history, charted separately.
+  - The Home tab's default location.
+  - Level and seconds charts.
+- R2: level, unloaded hold, unloaded reps and a loaded set on a later Home day, plus the loaded-hold format.
+
+The F1 clarification from that review is accepted as is: deleting a saved entry unlocks a live day's
+Home split, but a past day whose session still holds logged sets stays locked (the snapshot policy).
+
 ## 7. Judgement calls (flag if you disagree)
 
 - PRs are per exercise and therefore shared between gym and home. Progression history is per location.
@@ -279,7 +298,7 @@ duration test). All seven fail at `d7f5029` with the reported symptoms and pass 
 
 ## 8. Known limitations / not covered by automated tests
 
-- Real iPhone behaviour: background timers, wake lock, notifications, PWA update with `pf-cache-v14`.
+- Real iPhone behaviour: background timers, wake lock, notifications, PWA update with `pf-cache-v15`.
 - Template save/apply on the Home tab works through the shared code, but has no dedicated test.
 - `autoSwapIn` iterates `sess.gym.exercises` with `.forEach`, but it is an object. This bug predates this PR and is caught by its `try`. It was left untouched.
 - The Plan page does not show the home workout. Home is chosen on Today only.
