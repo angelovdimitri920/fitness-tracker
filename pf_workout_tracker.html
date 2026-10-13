@@ -3827,11 +3827,12 @@ function isTimedHold(n){ return /^(plank|side plank|dead hang|.*plank hold|.*sta
 // Spring / hydraulic / band trainers have no trustworthy pound rating: they are logged
 // by the LEVEL (or setting) used, and never feed volume, 1RM or records.
 function isLevelExercise(n){ return /^(twister |power twister|push down bar|chest expander|hand gripper|finger extension|thigh trainer)/i.test(n||''); }
-function prescriptionForFocus(ex,focus){
+function prescriptionForFocus(ex,focus,quickGym){
   var fp=FOCUS_META[focus]||FOCUS_META.general, rule=exerciseProgressionRule(ex.n,focus);
   var copy=Object.assign({},ex), main=isMainStrengthMovement(ex.n);
   copy.reps=getExType(ex.n)==='bodyweight'?ex.reps:Math.round((rule.floor+rule.ceil)/2);
   copy.rest=focus==='hybrid'?(main?180:90):focus==='power'?(main?210:90):focus==='muscle'?(main?150:90):fp.rest;
+  if(quickGym&&QUICK_REST_BY_FOCUS[focus]!=null) copy.rest=Math.min(copy.rest,QUICK_REST_BY_FOCUS[focus]);
   // Isometric holds are logged as seconds, never as a fictitious 1-rep max.
   if(isTimedHold(ex.n)) copy.reps=30;
   return copy;
@@ -5655,6 +5656,11 @@ function updateIntensityTimes(k, tplKey){
 // endurance's short rest → more fit), then fills the rest of the band with cardio
 // so every setting always includes cardio and lands in its band.
 var INTENSITY_BANDS={quick:[30,45], standard:[60,90], full:[90,120]};
+// Gym Quick sessions rest at the SHORT end of each focus's own rest range, so three
+// exercises × three work sets still fit 30–45 min (the user's choice over fewer
+// exercises or fewer sets). Every value is inside that focus's stated range, and Tone
+// stays ≥ 60 s. Home sessions keep their normal rests — they already fit.
+var QUICK_REST_BY_FOCUS={hybrid:90, muscle:90, power:180, general:60, tone:70, endurance:30};
 
 // User house rule: never fewer than three work sets on any exercise, whatever the focus,
 // intensity, weight or rep count. This is the user's house rule, not a biological minimum; lower doses can also help.
@@ -5705,10 +5711,10 @@ var TIME_MODEL={
 };
 // Seconds one exercise costs end to end: getting to it and set up, plus every work
 // set's effort and the rest between them, plus a compound's warm-up ramp.
-function _exLiftSeconds(rawEx, intensity, fp, focus){
+function _exLiftSeconds(rawEx, intensity, fp, focus, quickGym){
   focus=focus||getWorkoutFocus();
   var sets=_focusSetCount(rawEx, intensity, focus);
-  rawEx=prescriptionForFocus(rawEx,focus);
+  rawEx=prescriptionForFocus(rawEx,focus,quickGym);
   var reps=parseInt(rawEx&&rawEx.reps,10);
   if(!(reps>0)) reps=Math.round(((fp&&fp.reps?fp.reps[0]:8)+(fp&&fp.reps?fp.reps[1]:12))/2);
   var isComp=(typeof isCompound==='function')&&isCompound(rawEx.n);
@@ -5724,8 +5730,8 @@ function _exLiftSeconds(rawEx, intensity, fp, focus){
   var transition=isComp?TIME_MODEL.transitionCompoundSec:TIME_MODEL.transitionMachineSec;
   return sets*perSet + restTotal + wu + transition;
 }
-function _exLiftMinutes(rawEx, intensity, fp, focus){
-  return _exLiftSeconds(rawEx, intensity, fp, focus)/60;
+function _exLiftMinutes(rawEx, intensity, fp, focus, quickGym){
+  return _exLiftSeconds(rawEx, intensity, fp, focus, quickGym)/60;
 }
 // Supersets alternate round-for-round: the pair's rests overlap, so a supersetted pair
 // runs roughly 25% quicker than the two exercises done back to back.
@@ -5813,7 +5819,8 @@ function selectWorkoutForDuration(tplExercises, intensity, fp, recent48, tplKey,
   var pool = (tplKey && gym) ? _buildSplitPool(tplKey, gym) : tplExercises.slice();
   var availableNames=[];
   pool=pool.map(function(ex){var safe=getEquipmentSafeExercise(ex,gym,availableNames);if(safe)availableNames.push(safe.n);return safe;}).filter(Boolean);
-  pool=pool.map(function(ex){return prescriptionForFocus(ex,focus);});
+  var _qg=(intensity==='quick'&&!_isHomeTpl);   // Gym Quick: short-end rests (QUICK_REST_BY_FOCUS)
+  pool=pool.map(function(ex){return prescriptionForFocus(ex,focus,_qg);});
   minCount = Math.min(minCount, pool.length);
   maxCount = Math.min(maxCount, pool.length);
   // Sort: priority, then freshness (de-prioritise muscles trained in last 48h), then
@@ -5825,7 +5832,7 @@ function selectWorkoutForDuration(tplExercises, intensity, fp, recent48, tplKey,
   }).sort(function(a,b){ return (a.p-b.p) || (a.fresh-b.fresh) || (a.tpl-b.tpl) || (a.i-b.i); });
   var chosen=[], lift=0;
   for(var x=0; x<sorted.length && chosen.length<maxCount; x++){
-    var add=_exLiftMinutes(sorted[x].ex, intensity, fp, focus);
+    var add=_exLiftMinutes(sorted[x].ex, intensity, fp, focus, _qg);
     // Past the floor, stop once we've used the exercise time budget.
     if(chosen.length>=minCount && (lift+add) > exBudget) break;
     chosen.push(sorted[x]); lift+=add;
@@ -5843,7 +5850,7 @@ function selectWorkoutForDuration(tplExercises, intensity, fp, recent48, tplKey,
     var hardMax=Math.min(pool.length, maxCount+4);
     for(var y=0; y<sorted.length && chosen.length<hardMax; y++){
       if(chosen.indexOf(sorted[y])>=0) continue;
-      var addMin=_exLiftMinutes(sorted[y].ex, intensity, fp, focus);
+      var addMin=_exLiftMinutes(sorted[y].ex, intensity, fp, focus, _qg);
       if(lift+addMin+warmupMin+midNow*midEach+minFin+overheadMin > band[1]) break;
       chosen.push(sorted[y]); lift+=addMin;
       if(lift+warmupMin+midNow*midEach+cap+overheadMin>=band[0]) break;
@@ -5858,10 +5865,12 @@ function selectWorkoutForDuration(tplExercises, intensity, fp, recent48, tplKey,
     try{ if(typeof specialtySetsOn==='function'&&specialtySetsOn()){ var rules=SPECIALTY_BY_FOCUS[focus]||[]; specN=intensity==='quick'?Math.min(1,rules.length):rules.reduce(function(a,r){return a+(r.n||1);},0); } }catch(e){}
     // Full body has to keep its four movement patterns (knee, hinge, push, pull).
     var floor=(tplKey==='fullbody')?4:(focus==='power'?2:3);
-    function planned(){ var mid=midCards.filter(function(mc){return mc.after!=null&&mc.after>=0&&mc.after<chosen.length;}).length; return lift+warmupMin+mid*midEach+minFin+overheadMin+specN*1.5; }
+    // Gym Quick drops the finisher before it drops an exercise (the user's choice), so it
+    // budgets no finisher here; everywhere else the minimum finisher is part of the plan.
+    function planned(){ var mid=midCards.filter(function(mc){return mc.after!=null&&mc.after>=0&&mc.after<chosen.length;}).length; return lift+warmupMin+mid*midEach+(_qg?0:minFin)+overheadMin+specN*1.5; }
     while(chosen.length>floor&&planned()>band[1]){
       var drop=0; for(var z=1;z<chosen.length;z++){ if(chosen[z].p>chosen[drop].p||(chosen[z].p===chosen[drop].p&&chosen[z].i>chosen[drop].i)) drop=z; }
-      lift-=_exLiftMinutes(chosen[drop].ex, intensity, fp, focus); chosen.splice(drop,1);
+      lift-=_exLiftMinutes(chosen[drop].ex, intensity, fp, focus, _qg); chosen.splice(drop,1);
     }
   })();
   chosen.sort(function(a,b){return a.i-b.i;}); // pool order (template first, then accessories by group)
@@ -5880,6 +5889,13 @@ function selectWorkoutForDuration(tplExercises, intensity, fp, recent48, tplKey,
   var FINISHER_CAP={hybrid:15,power:15, muscle:20, general:25, tone:45, endurance:45};
   var finCap=FINISHER_CAP[focus]!=null?FINISHER_CAP[focus]:30;
   finisherMin = Math.max(minFin, Math.min(finisherMin, finCap));
+  // Gym Quick: if the finisher would push the plan past the top of the band, shorten it
+  // to fit — or skip it when less than its minimum would be left (the warm-up stays).
+  if(_qg){
+    var _spA=0; try{ if(typeof specialtySetsOn==='function'&&specialtySetsOn()&&(SPECIALTY_BY_FOCUS[focus]||[]).length) _spA=1.5; }catch(e){}
+    var _room=band[1]-(lift+warmupMin+renderedMid*midEach+overheadMin+_spA);
+    if(finisherMin>_room) finisherMin=(_room>=minFin)?Math.floor(_room):0;
+  }
   var cardioMin = warmupMin + renderedMid*midEach + finisherMin;
   var estMin = Math.round(lift + cardioMin + overheadMin);
   // A real session is a range, not a number: sets get cut short, rests run long, a
@@ -5951,7 +5967,7 @@ function _supersetSavingMinutes(k, exs, intensity, fp, focus){
       if(b===undefined||seen[a]||seen[b]) return;
       seen[a]=seen[b]=true;
       if(!exs[a]||!exs[b]) return;
-      var pairMin=_exLiftMinutes(exs[a],intensity,fp,focus)+_exLiftMinutes(exs[b],intensity,fp,focus);
+      var _sqg=(intensity==='quick'&&!isHomeMode(k)), pairMin=_exLiftMinutes(exs[a],intensity,fp,focus,_sqg)+_exLiftMinutes(exs[b],intensity,fp,focus,_sqg);
       saved+=pairMin*SUPERSET_TIME_SAVING;
     });
     return saved;
@@ -6070,7 +6086,7 @@ var _recent48=(typeof getRecentMuscles==='function')?getRecentMuscles(48):{};
 var _pinned=!!(sess.exListPinned&&sess.exList&&sess.exList.length);
 var _sel;
 if(_pinned||(_started&&sess.exList&&!_replan)){
-  var _pLift=0; sess.exList.forEach(function(e){ try{_pLift+=_exLiftMinutes(e,intensity,fp,getWorkoutFocus(k));}catch(err){_pLift+=6;} });
+  var _pLift=0; sess.exList.forEach(function(e){ try{_pLift+=_exLiftMinutes(e,intensity,fp,getWorkoutFocus(k),intensity==='quick'&&!isHomeMode(k));}catch(err){_pLift+=6;} });
   var _pPlan=sess._cardioPlan||{warmupMin:(getWorkoutFocus(k)==='power')?4:6, midEachMin:6, finisherMin:10};
   _sel={exercises:sess.exList.slice(), plan:_pPlan, estMin:Math.round(_pLift+(_pPlan.warmupMin||0)+(_pPlan.finisherMin||0))};
 } else {
@@ -6093,13 +6109,13 @@ if((_started||hasLogged||isSessionComplete(k))&&sess.exList&&sess.exList.length&
     var safe=getEquipmentSafeExercise(base,getActiveGym(),usedExNames);
     if(!safe) return null;
     usedExNames.push(safe.n);
-    return _pinned?safe:prescriptionForFocus(safe,getWorkoutFocus(k));
+    return _pinned?safe:prescriptionForFocus(safe,getWorkoutFocus(k),intensity==='quick'&&!isHomeMode(k));
   }).filter(Boolean);
   // Exercises the user added from the library ride along with every re-plan.
   (sess.addedEx||[]).forEach(function(a){
     if(!a||!a.n||exs.some(function(e){return e.n===a.n;})) return;
     if(!isExerciseAvailable(a.n,getActiveGym().equipment)) return;
-    var _af=getWorkoutFocus(k), _ax=prescriptionForFocus({n:a.n,t:a.t||'',sets:MIN_WORK_SETS,reps:10,rest:75,p:3},_af);
+    var _af=getWorkoutFocus(k), _ax=prescriptionForFocus({n:a.n,t:a.t||'',sets:MIN_WORK_SETS,reps:10,rest:75,p:3},_af,intensity==='quick'&&!isHomeMode(k));
     _ax.sets=_focusSetCount(_ax,intensity,_af); _ax.added=true; exs.push(_ax);
   });
   // Only carry editable state for the same exercise, never for a reused index.
@@ -6601,6 +6617,15 @@ if(_sn&&_sess3&&_sess3.gym&&_sess3.gym.smartNote&&!_sess3.gym.smartNoteDismissed
 // Pick any exercise this gym has, organised by category and body area.
 if(isLiveSession(k)) html+='<button class="btn bfw mt8" onclick="openExerciseLibrary(\'add\')" style="font-size:12px;background:rgba(34,211,238,.08);color:#22d3ee;border:1px solid rgba(34,211,238,.3)">➕ Add Exercise · browse by type &amp; body area</button>';
 // CARDIO FINISHER - uses unified cardio block system
+// A Gym Quick plan with no room left skips the finisher (sess._cardioPlan.finisherMin 0).
+// A finisher already started or done is still shown; an untouched one is dropped so it
+// can't hold up "workout complete".
+var _finSkip=!!(sess._cardioPlan&&sess._cardioPlan.finisherMin===0);
+var _finBlocks=sess.cardioBlocks||{};
+if(_finSkip&&!tpl.cardio.some(function(c,ci){var b=_finBlocks['finisher-'+ci];return b&&(b.done||(b.timer&&(b.timer.running||b.timer.startedAt)));})){
+  tpl.cardio.forEach(function(c,ci){ delete _finBlocks['finisher-'+ci]; });
+  html+='<div class="slbl mt16">🏃 CARDIO FINISHER</div><div style="font-size:11px;color:var(--mu);margin:4px 0 8px">Skipped to keep this Quick session under 45 min. Switch to Standard for a finisher.</div>';
+} else {
 html+='<div class="slbl mt16">🏃 CARDIO FINISHER</div>';
 tpl.cardio.forEach(function(c,ci){
   var finObj=getCardioObj(sess,'finisher',ci,c,tplKey,_usedCardio);
@@ -6609,6 +6634,7 @@ tpl.cardio.forEach(function(c,ci){
   var finState=getCardioState(k,'finisher',ci);
   html+=buildCardioBlock('finisher',finObj,finState,ci,tplKey);
 });
+}
 // Persist the final machine per slot so openCardioSwap can exclude in-use machines.
 sess._cardioBySlot=_cardioBySlot;
 
@@ -7826,7 +7852,7 @@ function addExerciseToToday(name){
   // A started workout keeps its list as-is, so append directly as well.
   if(g.exList&&g.exList.length&&sessionHasActivity(g)){
     var focus=key==='home'?getHomeFocus():getWorkoutFocus(k);
-    var ex=prescriptionForFocus({n:name,t:meta.t||'',sets:MIN_WORK_SETS,reps:10,rest:75,p:3},focus);
+    var ex=prescriptionForFocus({n:name,t:meta.t||'',sets:MIN_WORK_SETS,reps:10,rest:75,p:3},focus,(g.intensity==='quick'&&key!=='home'));
     ex.sets=_focusSetCount(ex,g.intensity||'standard',focus);
     g.exList.push({n:ex.n,t:ex.t,sets:ex.sets,reps:ex.reps,rest:ex.rest,p:ex.p,added:true});
   }
@@ -29357,7 +29383,7 @@ function getSupersetRestForExercise(ei, k, exs){
   var ex=exs&&exs[ei];
   if(!ex) return 60;
   var fp=getFocusParams();
-  return (fp&&fp.rest)||ex.rest||60;
+  return ex.rest||(fp&&fp.rest)||60;
 }
 
 // ── Cardio swap ───────────────────────────────────────────────────
