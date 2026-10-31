@@ -1,6 +1,6 @@
 # PF Fitness Tracker — Project Context & Development Notes
 
-> **Current verification:** Read [TRAINING_AUDIT.md](docs/TRAINING_AUDIT.md) before changing training logic — including its **October 11 addendum**, which supersedes earlier statements there about started-session snapshots and automatic advanced sets. Run `npm ci` and `npm test` (Playwright browser required; in a container with a preinstalled Chromium use `CHROMIUM_PATH=/opt/pw-browsers/chromium npm test`). A *live* session (today or later, unsaved) re-plans on split / focus / intensity / gym changes, carrying logged sets by exercise identity; saved and past sessions keep their snapshot. Records and progression must use comparable completed work sets — specialty extras (`spec:true`) never count.
+> **Current verification:** Read [TRAINING_AUDIT.md](docs/TRAINING_AUDIT.md) before changing training logic — including its **October 11** and **October 31 addenda**, which supersede earlier statements there (started-session snapshots, automatic advanced sets, set maximums, time estimates, equipment groups). Run `npm ci` and `npm test` (Playwright browser required; in a container with a preinstalled Chromium use `CHROMIUM_PATH=/opt/pw-browsers/chromium npm test`). A *live* session (today or later, unsaved) re-plans on split / focus / intensity / gym changes, carrying logged sets by exercise identity; saved and past sessions keep their snapshot. Records and progression must use comparable completed work sets — specialty extras (`spec:true`) never count.
 
 Context for the developer and for any future [Claude Code](https://claude.com/claude-code)
 session working on this repo. The user-facing overview lives in [`README.md`](README.md); this
@@ -41,11 +41,27 @@ persisted to `localStorage`. No backend, no accounts, no analytics.
   - `MIN_WORK_SETS` (= 3) — **hard rule**: no exercise is ever prescribed, or allowed to be
     edited down to, fewer than three work sets. Enforced in `_focusSetCount`, in the
     `getRenderedExList` legacy fallback, and in `removeExtraSet`.
+  - `MAX_SETS_BY_FOCUS` / `workSetRange(ex, focus)` — the ceiling, by focus and main-lift vs
+    accessory (Strength / Muscle + Strength / Muscle main lifts up to 6; Tone / General /
+    Endurance up to 4). Full adds a set to the main lifts of the strength and muscle focuses
+    (`fullComp`); `addExtraSet` stops at the max; the card shows the range ("3–4 sets").
   - `TIME_MODEL` — every constant behind the duration estimate in one place (per-rep tempo, set
     changeover, rest slop, warm-up ramp cost, per-exercise transition split by compound vs
     machine, fixed session overhead). `_exLiftSeconds` is the only consumer.
     `selectWorkoutForDuration` returns `estMin`/`estLowMin`/`estHighMin` + a `breakdown`;
-    `_renderIntEstLine` renders it after supersets are seeded.
+    `_renderIntEstLine` renders it after supersets are seeded. `specialtySetMinutes(type,rest)`
+    costs each specialty extra (a cluster or failure set includes its full rest).
+  - **Personal pace** — `personalPaceInfo()` compares the last ≤8 saved sessions' real lifting
+    time (clock − logged cardio − setup) with `_historyLiftModelMin` for those exact sets; the
+    median (≥3 sessions, clamped 0.9–1.5×) scales `_exLiftSeconds`, so the band picks fewer
+    exercises for a slower lifter. `_exLiftSecondsRaw` is the unscaled model. Shown on the
+    estimate line ("your pace ×1.30"). `S.prefs.personalPace===false` turns it off.
+  - **Fitting the band, in order:** drop lowest-priority exercises to the floor (3; 2 Strength;
+    4 full body) → Standard/Full: finisher down to 5 min → Quick: skip the warm-up cardio, Gym
+    Quick then down to 2 exercises → take main lifts' extra sets back toward 3 (`trimSets`).
+    Full Body Quick keeps its four patterns and can run over (Strength most).
+  - **Cardio is planned in 5-minute blocks** (`roundCardio5`): warm-up 5 (Full 10, Strength
+    Quick 0), circuit blocks 5, finisher a multiple of 5 within `FINISHER_CAP`.
   - `FINISHER_CAP` (inside `selectWorkoutForDuration`) — cardio is capped per focus rather than
     stretched to fill the band; when the cap bites, the builder adds another **lift** instead.
   - `QUICK_REST_BY_FOCUS` — **Gym** Quick sessions rest at the short end of each focus's own
@@ -53,7 +69,7 @@ persisted to `localStorage`. No backend, no accounts, no analytics.
     so 3 exercises × 3 work sets fit 30–45 min; if the plan still runs over, the finisher is
     shortened or skipped (`_cardioPlan.finisherMin` 0, shown as a note) before any exercise is
     dropped. Passed as `prescriptionForFocus(ex, focus, quickGym)`. Home and Standard/Full rests are
-    unchanged. Full Body · Strength Quick is the one known exception (~46–48 min).
+    unchanged. Full Body · Strength Quick is the one known exception (~51 min on a fresh profile).
   - `getBaseWeight` / `BASE_WEIGHT_EXACT` / `BASE_WEIGHT_RULES` / `BASE_WEIGHT_NONE` — the
     pre-loaded weight of bars and plate-loaded machines, with `S.baseWeights` overrides. The
     weight STORED on a set is always the true total; `S.weightEntry` only changes what the input
@@ -100,9 +116,18 @@ persisted to `localStorage`. No backend, no accounts, no analytics.
   extra set (cluster, drop, failure, rest-pause) after the work sets — never in place of one.
   Switch: `_advSuggestEnabled` (Settings → Specialty sets, ✨ chip). Supersets are separate.
 - **Organisation.** `exerciseCategory(name)` / `equipmentCategory(item,section)` →
-  calisthenics / freeweight / plate / pin / bands / cardio; `BODY_AREAS` group ELIB muscle
+  plate / pin (selectorized, not cable) / cable / freeweight / station (bodyweight on a bench,
+  bar or station: Target Abs bench, captain's chair, back-extension bench, dips, pull-ups, TRX —
+  `STATION_RE`) / bands / calisthenics (no equipment) / cardio. `EX_CATEGORIES` is listed in
+  that order, which is the order of every grouped list. `BODY_AREAS` group ELIB muscle
   groups. Used by the exercise library (`openExerciseLibrary`), swap list chips and the
   Equipment page "By type" view, and as `getExType`'s fallback.
+- **Gym first.** `gymEquipmentTier(name)`: 0 machines / cables / weights / stations, 1 sleds &
+  ropes, 2 bands, 3 calisthenics. At the gym (not Home) the pool, the selection sort, the
+  workout order and `getEquipmentSafeExercise` substitutes all go by tier first, so bodyweight
+  work only appears when no gym option is left. Accessories logged at this gym in the last 90
+  days (`_familiarGymExercises`) are offered first within their tier; a parenthetical variant of
+  a machine already in the pool ("Back Extension Machine (Weighted)") isn't added twice.
 - **Invariant (important):** `sess.exList` (set in `buildGym`) is the single source of truth for
   today's rendered exercises. Every index-keyed consumer must read it via `getRenderedExList(k)`
   — never re-derive a filtered template list (that historically dropped/misattributed sets).
@@ -114,7 +139,14 @@ persisted to `localStorage`. No backend, no accounts, no analytics.
     (`_cardioTickAll`) so a page rebuild can never orphan a countdown. `restoreCardioTimers()`
     re-attaches after every `buildGym`.
   - Rest: `_restEndAt` mirrored to `localStorage['pf_restTimer']`, restored by
-    `restoreRestTimer()`.
+    `restoreRestTimer()`. The rest bar is fixed above the bottom nav and moved to `<body>`, so it
+    shows on every page; **only `syncRestTimerUI()` decides whether it is visible** (running,
+    paused, or the 2.5 s "GO!" after it ends). Never hide `#timerWrap` directly — the rest/run-day
+    views used to, and it never came back while it kept counting. Every logged set starts it
+    (`_restAfterSet`: 10 s before a drop set, 20 s before rest-pause, warm-up rest after warm-ups,
+    "Next: …" note); the only exception is the first half of a superset round.
+  - Display: every clock uses `fmtClock` — minutes up to 89:59, then `1:30:00` from 90 minutes;
+    whole-minute durations use `fmtDurShort` / `fmtMinutes` with the same rule.
   - Workout: `S.sessions[k].gym.wTimer` ({startedAt, accumMs, running, active}), loaded per
     viewed day by `syncWorkoutTimerFromState()`.
   `resyncAllTimers()` runs on visibilitychange / pageshow / focus. **Never reintroduce a

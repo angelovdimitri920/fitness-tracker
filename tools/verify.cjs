@@ -314,6 +314,7 @@ let server, browser;
       showToast=()=>{}; showConfirm=(m,yes)=>yes(); return k;
     };
     const names = g => (g.exList||[]).map(e=>e.n);
+    const addDaysK = (k,n) => { const d=new Date(k+'T12:00:00'); d.setDate(d.getDate()+n); return dKey(d); };
     test('plan-page split change re-plans a started workout and keeps logged sets', () => {
       const k=liveReset('upper'); buildTodayWorkout(); const g=S.sessions[k].gym; const first=g.exList[0].n;
       g.exercises[0].sets[0]=set(100,10); g.wTimer={startedAt:Date.now(),accumMs:0,running:true,active:true}; saveS();
@@ -399,11 +400,12 @@ let server, browser;
         check(w<=e1/(1+r/30)+5,f+': '+w+' lb x '+r+' exceeds an estimated '+r+'-rep max');
       }
     });
-    test('exercises are organised into calisthenics / free weights / plate-loaded / pin machines', () => {
-      const cases={'Push-Ups':'calisthenics','Pull-Ups':'calisthenics','TRX Row':'calisthenics','Stability Ball Crunch':'calisthenics',
+    test('exercises are organised into calisthenics / stations / free weights / plate-loaded / pin / cable machines', () => {
+      const cases={'Push-Ups':'calisthenics','Pull-Ups':'station','TRX Row':'station','Stability Ball Crunch':'calisthenics','Plank':'calisthenics',
+        'Target Abs Bench':'station',"Captain's Chair Leg Raise":'station','Back Extension Bench':'station','Decline Bench Sit-Up':'station','Dips':'station',
         'Bench Press (Barbell)':'freeweight','Dumbbell Bicep Curls':'freeweight','EZ Bar Curl':'freeweight','Kettlebell Swing':'freeweight','Landmine Press':'freeweight',
         'Plate-Loaded Leg Press':'plate','Smith Machine Squat':'plate','Hack Squat Machine':'plate','ISO-Lateral Chest Press':'plate',
-        'Chest Press Machine':'pin','Lat Pull-Down Machine':'pin','Cable Tricep Push-Down':'pin','Assisted Chin-Up (Underhand)':'pin','Leg Extension Machine':'pin',
+        'Chest Press Machine':'pin','Lat Pull-Down Machine':'pin','Cable Tricep Push-Down':'cable','Cable Low Row':'cable','Cable Crunch':'cable','Assisted Chin-Up (Underhand)':'pin','Leg Extension Machine':'pin','Seated Row Machine':'pin',
         'Band Chest Fly':'bands','Treadmill (Running)':'cardio'};
       for(const [n,c] of Object.entries(cases)) check(exerciseCategory(n)===c,n+' → '+exerciseCategory(n)+' (want '+c+')');
       for(const n of ['Wide Push-Up','Decline Push-Up','TRX Atomic Push-Up','Stability Ball Pike']) check(getExType(n)==='bodyweight',n+' given a weight model');
@@ -947,8 +949,9 @@ let server, browser;
       for(const sp of ['push','pull','lower','upper','fullbody','glutes','arms','core']) for(const f of Object.keys(FOCUS_META)) for(const adv of [false,true]) for(const ss of [false,true]){
         const k=liveReset(sp); S.prefs.autoSuperset=ss; _advSuggestEnabled=adv; S.weekFocus=f; S.sessions[k]={gym:{exercises:{},cardio:{},cardioBlocks:{},intensity:'quick'}}; buildTodayWorkout();
         const g=S.sessions[k].gym, est=Number(el('intEstLine').getAttribute('data-est-mid')), ctx=sp+'/'+f+(adv?'/spec':'')+(ss?'/ss':'');
-        // Full Body Strength keeps four heavy lifts at 3-min rests: documented to run just over.
-        const cap=(sp==='fullbody'&&f==='power')?48:45;
+        // Full Body Strength keeps four heavy lifts at 3-min rests plus its cluster set:
+        // documented to run over.
+        const cap=(sp==='fullbody'&&f==='power')?52:45;
         if(!(est>=30&&est<=cap)) bad.push(ctx+': '+est+' min');
         g.exList.forEach(e=>{ if(e.sets<3) bad.push(ctx+': '+e.n+' '+e.sets+' sets'); if(e.rest>QUICK_REST_BY_FOCUS[f]) bad.push(ctx+': '+e.n+' rest '+e.rest); });
         if(f==='tone'&&g.exList.some(e=>e.rest<60)) bad.push(ctx+': tone rest under 60 s');
@@ -1090,6 +1093,117 @@ let server, browser;
         if(Math.abs(after-before)>1) bad.push('home '+sp+': '+before+' → '+after);
       }
       cMode='gym'; check(!bad.length,bad.slice(0,12).join('; '));
+    });
+    // ── October 31 requests: rest timer, set ranges, 5-min cardio, clocks, gym-first ──
+    const logSet = (k,ei,si) => { const sets=GS(k).exercises[ei].sets; sets[si].weight=sets[si].weight||'50'; sets[si].reps=sets[si].reps||'10'; toggleSet(ei,si,document.createElement('button')); };
+    test('the rest timer shows after every logged set, on every page and every day view', () => {
+      const k=liveReset('push'); S.prefs.autoTimer=true; buildTodayWorkout();
+      const w=el('timerWrap');
+      logSet(k,0,0); check(w.classList.contains('active')&&timerInt,'not shown after a set');
+      check(w.parentNode===document.body&&getComputedStyle(w).position==='fixed','rest bar not pinned on screen');
+      switchPage('history'); check(getComputedStyle(w).display!=='none','hidden on another page');
+      switchPage('today');
+      // Viewing a rest day, then coming back, used to hide it for good while it kept counting.
+      S.dayConfig[addDaysK(k,1)]={type:'rest'}; vDate=new Date(addDaysK(k,1)+'T12:00:00'); buildTodayWorkout();
+      check(w.classList.contains('active'),'hidden on a rest-day view');
+      vDate=new Date(k+'T12:00:00'); buildTodayWorkout(); check(w.classList.contains('active'),'not back on the workout day');
+      // GO! hide must not take down a countdown started straight after.
+      _restFinish(true); startTimer(60,true); _restGoUntil=0; syncRestTimerUI(); check(w.classList.contains('active'),'new countdown hidden');
+      pauseTimer(); check(w.classList.contains('active')&&w.classList.contains('paused'),'paused timer hidden');
+      pauseTimer(); stopTimer(); check(!w.classList.contains('active'),'stopped timer still shown');
+      // The last set of an exercise starts it too, naming the next exercise.
+      const sets=GS(k).exercises[0].sets; sets.forEach((x,i)=>{ if(i<sets.length-1){x.done=true;x.reps='10';} });
+      logSet(k,0,sets.length-1); check(timerInt&&/next/i.test(el('timerNext').textContent),'no rest after the final set: '+el('timerNext').textContent);
+      stopTimer(); S.prefs.autoTimer=false; switchPage('today');
+    });
+    test('a drop set or rest-pause extra follows its work set after a few seconds, not a full rest', () => {
+      const k=liveReset('push'); S.prefs.autoTimer=true; S.weekFocus='tone'; _advSuggestEnabled=true; buildTodayWorkout();
+      const g=GS(k), ei=g.exList.findIndex((e,i)=>(g.exercises[i].sets||[]).some(x=>x.spec&&x.type==='ds'));
+      check(ei>=0,'no drop set planned on Tone');
+      const sets=g.exercises[ei].sets, di=sets.findIndex(x=>x.spec);
+      for(let i=0;i<di-1;i++){sets[i].done=true;sets[i].reps='12';}
+      logSet(k,ei,di-1); check(_restTotal===REST_BEFORE_SPECIAL.ds,'rest before drop set '+_restTotal);
+      stopTimer(); _advSuggestEnabled=false; S.prefs.autoTimer=false;
+    });
+    test('every focus prescribes its own reps/rest, 3+ sets within its maximum, and its specialty set', () => {
+      const bad=[];
+      for(const f of Object.keys(FOCUS_META)) for(const sp of ['push','pull','lower','upper','fullbody','glutes','arms','core']) for(const int of ['quick','standard','full']){
+        const k=liveReset(sp); _advSuggestEnabled=true; S.weekFocus=f; S.sessions[k]={gym:{exercises:{},cardio:{},cardioBlocks:{},intensity:int}}; buildTodayWorkout();
+        const g=GS(k), ctx=f+'/'+sp+'/'+int;
+        g.exList.forEach((e,i)=>{ const r=workSetRange(e,f); if(e.sets<3||e.sets>r[1]) bad.push(ctx+': '+e.n+' '+e.sets+' sets (max '+r[1]+')');
+          const rule=exerciseProgressionRule(e.n,f); if(getExType(e.n)!=='bodyweight'&&!isTimedHold(e.n)&&(e.reps<rule.floor||e.reps>rule.ceil)) bad.push(ctx+': '+e.n+' '+e.reps+' reps'); });
+        const types=Object.values(g.exercises).flatMap(d=>(d.sets||[]).filter(x=>x.spec).map(x=>x.type));
+        const want=SPECIALTY_BY_FOCUS[f].map(r=>r.type);
+        if(!types.length||!types.every(t=>want.includes(t))) bad.push(ctx+': specialty '+types.join(',')+' (want '+want.join('/')+')');
+      }
+      _advSuggestEnabled=false; check(!bad.length,bad.slice(0,12).join('; '));
+    });
+    test('adding work sets stops at the focus maximum; removing stops at three', () => {
+      const k=liveReset('push'); S.weekFocus='tone'; buildTodayWorkout(); const g=GS(k), ex=g.exList[1], max=workSetRange(ex,'tone')[1];
+      for(let i=0;i<8;i++) addExtraSet(1,'wk');
+      const wk=g.exercises[1].sets.filter(x=>(x.type||'wk')==='wk'&&!x.spec).length; check(wk===max,'work sets '+wk+' (max '+max+')');
+      check(workSetRange({n:'Bench Press (Barbell)',p:1},'power')[1]>workSetRange({n:'Dumbbell Lateral Raises',p:3},'endurance')[1],'max does not depend on focus/type');
+    });
+    test('Full sessions add a set to the main lifts on the strength and muscle focuses', () => {
+      for(const f of ['power','hybrid','muscle']) check(_focusSetCount({n:'Bench Press (Barbell)',p:1},'full',f)>_focusSetCount({n:'Bench Press (Barbell)',p:1},'standard',f),f);
+      check(_focusSetCount({n:'Bench Press (Barbell)',p:1},'full','tone')===3,'tone main lift');
+    });
+    test('planned cardio is always whole 5-minute blocks', () => {
+      const bad=[];
+      for(const f of Object.keys(FOCUS_META)) for(const sp of ['push','lower','fullbody','core']) for(const int of ['quick','standard','full']){
+        const k=liveReset(sp); S.weekFocus=f; S.sessions[k]={gym:{exercises:{},cardio:{},cardioBlocks:{},intensity:int}}; buildTodayWorkout();
+        const pl=GS(k)._cardioPlan; [pl.warmupMin,pl.midEachMin,pl.finisherMin].forEach(m=>{ if(m%5) bad.push(f+'/'+sp+'/'+int+': '+JSON.stringify(pl)); });
+        Object.values(GS(k).cardioBlocks||{}).forEach(b=>{ if(Number(b.defaultDur)%5) bad.push(f+'/'+sp+'/'+int+': block '+b.name+' '+b.defaultDur); });
+      }
+      check(!bad.length,bad.slice(0,8).join('; '));
+    });
+    test('Standard and Full plans fit their time bands, rests and cardio included', () => {
+      const bad=[];
+      for(const f of Object.keys(FOCUS_META)) for(const sp of ['push','pull','lower','upper','fullbody','glutes','arms','core']) for(const int of ['standard','full']){
+        const k=liveReset(sp); _advSuggestEnabled=true; S.weekFocus=f; S.sessions[k]={gym:{exercises:{},cardio:{},cardioBlocks:{},intensity:int}}; buildTodayWorkout();
+        const est=Number(el('intEstLine').getAttribute('data-est-mid')), band=INTENSITY_BANDS[int];
+        if(est>band[1]) bad.push(f+'/'+sp+'/'+int+': '+est+' min');
+      }
+      _advSuggestEnabled=false; check(!bad.length,bad.slice(0,12).join('; '));
+    });
+    test('saved workouts calibrate the estimate to your own pace', () => {
+      const k=liveReset('push'); S.weekFocus='tone'; buildTodayWorkout(); const base=Number(el('intEstLine').getAttribute('data-est-mid'));
+      const ex=[{name:'Lat Pull-Down Machine',sets:[set(100,12),set(100,12),set(100,12)]},{name:'Leg Extension Machine',sets:[set(100,12),set(100,12),set(100,12)]},{name:'Chest Press Machine',sets:[set(100,12),set(100,12),set(100,12)]},{name:'Seated Leg Curl Machine',sets:[set(100,12),set(100,12),set(100,12)]}];
+      const model=_historyLiftModelMin({trainingFocus:'tone',intensity:'standard',exercises:ex});
+      const today=dKey(new Date());
+      S.history=[1,2,3,4].map(i=>({id:i,date:addDaysK(today,-i-1),type:'gym',trainingFocus:'tone',intensity:'standard',duration:Math.round(model*1.4)+20+5,cardioMins:20,exercises:ex}));
+      check(Math.abs(personalPaceFactor('gym')-1.4)<0.06,'pace '+personalPaceFactor('gym'));
+      buildTodayWorkout(); check(/your pace ×1\.[34]/.test(el('intEstLine').textContent),'pace not shown');
+      const slow=GS(k).exList.length; S.history=[]; _paceCache.key=''; buildTodayWorkout();
+      check(GS(k).exList.length>=slow,'slower pace planned more exercises');
+      S.history=[];
+    });
+    test('clocks read in minutes until 90, then hours', () => {
+      check(fmtClock(59*60+59)==='59:59'&&fmtClock(60*60)==='60:00'&&fmtClock(75*60+30)==='75:30'&&fmtClock(89*60+59)==='89:59','minutes');
+      check(fmtClock(90*60)==='1:30:00'&&fmtClock(125*60+5)==='2:05:05','hours');
+      check(_fmtWTimer(80*60*1000)==='80:00','workout clock');
+      check(fmtDurShort(75)==='75m'&&fmtDurShort(112)==='1h 52m','durations');
+    });
+    test('at the gym, gym equipment is planned before calisthenics on every split and focus', () => {
+      const bad=[];
+      for(const f of Object.keys(FOCUS_META)) for(const sp of ['push','pull','lower','upper','fullbody','glutes','arms','core']) for(const int of ['quick','standard','full']){
+        const k=liveReset(sp); S.weekFocus=f; S.sessions[k]={gym:{exercises:{},cardio:{},cardioBlocks:{},intensity:int}}; buildTodayWorkout();
+        const tiers=GS(k).exList.map(e=>gymEquipmentTier(e.n));
+        for(let i=1;i<tiers.length;i++) if(tiers[i]<tiers[i-1]) { bad.push(f+'/'+sp+'/'+int+': '+GS(k).exList.map(e=>e.n).join(', ')); break; }
+        if(sp==='core'&&GS(k).exList.some(e=>exerciseCategory(e.n)==='calisthenics')) bad.push(f+'/core/'+int+': calisthenics while ab machines are free: '+GS(k).exList.map(e=>e.n).join(', '));
+      }
+      check(!bad.length,bad.slice(0,6).join('; '));
+      // Substitution for missing equipment also offers machines before bodyweight work.
+      const g={equipment:getActiveGym().equipment,isHome:false};
+      const sub2=getEquipmentSafeExercise({n:'Push-Ups',t:'Chest'},g,['Push-Ups']);
+      check(!sub2||gymEquipmentTier(sub2.n)===0,'gym substitute for push-ups was '+(sub2&&sub2.n));
+    });
+    test('cable, pin-select and bench/station equipment have their own groups', () => {
+      check(equipmentCategory('Cable Crossover Machine','cables')==='cable','cable station');
+      check(equipmentCategory('Leg Extension Machine','leg_machines')==='pin','pin machine');
+      check(equipmentCategory('Target Abs Bench','core_machines')==='station','ab bench');
+      check(equipmentCategory("Captain's Chair",'core_machines')==='station','captain');
+      check(EX_CATEGORIES.map(c=>c.id).indexOf('calisthenics')>EX_CATEGORIES.map(c=>c.id).indexOf('station'),'calisthenics listed before stations');
     });
     reset(); saveS();
     return results;
