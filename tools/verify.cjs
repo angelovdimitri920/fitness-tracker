@@ -639,6 +639,18 @@ let server, browser;
         confirmSplitSwitch(orig); check(getEffTpl(wed)==='glutes',ctx+': returning to the original overwrote the edit');
       }
     });
+    test('switching back to the planned split keeps a Plan edit protected from the next switch', () => {
+      // Hits the path the test above only reaches on some dates: a switch that lands back on
+      // the original split used to drop the record of protected (edited) days.
+      for(const ar of [false,true]){
+        const k=monReset(ar), wed=addDays(k,2), orig=getEffTpl(k), sw=['lower','push','pull','core','arms'].filter(x=>x!==orig);
+        confirmSplitSwitch(sw[0]);
+        openDayModal(wed); setSplit('glutes'); saveDayConfig(); vDate=new Date(k+'T12:00:00');
+        confirmSplitSwitch(sw[1]); confirmSplitSwitch(orig); check(getEffTpl(k)===orig,'AR '+ar+': not back on '+orig);
+        check(getEffTpl(wed)==='glutes','AR '+ar+': return to original overwrote the edit');
+        reloadState(); confirmSplitSwitch(sw[2]); check(getEffTpl(wed)==='glutes','AR '+ar+': switch after returning overwrote the edit ('+getEffTpl(wed)+')');
+      }
+    });
     test('Today gets the requested split after Auto-Rotate is toggled, in both directions', () => {
       for(const ar of [false,true]){
         const k=monReset(ar), a=getEffTpl(k), b=['push','pull','core'].find(x=>x!==a);
@@ -852,12 +864,14 @@ let server, browser;
       }
       cMode='gym';
     });
-    test('every Home Quick session is planned within 30–45 min, with or without specialty sets and supersets', () => {
+    test('every Home Quick session is planned within 30–45 min (48 with specialty sets), with or without supersets', () => {
       const bad=[];
       for(const sp of HOME_SPLITS) for(const f of Object.keys(FOCUS_META)) for(const adv of [false,true]) for(const ss of [false,true]){
         const k=homeReset(sp); S.prefs.autoSuperset=ss; _advSuggestEnabled=adv; S.weekFocus=f; S.sessions[k].home={exercises:{},cardio:{},cardioBlocks:{},intensity:'quick'}; buildTodayWorkout();
         const est=Number(el('intEstLine').getAttribute('data-est-mid')), n=S.sessions[k].home.exList.length;
-        if(!(est>=30&&est<=45)||n<3) bad.push(sp+'/'+f+(adv?'/spec':'')+(ss?'/ss':'')+': '+est+' min, '+n+' ex');
+        // Quick keeps three exercises and may run a little long (the user's choice); a cluster
+        // set costs its full rest, so specialty days get a few minutes' grace.
+        if(!(est>=30&&est<=(adv?48:45))||n<3) bad.push(sp+'/'+f+(adv?'/spec':'')+(ss?'/ss':'')+': '+est+' min, '+n+' ex');
       }
       _advSuggestEnabled=false; cMode='gym'; check(!bad.length,bad.join('; '));
     });

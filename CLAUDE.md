@@ -53,13 +53,16 @@ persisted to `localStorage`. No backend, no accounts, no analytics.
     costs each specialty extra (a cluster or failure set includes its full rest).
   - **Personal pace** — `personalPaceInfo()` compares the last ≤8 saved sessions' real lifting
     time (clock − logged cardio − setup) with `_historyLiftModelMin` for those exact sets; the
-    median (≥3 sessions, clamped 0.9–1.5×) scales `_exLiftSeconds`, so the band picks fewer
-    exercises for a slower lifter. `_exLiftSecondsRaw` is the unscaled model. Shown on the
+    median (≥3 sessions, clamped 0.9–1.5×) scales the **displayed estimate only**:
+    `selectWorkoutForDuration` suspends it (`_paceSuspended`) while choosing, so the plan (how
+    many exercises) never shrinks for a slower lifter — the user's explicit choice. Shown on the
     estimate line ("your pace ×1.30"). `S.prefs.personalPace===false` turns it off.
+  - **Exercise budget** keeps the pre-5-minute-block cardio reservations (`_resWarm`/`_resFin`,
+    circuit 6) so each length plans the same number of exercises it always did.
   - **Fitting the band, in order:** drop lowest-priority exercises to the floor (3; 2 Strength;
-    4 full body) → Standard/Full: finisher down to 5 min → Quick: skip the warm-up cardio, Gym
-    Quick then down to 2 exercises → take main lifts' extra sets back toward 3 (`trimSets`).
-    Full Body Quick keeps its four patterns and can run over (Strength most).
+    4 full body) → Standard/Full: finisher down to 5 min → take main lifts' extra sets back
+    toward 3 (`trimSets`). **Quick keeps 3 exercises and its warm-up** and may run long (user's
+    choice); the finisher is still shortened/skipped first.
   - **Cardio is planned in 5-minute blocks** (`roundCardio5`): warm-up 5 (Full 10, Strength
     Quick 0), circuit blocks 5, finisher a multiple of 5 within `FINISHER_CAP`.
   - `FINISHER_CAP` (inside `selectWorkoutForDuration`) — cardio is capped per focus rather than

@@ -5856,7 +5856,7 @@ function personalPaceInfo(kind){
   _paceCache={key:key,val:val};
   return val;
 }
-function personalPaceFactor(kind){ try{ return personalPaceInfo(kind).factor||1; }catch(e){ return 1; } }
+function personalPaceFactor(kind){ if(_paceSuspended) return 1; try{ return personalPaceInfo(kind).factor||1; }catch(e){ return 1; } }
 function _exLiftSeconds(rawEx, intensity, fp, focus, quickGym, asPrescribed){
   return _exLiftSecondsRaw(rawEx, intensity, fp, focus, quickGym, asPrescribed)*personalPaceFactor();
 }
@@ -5953,7 +5953,26 @@ function roundCardio5(min){ var m=Number(min)||0; if(m<=0) return 0; return Math
 // Choose the exercise count + cardio durations to hit the band for this intensity/focus.
 // The exercise count is driven by the TIME BUDGET (focus rest/sets) against a real pool,
 // not a fixed per-intensity number — so it varies by focus, split, intensity & history.
+// Personal pace changes the TIME SHOWN, never the plan: the exercise count for each length
+// stays what the standard model picks (the user's choice), and the estimate is then scaled
+// to how long their saved workouts actually took.
+var _paceSuspended=false;
 function selectWorkoutForDuration(tplExercises, intensity, fp, recent48, tplKey, gym){
+  var was=_paceSuspended, r;
+  _paceSuspended=true;
+  try{ r=_selectWorkoutForDurationCore(tplExercises, intensity, fp, recent48, tplKey, gym); }
+  finally{ _paceSuspended=was; }
+  var pace=personalPaceFactor();
+  if(pace!==1&&r&&r.breakdown){
+    var extra=(r.breakdown._liftRaw+(r.breakdown._specRaw||0))*(pace-1);
+    r.estMin=Math.round(r.estMin+extra);
+    r.estLowMin=Math.max(5,Math.round(r.estMin*0.85));
+    r.estHighMin=Math.round(r.estMin*1.18);
+    r.breakdown.liftMin=Math.round(r.breakdown._liftRaw*pace);
+  }
+  return r;
+}
+function _selectWorkoutForDurationCore(tplExercises, intensity, fp, recent48, tplKey, gym){
   var band = INTENSITY_BANDS[intensity] || INTENSITY_BANDS.standard;
   var targetMid = band[0] + (band[1]-band[0])*0.5;
   var focus = S.weekFocus||'general';
@@ -5973,7 +5992,14 @@ function selectWorkoutForDuration(tplExercises, intensity, fp, recent48, tplKey,
   // overhead and cardio so the 30–45 min goes to lifting.
   var _isHomeTpl=!!(tplKey&&WTPL[tplKey]&&WTPL[tplKey].home);
   if(_isHomeTpl){ overheadMin=Math.min(overheadMin,2); warmupMin=Math.min(warmupMin,5); baseFin=Math.min(baseFin,5); minFin=Math.min(minFin,5); }
-  var exBudget = targetMid - (warmupMin + midCards.length*midEach) - baseFin - overheadMin;
+  // The exercise budget keeps the cardio reservations it had before cardio moved to 5-minute
+  // blocks (warm-up 6 / Strength 4 / Quick 5 / Full 8, circuit 6, finisher 7 / 10 / 14), so
+  // each length plans the same number of exercises it always did; the blocks themselves are
+  // then rounded to 5 minutes.
+  var _resWarm = (focus==='power') ? (intensity==='quick'?0:4) : (intensity==='quick'?5:(intensity==='full'?8:6));
+  var _resFin = (intensity==='quick') ? 7 : (intensity==='full'?14:10);
+  if(_isHomeTpl){ _resWarm=Math.min(_resWarm,4); _resFin=Math.min(_resFin,6); }
+  var exBudget = targetMid - (_resWarm + midCards.length*6) - _resFin - overheadMin;
   // Count bounds scale with the SPLIT's own size (so different days differ) and intensity;
   // the time budget is still the real driver between min and max.
   var n = (typeof WTPL!=='undefined' && tplKey && WTPL[tplKey]) ? WTPL[tplKey].exercises.length : ((tplExercises&&tplExercises.length)||7);
@@ -6083,14 +6109,9 @@ function selectWorkoutForDuration(tplExercises, intensity, fp, recent48, tplKey,
     // Standard / Full at the floor and still over: the finisher can come down to one
     // 5-minute block before any work set is taken away.
     if(!_qg&&planned()>band[1]&&minFin>5){ minFin=5; }
-    // Gym Quick still over 45 min at your pace (the finisher is already out of this sum):
-    // skip the warm-up cardio next — compounds keep their warm-up sets — and only then go
-    // down to two exercises. Full body keeps its four movement patterns.
-    if(intensity==='quick'&&planned()>band[1]){
-      warmupMin=0;
-      if(_qg&&tplKey!=='fullbody') trimTo(Math.min(floor,2));
-    }
-    trimSets();
+    // Quick keeps its three exercises and its warm-up (the user's choice): a Quick day that
+    // can't fit 45 min simply runs a little long, and the estimate says so.
+    if(intensity!=='quick') trimSets();
   })();
   // Pool order (template first, then accessories by group) — at the gym with machines
   // and weights first, then benches/stations, then any bodyweight-only work last.
@@ -6131,7 +6152,7 @@ function selectWorkoutForDuration(tplExercises, intensity, fp, recent48, tplKey,
     exercises:exercises,
     plan:{warmupMin:warmupMin, midEachMin:midEach, finisherMin:finisherMin},
     estMin:estMin, estLowMin:estLowMin, estHighMin:estHighMin,
-    breakdown:{liftMin:Math.round(lift), cardioMin:Math.round(cardioMin), overheadMin:overheadMin}
+    breakdown:{liftMin:Math.round(lift), cardioMin:Math.round(cardioMin), overheadMin:overheadMin, _liftRaw:lift}
   };
 }
 
@@ -29363,7 +29384,13 @@ function applyTodaySplitSwitch(k,newSplit){
   //    split recorded at the first switch: Auto-Rotate may have been toggled since, and
   //    then "back to the original" would land on a split nobody asked for.
   var original=getEffTpl(k);
-  if(newSplit===original){ _autoSplitCache={}; return; }
+  if(newSplit===original){
+    // Back on the planned split: nothing is shifted, but days the user edited or trained
+    // since an earlier switch stay protected. Dropping that record let the NEXT switch
+    // re-shift (and overwrite) a Plan-page edit.
+    if(Object.keys(protect).length) cfg.todaySwitch={orig:original,prevSplit:(cfg.split===undefined?null:cfg.split),changed:{},protect:protect};
+    _autoSplitCache={}; return;
+  }
   var record={orig:original,prevSplit:(cfg.split===undefined?null:cfg.split),changed:{},protect:protect};
   // 3) Shift the week from the plan the user was actually going to get (auto-rotate
   //    included) — computed while today still has its original split.
