@@ -59,7 +59,7 @@ appropriate session, then gives you a deep logging surface.
 - **Week strip** — the current week with per-day dots (gym/run/rest + completion); tap any day.
 - **Auto-generated workout** — focus and intensity set the workout dose. New gym days rotate
   through available equipment and prioritize movements you have used least recently. The Today
-  and Plan pickers group **Main workouts** and **Specialized workouts**. The Home tab uses its
+  and Plan pickers nest specialized workouts under their main workout. The Home tab uses its
   own equipment inventory, including equipment-free options.
 - **Intensity selector** — Quick / Standard / Full rescale exercise count and cardio to a target
   time band (30–45 / 60–90 / 90–120 min). The estimate is a **range**, and it models the session
@@ -84,7 +84,9 @@ appropriate session, then gives you a deep logging surface.
   on metabolic focuses; never on Power). The app alternates them, equalizes their set counts, and
   visually groups the cards.
 - **Per-exercise swap** — choose **Same muscle** for alternatives to the planned exercise or
-  **Same equipment** to see variations and other muscle targets on the station. The replacement inherits the work sets, reps, warm-up ramp, and main-lift
+  **Same equipment** to see variations and other muscle targets on the station. Expand a main
+  movement to choose its standard exercise or a variation. The exercise library and cardio
+  picker use the same hierarchy. The replacement inherits the work sets, reps, warm-up ramp, and main-lift
   role. Its load comes from its own history or estimate, adjusted to the original slot's
   relative effort when the muscle target is comparable. It saves under the exercise you actually
   performed. Use **Equipment → Exercises** on any station to browse its catalogued movements.

@@ -199,6 +199,18 @@ canvas{width:100%!important;display:block}
 .cd{font-size:11px;color:var(--mu);margin-top:2px;line-height:1.4}
 .sopt{background:var(--s2);border:1px solid var(--b1);border-radius:9px;padding:11px 13px;cursor:pointer;margin-bottom:7px}
 .sopt:hover{border-color:var(--pu)}
+button.sopt{display:block;width:100%;text-align:left;color:inherit}
+.movement-family{border:1px solid var(--b1);border-radius:9px;background:var(--s2);margin-bottom:7px}
+.movement-family>summary{display:flex;align-items:center;gap:8px;padding:11px 13px;cursor:pointer;list-style:none}
+.movement-family>summary::-webkit-details-marker{display:none}
+.movement-family>summary::before{content:'›';font-size:16px;color:var(--ye)}
+.movement-family[open]>summary::before{transform:rotate(90deg)}
+.movement-family-title{flex:1;min-width:0;font-size:12px;font-weight:700;overflow-wrap:anywhere}
+.movement-family-count{font-size:10px;color:var(--mu);white-space:nowrap}
+.movement-family-options{padding:0 8px 2px 14px}
+.movement-family-options>.sopt{background:var(--s1)}
+.split-family{grid-column:1/-1}
+.split-family .movement-family-options .split-btn{width:100%;margin-bottom:5px}
 .sname{font-weight:600;font-size:13px;color:#fff;margin-bottom:2px}
 .starget{font-size:10px;color:var(--mu);font-family:DM Mono,monospace}
 .ring-wrap{display:flex;align-items:center;gap:13px;margin-bottom:12px}
@@ -2354,6 +2366,9 @@ chest:[
   {n:'Cable Incline Fly',t:'Upper Pectorals'},
   {n:'Cable Chest Press (Standing)',t:'Chest · Core'},
   {n:'Push-Ups',t:'Chest · Triceps · Shoulders'},
+  {n:'Wide Push-Up',t:'Chest emphasis · Shoulders',p:2},
+  {n:'Incline Push-Up',t:'Chest · Hands elevated',p:2},
+  {n:'Decline Push-Up',t:'Upper chest · Feet elevated',p:2},
   {n:'Elevated Push-Up',t:'Upper Chest · Shoulders'},
   {n:'Archer Push-Up',t:'Chest · Triceps'},
   {n:'Dips',t:'Chest · Triceps · Shoulders'},
@@ -2448,6 +2463,10 @@ back:[
   {n:'Plate-Loaded Seated Row',t:'Middle Back · Lats'},
   {n:'Pull-Ups',t:'Lats · Biceps'},
   {n:'Chin-Ups',t:'Lats · Biceps'},
+  {n:'Wide-Grip Pull-Up',t:'Lats · Upper back',p:2},
+  {n:'Close-Grip Pull-Up',t:'Lats · Biceps',p:2},
+  {n:'Neutral-Grip Pull-Up',t:'Lats · Brachialis',p:2},
+  {n:'Archer Pull-Up',t:'Lats · Unilateral emphasis',p:3},
   {n:'Muscle-Up',t:'Lats · Triceps'},
   {n:'Inverted Row (Elevate Row)',t:'Back · Biceps'},
   {n:'TRX Row',t:'Back · Biceps'},
@@ -5129,7 +5148,7 @@ Object.keys(S.nutLog||{}).forEach(function(dk){
 migrateState();
 try{applyTheme();}catch(e){}
 function rebuildSched(){
-  var t=GYM_SPLIT_GROUPS[0].keys;
+  var t=GYM_SPLIT_FAMILIES.map(function(family){return family.main;});
   var d=S.setup.gymDays.slice().sort(function(a,b){return a-b;});
   // ADDITIVE: keep existing assignments, only add for new days
   var existing=S.daySched||{};
@@ -8269,6 +8288,191 @@ function sharesEquipment(a,b,equipment){
   var stations=exerciseStations(a,equipment||getActiveGym().equipment);
   return stations.some(function(station){return exerciseUsesEquipment(b,station);});
 }
+// The picker groups exercise identities for display. Equipment requirements and
+// the names stored in workout history remain attached to the individual exercise.
+var MOVEMENT_FAMILY_RULES=[
+  ['Chest Press Machine',/^(?!plate-loaded).*chest press machine$/i],
+  ['Lat Pull-Down Machine',/^(?!plate-loaded|cable|band).*lat pull-down( machine)?$/i],
+  ['Plate-Loaded Lat Pull-Down',/^plate-loaded .*lat pull-down$/i],
+  ['Plate-Loaded Seated Row',/^plate-loaded .*row$/i],
+  ['Plate-Loaded Chest Press',/^plate-loaded (chest|supine|incline|decline) press$/i],
+  ['GMWD Chest Press (Flat)',/^gmwd (?!shoulder).*press/i],
+  ['Pec Deck / Fly Machine',/pec deck|pec fly \/ rear delt|rear delt \/ pec fly|^(seated |single-arm )?machine reverse fly|rear delt machine fly|machine rear delt fly/i],
+  ['Shoulder Press Machine',/^(?!plate-loaded).*shoulder press machine$/i],
+  ['Leg Extension Machine',/^(single-leg |toes-in |toes-out )?leg extension( machine)?$/i],
+  ['Seated Leg Curl Machine',/^(single-leg )?seated leg curl( machine)?$/i],
+  ['Prone Leg Curl Machine',/^(prone leg curl machine|single-leg lying leg curl)$/i],
+  ['Hip Abductor / Adductor Machine',/hip abductor \/ adductor|(?:abduction|adduction) machine/i],
+  ['Hip Thrust Machine',/^(hip thrust machine|single-leg hip thrust machine|machine glute bridge)$/i],
+  ['Glute Kickback Machine',/^glute kickback machine/i],
+  ['Back Extension Machine',/^back extension machine/i],
+  ['Abdominal Crunch Machine',/^abdominal (crunch machine|machine \(adjustable\))|^machine (reverse|oblique) crunch$/i],
+  ['Ab Coaster',/^ab coaster/i],
+  ['Rotary Torso Machine',/^rotary torso/i],
+  ['Chest-Supported Row Machine',/^chest-supported .*row/i],
+  ['Pull-Up Assist Machine',/^assisted.*(?:pull-up|chin-up)|^pull-up assist machine$|^chin\/dip machine \(chin\)$/i],
+  ['Chin/Dip Machine (Dip)',/^assisted machine.*dip|^chin\/dip machine \(dip\)$/i],
+  ['Biceps Curl Machine',/biceps curl machine|^machine concentration curl$/i],
+  ['Preacher Curl Machine',/^(single-arm )?preacher curl machine$/i],
+  ['Triceps Press Machine',/^(single-arm )?triceps press machine$/i],
+  ['Triceps Extension Machine',/^(single-arm )?triceps extension machine$/i],
+  ['Machine Lateral Raise',/machine .*lateral raise|lateral raise machine|^machine lateral raise$/i],
+  ['Machine Shrug',/^(?!plate-loaded|smith machine).*(shrug machine|machine shrug)/i],
+  ['Smith Machine Shrug',/^smith machine shrug$/i],
+  ['Plate-Loaded Hack Squat',/^(?:plate-loaded hack squat|hack squat machine|single-leg hack squat|reverse hack squat|wide-stance hack squat|hack squat calf raise|hack squat romanian deadlift)$/i],
+  ['Pendulum Squat Machine',/^.*pendulum squat/i],
+  ['Belt Squat',/^belt squat/i],
+  ['Rotary Shoulder Press',/^rotary shoulder press$/i],
+  ['Barbell Overhead Press',/^(?:behind-the-neck )?barbell (?:seated overhead|overhead|push|z-|bradford) ?press$/i],
+  ['Dumbbell Bicep Curls',/^dumbbell (?:bicep curls?|drag curl|preacher curl|spider curl|reverse curl)$|^incline dumbbell curl$|^(?:concentration|spider|zottman) curl$/i],
+  ['Barbell Curl',/^barbell (?:curl|reverse curl|drag curl|spider curl|preacher curl)$/i],
+  ['EZ Bar Curl',/^ez bar .*curl$/i,/wrist/i],
+  ['Pike Push-Up',/^pike push-up$/i],
+  ['Landmine Press',/^.*landmine (?:shoulder-to-shoulder press|single-arm shoulder press|viking press|split press|press)$/i],
+  ['Back Extension Bench',/^(back extension bench|roman chair \/ hyperextension|reverse hyperextension \(bodyweight\))$/i],
+  ['Glute Bridge',/^(single-leg glute bridge|glute bridge march)$/i],
+  ['Weighted Vest Pull-Up',/^weighted vest (?:pull-up|chin-up)$/i],
+  ['Battle Rope Waves',/^battle rope/i],
+  ['Sled Push',/^sled push/i],
+  ['Sled Pull',/^sled pull/i],
+  ['TRX Chest Press',/^trx (?:chest press|clock press)$/i],
+  ['TRX Hamstring Curl',/^trx hamstring curl/i],
+  ['TRX Rollout',/^trx (?:rollout|standing roll-out)/i],
+  ['Handstand Push-Up',/^(handstand push-up|pike push-up to wall)/i],
+  ['Neck Machine',/^neck .*\(machine\)$/i],
+  ['Seated Row Machine',/^seated row machine$/i],
+  ['Dips',/^(dips|chest dip \(forward lean\)|tricep dip)$/i],
+  ['Hanging Leg Raise',/^(hanging (leg|knee) raise|toes-to-bar|knees-to-elbows?)$/i],
+  ["Captain's Chair Leg Raise",/^captain's chair/i],
+  ['Decline Bench Sit-Up',/^(decline bench sit-up|weighted decline crunch|decline russian twist|target abs bench)$/i],
+  ['Ab Wheel Rollout',/^(ab wheel .*rollout|ab roller \/ ab wheel)$/i],
+  ['Hammer Curls (Dumbbells)',/dumbbell.*hammer curl|hammer curls \(dumbbells\)/i],
+  ['Cable Hammer Curl',/^cable .*hammer curl$/i],
+  ['Cable Chest Fly',/cable.*(?:chest fly|pec fly|incline fly|crossover)/i],
+  ['Cable Low Row',/^cable (?:low row|seated row)|seated cable row/i],
+  ['Cable Tricep Push-Down',/^(?:single-arm )?cable tricep push-?down$|^rope tricep pushdown$/i],
+  ['Cable Pallof Press',/^cable (pallof|anti-rotation) press$/i],
+  ['Cable Wood Chop',/^cable wood\s?chop/i],
+  ['Cable Crunch',/^cable (kneeling crunch|crunch|reverse crunch)/i],
+  ['Smith Machine Squat',/^smith machine .*squat$/i,/split|bulgarian/i],
+  ['Smith Machine Lunge',/^smith machine .*(lunge|split squat)$/i],
+  ['Smith Machine RDL',/^smith machine (rdl|romanian deadlift|stiff-leg deadlift)$/i],
+  ['Smith Machine Bench Press',/^smith machine .*?(bench press|incline press|decline press|pin press)$/i],
+  ['Smith Machine Overhead Press',/^smith machine .*(overhead|shoulder) press$/i],
+  ['Bench Press (Barbell)',/^(?!dumbbell|smith|trap|close-grip chest).*\b(?:bench press|barbell pin press|barbell guillotine press)$/i,/machine|plate-loaded/i],
+  ['Dumbbell Bench Press',/^(dumbbell (bench press|squeeze press|crush press.*)|incline dumbbell press|decline dumbbell press)$/i],
+  ['Barbell Back Squat',/^(barbell .*(squat)|.*squat \(barbell\))$/i,/split/i],
+  ['Barbell Bent-Over Row',/^(barbell (bent-over|seal) row|pendlay row|yates row|underhand barbell row)$/i],
+  ['Deadlifts (Barbell)',/^(deadlifts? \(barbell\)|barbell (deficit|snatch-grip) deadlift|barbell block pull|rack pull|sumo deadlift)$/i],
+  ['Romanian Deadlift (Barbell)',/^(romanian deadlift \(barbell\)|barbell (romanian|stiff-leg) deadlift)$/i],
+  ['Romanian Deadlift (Dumbbell)',/^(romanian deadlift \(dumbbell\)|dumbbell (romanian|stiff-leg|single-leg romanian) deadlift)$/i],
+  ['Plank',/^(plank|side plank|bear plank|copenhagen plank|decline plank)/i,/ab wheel/i],
+  ['Pull-Ups',/^(?!.*(?:weighted|assisted)).*(pull-ups?|chin-ups?)\b/i,/trx|machine|elevate|band|hold/i],
+  ['Push-Ups',/push-up/i,/band|trx|kettlebell|bosu|medicine ball|parallette|vest|plank|handstand|pike/i]
+];
+// After equipment-specific rules, group named variations by implement and
+// movement. This covers accessories and new catalog entries without merging
+// different exercises just because they use the same cable or Smith machine.
+var MOVEMENT_IMPLEMENT_RULES=[
+  ['Weighted Vest',/weighted vest/i],['Ankle Weight',/ankle weight/i],
+  ['Stability Ball',/stability ball|swiss ball/i],['BOSU',/bosu/i],
+  ['Medicine Ball',/medicine ball/i],['Trap Bar',/trap bar|hex bar/i],
+  ['EZ Bar',/ez[- ]?bar|^ez curl/i],['Landmine',/landmine/i],
+  ['Smith Machine',/smith machine/i],['Dumbbell',/dumbbell/i],
+  ['Kettlebell',/kettlebell/i],['Barbell',/barbell/i],['Cable',/cable/i],
+  ['TRX',/trx/i],['Band',/\bband(s|ed)?\b/i],['Plate-Loaded',/plate-loaded/i],
+  ['Machine',/machine/i]
+];
+var MOVEMENT_ROOT_RULES=[
+  ['Chest Fly',/chest fly|pec fly|incline fly/i],
+  ['Shoulder Press',/overhead press|shoulder press|push press|military press|arnold press|z-press|bradford press/i],
+  ['Rear Delt Fly',/rear delt fly|reverse fly|bent-over raise/i],
+  ['Lateral Raise',/lateral raise/i],['Front Raise',/front raise/i],
+  ['Upright Row',/upright row/i],['Row',/\brows?\b/i],['Shrug',/shrug/i],
+  ['Wrist Curl',/wrist curl/i],['Tricep Extension',/tricep.*extension|skull crush|curl-grip extension/i],
+  ['Bicep Curl',/curl/i,/leg curl|hamstring curl|wrist curl|skull|tricep|jefferson/i],
+  ['Step-Up',/step-up/i],['Lunge',/lunge/i],['Split Squat',/split squat/i],
+  ['Calf Raise',/calf raise/i],['Hack Squat',/hack squat/i],['Pendulum Squat',/pendulum squat/i],
+  ['Belt Squat',/belt squat/i,/deadlift|calf/i],['Squat',/squat/i,/throw|thruster/i],
+  ['Romanian Deadlift',/romanian deadlift|\brdl\b|stiff-leg deadlift/i],
+  ['Deadlift',/deadlift/i,/high pull/i],['Hip Thrust',/hip thrust/i],['Glute Bridge',/glute bridge/i],
+  ['Leg Curl',/leg curl|hamstring curl/i],['Kickback',/kickback/i],
+  ['Hip Abduction',/hip abduction/i],['Good Morning',/good morning/i],
+  ['Sit-Up',/sit-up/i],['Crunch',/crunch/i],['Leg Raise',/leg raise/i],
+  ['Plank',/plank/i],['Rollout',/roll-?out|fallout/i],['Russian Twist',/russian twist/i],
+  ['Clean',/\bclean\b/i,/high pull|clean pull|jerk|press/i],['Snatch',/\bsnatch\b/i,/deadlift|high pull/i],
+  ['Carry',/carry|farmer walk/i],['Push-Up',/push-up/i]
+];
+function exerciseFamily(name,category,station){
+  if(category==='cardio'){
+    var gear=station||name;
+    var cardioKey=cardioTypeKey(gear);
+    var names={treadmill:'Treadmill',elliptical:'Elliptical Machine',rower:'Rowing Machine',bike:'Stationary Bike',fan_bike:'Fan Bike',stair_stepper:'Stair Stepper'};
+    return names[cardioKey]||gear;
+  }
+  if(name==='Leg Press Machine'||name==='Plate-Loaded Leg Press'||isLegPressVariation(name)||name==='Banded Leg Press'){
+    if(station==='Leg Press Machine'||station==='Plate-Loaded Leg Press') return station;
+    if(name==='Leg Press Machine'||name==='Plate-Loaded Leg Press') return name;
+    return getActiveGym().equipment.includes('Plate-Loaded Leg Press')?'Plate-Loaded Leg Press':'Leg Press Machine';
+  }
+  var exact=MOVEMENT_FAMILY_RULES.find(function(rule){return rule[1].test(name)&&(!rule[2]||!rule[2].test(name));});
+  if(exact) return exact[0];
+  var implement=MOVEMENT_IMPLEMENT_RULES.find(function(rule){return rule[1].test(name);});
+  var root=MOVEMENT_ROOT_RULES.find(function(rule){return rule[1].test(name)&&(!rule[2]||!rule[2].test(name));});
+  if(root&&(implement||category==='calisthenics')) return (implement?implement[0]+' ':'')+root[0];
+  return name;
+}
+function groupExerciseChoices(entries,station){
+  var groups=new Map();
+  entries.forEach(function(entry){
+    var name=exerciseFamily(entry.n,entry.cat,station||entry.cardioEquipment);
+    if(!groups.has(name)) groups.set(name,{name:name,items:[]});
+    groups.get(name).items.push(entry);
+  });
+  return Array.from(groups.values()).map(function(group){
+    group.items.sort(function(a,b){return Number(b.n===group.name)-Number(a.n===group.name)||a.n.localeCompare(b.n);});
+    return group;
+  }).sort(function(a,b){return a.name.localeCompare(b.name);});
+}
+function movementFamilyHTML(name,content,count,open,extraClass){
+  return '<details class="movement-family'+(extraClass?' '+extraClass:'')+'"'+(open?' open':'')+'><summary>'+
+    '<span class="movement-family-title">'+escapeHtml(name)+'</span>'+
+    (count?'<span class="movement-family-count">'+count+' options</span>':'')+
+    '</summary><div class="movement-family-options">'+content+'</div></details>';
+}
+function renderExerciseChoices(groups,renderItem,open){
+  return groups.map(function(group){
+    if(group.items.length===1&&group.items[0].n===group.name) return renderItem(group.items[0]);
+    var content=group.items.map(function(item){return renderItem(item,item.n===group.name);}).join('');
+    return movementFamilyHTML(group.name,content,group.items.length,open);
+  }).join('');
+}
+function exerciseChoiceCategory(group){
+  if(group.category) return group.category;
+  var base=group.items.find(function(item){return item.n===group.name;});
+  if(base) return base.cat;
+  var category=exerciseCategory(group.name);
+  if(category!=='pin') return category;
+  return group.items[0].cat;
+}
+function filterExerciseChoiceGroups(groups,category,include){
+  return groups.filter(function(group){return category==='all'||exerciseChoiceCategory(group)===category;}).map(function(group){
+    return {name:group.name,category:exerciseChoiceCategory(group),items:group.items.filter(include)};
+  }).filter(function(group){return group.items.length;});
+}
+function exerciseChoiceSections(groups,renderItem,open){
+  return EX_CATEGORIES.map(function(category){
+    var section=groups.filter(function(group){return exerciseChoiceCategory(group)===category.id;});
+    if(!section.length) return '';
+    return '<div class="slbl" style="margin:10px 0 5px">'+category.em+' '+escapeHtml(category.lb)+'</div>'+
+      renderExerciseChoices(section,renderItem,open);
+  }).join('');
+}
+function matchesExerciseChoice(ex,q){
+  return !q||[ex.n,ex.t,exerciseFamily(ex.n,ex.cat,ex.cardioEquipment)].some(function(value){
+    return value&&value.toLowerCase().includes(q);
+  });
+}
 function openSwap(idx,name){
   var gym=getActiveGym(), g=getMG(name), stations=exerciseStations(name,gym.equipment);
   var used=new Set((getRenderedExList(dKey(vDate))||[]).filter(function(_,i){return i!==idx;}).map(function(ex){return ex.n;}));
@@ -8317,11 +8521,13 @@ function setExLibEquipment(name){
   _exLib.area='all';
   renderExerciseLibrary();
 }
-function equipmentGuideExercises(equipment){
-  var cardio=EQUIPMENT_CATALOGUE.some(function(section){
+function isCatalogCardioEquipment(equipment){
+  return EQUIPMENT_CATALOGUE.some(function(section){
     return section.id==='cardio'&&section.items.some(function(item){return item.n===equipment;});
   });
-  if(cardio) return cardioEquipmentExercises(equipment);
+}
+function equipmentGuideExercises(equipment){
+  if(isCatalogCardioEquipment(equipment)) return cardioEquipmentExercises(equipment);
   var info=getExInfo(equipment);
   if(info&&info.muscles&&info.muscles!==EX_INFO_DEFAULT.muscles){
     return [{n:equipment,t:info.muscles,cat:equipmentCategory(equipment),area:equipmentBodyArea({n:equipment}),guideOnly:true}];
@@ -8381,44 +8587,34 @@ function renderExerciseLibrary(){
     return isExerciseAvailable(e.n,gym.equipment);
   }
   var pool=all.filter(function(e){
-    if(q&&e.n.toLowerCase().indexOf(q)<0&&(e.t||'').toLowerCase().indexOf(q)<0) return false;
+    if(!matchesExerciseChoice(e,q)) return false;
     if(availOnly&&!isAvailable(e)) return false;
     return true;
   });
   var catCounts={}, areaCounts={};
-  pool.forEach(function(e){ catCounts[e.cat]=(catCounts[e.cat]||0)+1; if(_exLib.cat==='all'||e.cat===_exLib.cat) areaCounts[e.area]=(areaCounts[e.area]||0)+1; });
+  var parents=groupExerciseChoices(pool,_exLib.equipment);
+  parents.forEach(function(group){
+    var category=exerciseChoiceCategory(group);
+    catCounts[category]=(catCounts[category]||0)+group.items.length;
+    if(_exLib.cat==='all'||category===_exLib.cat) group.items.forEach(function(e){areaCounts[e.area]=(areaCounts[e.area]||0)+1;});
+  });
   function chip(on,label,click){ return '<button onclick="'+click+'" style="padding:4px 9px;border-radius:999px;font-size:10px;cursor:pointer;'+(on?'border:1px solid var(--ye);background:rgba(245,196,0,.12);color:var(--ye)':'border:1px solid var(--b2);background:var(--s3);color:var(--mu)')+'">'+label+'</button>'; }
   el('exLibCats').innerHTML=chip(_exLib.cat==='all','All · '+pool.length,"setExLibCat('all')")+EX_CATEGORIES.filter(function(c){return catCounts[c.id];}).map(function(c){return chip(_exLib.cat===c.id,c.em+' '+c.lb+' · '+catCounts[c.id],"setExLibCat('"+c.id+"')");}).join('');
   el('exLibAreas').innerHTML=chip(_exLib.area==='all','All areas',"setExLibArea('all')")+BODY_AREAS.filter(function(a){return areaCounts[a.id];}).map(function(a){return chip(_exLib.area===a.id,a.lb+' · '+areaCounts[a.id],"setExLibArea('"+a.id+"')");}).join('');
-  var shown=pool.filter(function(e){ return (_exLib.cat==='all'||e.cat===_exLib.cat)&&(_exLib.area==='all'||e.area===_exLib.area); });
+  var groups=filterExerciseChoiceGroups(parents,_exLib.cat,function(e){return _exLib.area==='all'||e.area===_exLib.area;});
+  var count=groups.reduce(function(total,group){return total+group.items.length;},0);
   var hint=el('exLibHint');
   if(_exLib.equipment&&pool.length===0&&!q) hint.textContent=availOnly?'No exercises available with this gym’s equipment.':'No catalogued exercises for this equipment.';
-  else if(hint) hint.textContent=(_exLib.mode==='add'?'Tap to add to '+(cMode==='home'?'today\'s home workout':'today\'s workout')+' · ':'Tap for the form guide · ')+shown.length+' exercise'+(shown.length===1?'':'s')+(availOnly?' at '+gym.name:'');
-  var html='', catOrder=EX_CATEGORIES.map(function(c){return c.id;});
-  catOrder.forEach(function(cid){
-    var inCat=shown.filter(function(e){return e.cat===cid;}); if(!inCat.length) return;
-    var cm=EX_CATEGORIES[catOrder.indexOf(cid)];
-    html+='<div style="font-size:11px;color:#fff;font-weight:700;margin:12px 0 2px">'+cm.em+' '+cm.lb+'</div><div style="font-size:9px;color:var(--mu);margin-bottom:4px">'+cm.sb+'</div>';
-    var groupByMuscle=!!_exLib.equipment;
-    var groups=groupByMuscle?Array.from(new Set(inCat.map(function(e){return e.g||e.area;}))).map(function(g){
-      var meta=MG_META[g];
-      return {id:g,lb:meta?(g==='hamstrings'?'Hamstrings':meta.nm):(BODY_AREAS.find(function(area){return area.id===g;})||{}).lb||'Cardio'};
-    }):BODY_AREAS;
-    groups.forEach(function(a){
-      var inArea=inCat.filter(function(e){return (groupByMuscle?(e.g||e.area):e.area)===a.id;}).sort(function(x,y){return x.n.localeCompare(y.n,undefined,{sensitivity:'base'});});
-      if(!inArea.length) return;
-      html+='<div style="font-size:9px;color:var(--ye);font-family:\'DM Mono\',monospace;letter-spacing:1px;text-transform:uppercase;margin:8px 0 3px">'+a.lb+' · '+inArea.length+'</div>';
-      inArea.forEach(function(e){
-        var avail=isAvailable(e), inToday=!!used[e.n];
-        var nm=encodeURIComponent(e.n);
-        var action=_exLib.mode==='add'
-          ?(inToday?'<span style="font-size:9px;color:var(--gr);flex-shrink:0">✓ in workout</span>':(avail?'<button class="exlib-add" data-n="'+nm+'" style="flex-shrink:0;padding:4px 10px;border-radius:7px;border:1px solid rgba(34,197,94,.4);background:rgba(34,197,94,.1);color:var(--gr);font-size:11px;cursor:pointer">＋ Add</button>':'<span style="font-size:9px;color:var(--mu);flex-shrink:0">🔒 not here</span>'))
-          :'<button class="exlib-info" data-n="'+nm+'" data-muscles="'+_safeAttr(e.t)+'" style="flex-shrink:0;width:28px;height:28px;border-radius:8px;border:1px solid var(--b2);background:var(--s3);color:#94a3b8;font-size:13px;cursor:pointer">ℹ️</button>';
-        html+='<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--b1)'+(avail?'':';opacity:.55')+'">'
-          +'<div style="flex:1;min-width:0"><div style="font-size:13px;color:#fff;overflow-wrap:anywhere">'+escapeHtml(e.n)+'</div><div style="font-size:10px;color:var(--mu);overflow-wrap:anywhere">'+escapeHtml(e.t||'')+'</div></div>'+action+'</div>';
-      });
-    });
-  });
+  else if(hint) hint.textContent=(_exLib.mode==='add'?'Tap to add to '+(cMode==='home'?'today\'s home workout':'today\'s workout')+' · ':'Tap for the form guide · ')+count+' exercise'+(count===1?'':'s')+(availOnly?' at '+gym.name:'');
+  var html=exerciseChoiceSections(groups,function(e,standard){
+    var avail=isAvailable(e), inToday=!!used[e.n];
+    var nm=encodeURIComponent(e.n);
+    var action=_exLib.mode==='add'
+    ?(inToday?'<span style="font-size:9px;color:var(--gr);flex-shrink:0">✓ in workout</span>':(avail?'<button class="exlib-add" data-n="'+nm+'" style="flex-shrink:0;padding:4px 10px;border-radius:7px;border:1px solid rgba(34,197,94,.4);background:rgba(34,197,94,.1);color:var(--gr);font-size:11px;cursor:pointer">＋ Add</button>':'<span style="font-size:9px;color:var(--mu);flex-shrink:0">🔒 not here</span>'))
+    :'<button class="exlib-info" data-n="'+nm+'" data-muscles="'+_safeAttr(e.t)+'" style="flex-shrink:0;width:28px;height:28px;border-radius:8px;border:1px solid var(--b2);background:var(--s3);color:#94a3b8;font-size:13px;cursor:pointer">ℹ️</button>';
+    return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--b1)'+(avail?'':';opacity:.55')+'">'
+    +'<div style="flex:1;min-width:0"><div style="font-size:13px;color:#fff;overflow-wrap:anywhere">'+escapeHtml(standard?'Standard':e.n)+'</div><div style="font-size:10px;color:var(--mu);overflow-wrap:anywhere">'+escapeHtml(e.t||'')+'</div></div>'+action+'</div>';
+  },!!q);
   if(!html) html='<div style="padding:16px;text-align:center;font-size:12px;color:var(--mu)">No exercises match. '+(availOnly?'Untick “Only what this gym has” to see everything.':'')+'</div>';
   listEl.innerHTML=html;
   if(!listEl._wired){
@@ -8474,27 +8670,27 @@ function renderSwapList(q){
   var list=listEl._list||[], idx=listEl._idx, current=listEl._current, busy=!!listEl._busy;
   q=String(q||'').trim().toLowerCase();
   var group=getMG(current), sameStation=listEl._sameStation;
-  var shown=list.filter(function(e){return sameStation?e.sameStation:e.g===group&&(!busy||!e.sameStation);});
+  var eligible=list.filter(function(e){return sameStation?e.sameStation:e.g===group&&(!busy||!e.sameStation);});
+  var parents=groupExerciseChoices(eligible);
   var scope=el('swapScope');
   scope.innerHTML='<button class="btn bsm '+(sameStation?'':'btn-p')+'" aria-pressed="'+!sameStation+'" onclick="setSwapScope(false)">Same muscle</button>'+
     '<button class="btn bsm '+(sameStation?'btn-p':'')+'" aria-pressed="'+sameStation+'" onclick="setSwapScope(true)"'+(list.some(function(e){return e.sameStation;})?'':' disabled')+'>Same equipment</button>';
   // Category chips (Calisthenics / Dumbbell-Barbell / Plate-Loaded / Pin-Select …)
   var catSel=listEl._cat||'all', chipsEl=el('swapCatChips');
   if(chipsEl){
-    var counts={}; shown.forEach(function(e){var c=exerciseCategory(e.n);counts[c]=(counts[c]||0)+1;});
+    var counts={};
+    parents.forEach(function(parent){var c=exerciseChoiceCategory(parent);counts[c]=(counts[c]||0)+parent.items.length;});
     chipsEl.innerHTML=[{id:'all',em:'',lb:'All'}].concat(EX_CATEGORIES).filter(function(c){return c.id==='all'||counts[c.id];}).map(function(c){
       var on=catSel===c.id;
-      return '<button onclick="setSwapCat(\''+c.id+'\')" style="padding:4px 9px;border-radius:999px;font-size:10px;cursor:pointer;'+(on?'border:1px solid var(--ye);background:rgba(245,196,0,.12);color:var(--ye)':'border:1px solid var(--b2);background:var(--s3);color:var(--mu)')+'">'+(c.em?c.em+' ':'')+c.lb+(c.id==='all'?' · '+shown.length:' · '+counts[c.id])+'</button>';
+      return '<button onclick="setSwapCat(\''+c.id+'\')" style="padding:4px 9px;border-radius:999px;font-size:10px;cursor:pointer;'+(on?'border:1px solid var(--ye);background:rgba(245,196,0,.12);color:var(--ye)':'border:1px solid var(--b2);background:var(--s3);color:var(--mu)')+'">'+(c.em?c.em+' ':'')+c.lb+(c.id==='all'?' · '+eligible.length:' · '+counts[c.id])+'</button>';
     }).join('');
   }
-  if(catSel!=='all') shown=shown.filter(function(e){return exerciseCategory(e.n)===catSel;});
-  if(q) shown=shown.filter(function(e){
-    return e.n.toLowerCase().indexOf(q)>=0 || (e.t||'').toLowerCase().indexOf(q)>=0;
-  });
+  var groups=filterExerciseChoiceGroups(parents,catSel,function(e){return matchesExerciseChoice(e,q);});
+  var count=groups.reduce(function(total,parent){return total+parent.items.length;},0);
   var hint=el('swapHint');
   var target=(MG_META[group]||{}).nm||group||'original muscle';
-  if(hint) hint.textContent=sameStation?'Same equipment · '+shown.length+' options':
-    target+' · '+shown.length+(busy?' on other equipment':' alternatives');
+  if(hint) hint.textContent=sameStation?'Same equipment · '+count+' options':
+    target+' · '+count+(busy?' on other equipment':' alternatives');
   var busyBtn=el('swapBusyBtn');
   if(busyBtn){
     busyBtn.textContent=busy?'🚧 Different equipment only':'🚧 Machine busy?';
@@ -8502,29 +8698,18 @@ function renderSwapList(q){
     busyBtn.style.background=busy?'rgba(249,115,22,.12)':'var(--s3)';
     busyBtn.style.color=busy?'var(--or)':'var(--mu)';
   }
-  // Group by equipment and put like-for-like movements first within each group.
-  var _order={}; EX_CATEGORIES.forEach(function(c,i){_order[c.id]=i;});
-  var family=GYM_MOVEMENT_OPTIONS.find(function(names){return names.indexOf(current)>=0;})||[];
-  shown=shown.slice().sort(function(a,b){
-    return (_order[exerciseCategory(a.n)]-_order[exerciseCategory(b.n)])||
-      Number(family.indexOf(b.n)>=0)-Number(family.indexOf(a.n)>=0)||
-      a.n.localeCompare(b.n,undefined,{sensitivity:'base'});
-  });
-  var _lastCat=null;
-  var html=shown.map(function(e){
+  var family=exerciseFamily(current,exerciseCategory(current));
+  groups.sort(function(a,b){return Number(b.name===family)-Number(a.name===family);});
+  var html=exerciseChoiceSections(groups,function(e,standard){
     var li=list.indexOf(e);
-    var _c=exerciseCategory(e.n), _hdr='';
-    if(_c!==_lastCat){ _lastCat=_c; var _cm=EX_CATEGORIES[_order[_c]]||{em:'',lb:_c}; _hdr='<div style="font-size:9px;color:var(--ye);font-family:\'DM Mono\',monospace;letter-spacing:1px;text-transform:uppercase;margin:8px 0 4px">'+_cm.em+' '+_cm.lb+'</div>'; }
-    var blurb=sameStation&&e.t?e.t:exerciseBlurb(e.n,e.t);
-    var groupLabel=sameStation&&e.g!==group?' <span style="color:var(--ye);font-size:10px">· '+escapeHtml((MG_META[e.g]||{}).nm||e.g)+'</span>':'';
+    var blurb=e.t||exerciseBlurb(e.n);
     var base=getBaseWeight(e.n);
-    var baseTag=base>0?'<span style="color:var(--ye);font-family:\'DM Mono\',monospace;font-size:9px"> · starts at '+toDisplayWeight(base)+' '+getWeightUnit()+'</span>':'';
-    return _hdr+'<div class="sopt" data-ei="'+idx+'" data-n="'+li+'" onclick="doSwapIdx('+idx+','+li+')">'
-      +'<div class="sname">'+escapeHtml(e.n)+groupLabel+'</div>'
-      +'<div class="starget">'+escapeHtml(blurb)+baseTag+'</div>'
-      +'</div>';
-  }).join('');
-  if(!shown.length){
+    var baseTag=base>0?' <span style="color:var(--ye)">· starts at '+toDisplayWeight(base)+' '+getWeightUnit()+'</span>':'';
+    return '<button class="sopt" type="button" data-ei="'+idx+'" data-n="'+li+'" onclick="doSwapIdx('+idx+','+li+')">'+
+      '<span class="sname">'+escapeHtml(standard?'Standard':e.n)+'</span>'+
+      '<span class="starget" style="display:block">'+escapeHtml(blurb)+baseTag+'</span></button>';
+  },!!q);
+  if(!count){
     html='<div style="padding:16px;text-align:center;font-size:12px;color:var(--mu)">'
       +(busy?'No alternatives on different equipment for this muscle.':q?'Nothing matches “'+escapeHtml(q)+'”.':'No available exercises in this view.')
       +'</div>';
@@ -9064,10 +9249,21 @@ function isSessionComplete(k,key){
 }
 // restLabel: human-readable rest range shown in UI
 
-var GYM_SPLIT_GROUPS=[
-  {label:'Main workouts',keys:['fullbody','upper','lower','push','pull']},
-  {label:'Specialized workouts',keys:['chest','back','shoulders','arms','quads','hamstrings','glutes','calves','core']}
+var GYM_SPLIT_FAMILIES=[
+  {main:'fullbody',options:['core']},
+  {main:'upper',options:['arms']},
+  {main:'lower',options:['quads','hamstrings','glutes','calves']},
+  {main:'push',options:['chest','shoulders']},
+  {main:'pull',options:['back']}
 ];
+function renderGymSplitFamilies(renderChoice,current){
+  return GYM_SPLIT_FAMILIES.map(function(family){
+    var children='<div class="slbl" style="margin:8px 0 4px">Specialized workouts</div>'+
+      family.options.map(function(key){return renderChoice(key);}).join('');
+    return movementFamilyHTML(WTPL[family.main].focus,renderChoice(family.main,true)+children,
+      family.options.length+1,family.options.includes(current),'split-family');
+  }).join('');
+}
 var SPLIT_META={auto:{nm:'Auto',sb:'Weekly default'},upper:{nm:'Upper',sb:'Chest/Back/Arms'},lower:{nm:'Lower',sb:'Quads/Hams/Calves'},fullbody:{nm:'Full Body',sb:'All groups'},glutes:{nm:'Glutes',sb:'Legs/Glutes'},arms:{nm:'Arms',sb:'Shoulders/Arms'},push:{nm:'Push',sb:'Chest/Shoulders/Tris'},pull:{nm:'Pull',sb:'Back/Biceps'},core:{nm:'Core',sb:'Abs/Core/Lower Back'}};
 Object.keys(SPECIALIZED_GYM_SPLITS).forEach(function(key){
   var option=SPECIALIZED_GYM_SPLITS[key];
@@ -9615,13 +9811,12 @@ function setDType(t){
 
 function refreshDTypeButtons(){['rest','gym','run','both'].forEach(function(t){var b=el('dtype-'+t);if(!b)return;b.className='dtype-btn'+(mDayType===t?' sel-'+t:'');});el('dayGymSect').style.display=(mDayType==='gym'||mDayType==='both')?'block':'none';}
 function buildSplitGrid(){
-  function button(s){
+  function button(s,main){
     var m=SPLIT_META[s];
-    return '<button class="split-btn'+(mDaySplit===s?' active':'')+'" onclick="setSplit(\''+s+'\')"><div class="split-nm">'+m.nm+'</div><div class="split-sb">'+m.sb+'</div></button>';
+    return '<button class="split-btn'+(mDaySplit===s?' active':'')+'" onclick="setSplit(\''+s+'\')"><div class="split-nm">'+(main?'Standard '+m.nm:m.nm)+'</div><div class="split-sb">'+m.sb+'</div></button>';
   }
-  el('splitGrid').innerHTML=button('auto')+GYM_SPLIT_GROUPS.map(function(group){
-    return '<div class="slbl" style="grid-column:1/-1;margin:8px 0 0">'+group.label+'</div>'+group.keys.map(button).join('');
-  }).join('');
+  el('splitGrid').innerHTML=button('auto')+'<div class="slbl" style="grid-column:1/-1;margin:8px 0 0">Main workouts</div>'+
+    renderGymSplitFamilies(button,mDaySplit);
 }
 function setSplit(s){mDaySplit=s;buildSplitGrid();buildDayPreview();}
 function buildDayPreview(){var p=el('dayPreviewArea');if(!p)return;if(mDayType==='rest'){p.innerHTML='<div style="text-align:center;color:var(--mu);font-size:13px;padding:10px 0">😴 Rest day</div>';return;}var h='';if(mDayType==='run'||mDayType==='both')h+='<div class="csm" style="margin-bottom:7px"><div style="font-size:11px;color:var(--ru);font-family:\'DM Mono\',monospace">🏃 Run session per marathon plan</div></div>';if(mDayType==='gym'||mDayType==='both'){var _lgS=loggedGymSplits()[editDK];var tplKey=_lgS||(mDaySplit==='auto'?getEffTpl(editDK):mDaySplit),tpl=WTPL[tplKey];if(tpl){h+='<div class="csm"><div style="font-size:12px;font-weight:600;margin-bottom:5px">🏋️ '+tpl.focus+(_lgS?' <span style="font-size:9px;color:var(--gr)">✓ trained</span>':(mDaySplit==='auto'&&S.prefs&&S.prefs.autoRotateSplits?' <span style="font-size:9px;color:#a78bfa">🔄 auto</span>':''))+'</div>'+tpl.exercises.slice(0,4).map(function(e){return'<div style="font-size:11px;color:var(--mu);margin:2px 0">• '+e.n+'</div>';}).join('');if(tpl.exercises.length>4)h+='<div style="font-size:10px;color:var(--mu);margin-top:2px">+'+( tpl.exercises.length-4)+' more</div>';h+='<div style="font-size:10px;color:var(--bl);margin-top:4px">📍 '+tpl.cardio[0].n+' ('+tpl.cardio[0].dur+'m)</div></div>';}}p.innerHTML=h;}
@@ -9676,14 +9871,11 @@ function renderScheduleEditor(){
       '</div>'+
       (isGym?
         '<div><div style="font-size:9px;color:var(--mu);font-family:\'DM Mono\',monospace;letter-spacing:1px;margin-bottom:5px">DEFAULT SPLIT</div>'+
-        '<div style="display:flex;flex-wrap:wrap;gap:5px">'+
-          GYM_SPLIT_GROUPS.map(function(group){
-            return '<div style="width:100%;font-size:10px;color:var(--mu)">'+group.label+'</div>'+group.keys.map(function(s){
-            var active=d.split===s;
-            return '<button onclick="_schedEditSetSplit('+i+',\''+s+'\')" style="padding:4px 9px;border-radius:7px;border:1px solid '+(active?'var(--ye)':'var(--b2)')+';background:'+(active?'rgba(245,196,0,.1)':'var(--s3)')+';color:'+(active?'var(--ye)':'var(--mu)')+';font-size:10px;cursor:pointer">'+SPLIT_META[s].nm+'</button>';
-            }).join('');
-          }).join('')+
-        '</div></div>'
+        renderGymSplitFamilies(function(s,main){
+          var active=d.split===s;
+          return '<button class="split-btn'+(active?' active':'')+'" onclick="_schedEditSetSplit('+i+',\''+s+'\')">'+
+            (main?'Standard ':'')+SPLIT_META[s].nm+'</button>';
+        },d.split)+'</div>'
       :'')+
     '</div>';
   }
@@ -27409,6 +27601,11 @@ function filterEquipSection(tab, query){
       var row=it.closest('div[style*="border-bottom"]'); if(row) row.style.display = m ? '' : 'none';
       if(m) anyMatch=true;
     });
+    block.querySelectorAll('.movement-family').forEach(function(family){
+      var matches=Array.from(family.querySelectorAll('div[style*="border-bottom"]')).some(function(row){return row.style.display!=='none';});
+      family.hidden=!matches;
+      if(matches) family.open=true;
+    });
     if(!rows.length && block.textContent.toLowerCase().indexOf(q)>=0) anyMatch=true;
     block.style.display = anyMatch ? '' : 'none';
   });
@@ -27628,6 +27825,7 @@ function generateRestProtocolInfo(proto){
 function buildExercisePage(){
   var el2=el('exerciseContent');if(!el2) return;
   var gym=getActiveGym();
+  var expanded=new Set(Array.from(el2.querySelectorAll('.movement-family[open] .movement-family-title'),function(title){return title.textContent;}));
   if(!S.enabledExercises) S.enabledExercises={};
   var html='<div style="padding:16px 16px 0"><div style="font-size:11px;color:var(--mu);margin-bottom:10px;line-height:1.5">Toggle exercises on/off. Tap ℹ️ for form guides, images, and video demos.</div></div>';
   EXERCISE_CATALOGUE.forEach(function(cat){
@@ -27639,19 +27837,29 @@ function buildExercisePage(){
       'class="ex-selall-btn" data-catid="'+cat.id+'" data-action="on"',
       'class="ex-selall-btn" data-catid="'+cat.id+'" data-action="off"',
       'class="ex-add-btn" data-catid="'+cat.id+'"', exSub);
-    cat.items.forEach(function(item){
+    var cardio=isCatalogCardioEquipment(cat.equipment);
+    var choices=cat.items.map(function(item){
+      return Object.assign({},item,{cat:cardio?'cardio':exerciseCategory(item.n)});
+    });
+    var search=(el('searchExercises')||{}).value;
+    html+=renderExerciseChoices(groupExerciseChoices(choices,cat.equipment),function(item){
+      var row='';
       var key=cat.id+'::'+item.n;var on=S.enabledExercises[key]!==false;
       var isCustom=S.customExCatItems&&S.customExCatItems[cat.id]&&S.customExCatItems[cat.id].some(function(i){return i.n===item.n;});
-      html+='<div style="display:flex;align-items:center;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04)"><div style="flex:1;min-width:0;margin-right:10px"><div style="font-size:12px;color:#fff;font-weight:500">'+item.n+(isCustom?' <span style="font-size:8px;color:var(--ye);font-family:\'DM Mono\',monospace">CUSTOM</span>':'')+'</div><div style="font-size:9px;color:var(--mu);font-family:\'DM Mono\',monospace">'+item.muscles+'</div></div>';
-      html+='<button class="ex-info-exercise-btn" data-exname="'+encodeURIComponent(item.n)+'" data-muscles="'+encodeURIComponent(item.muscles||'')+'" style="width:28px;height:28px;border-radius:8px;border:1px solid var(--b2);background:var(--s3);color:#94a3b8;font-size:13px;cursor:pointer;flex-shrink:0;margin-right:8px">ℹ️</button>';
+      row+='<div style="display:flex;align-items:center;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04)"><div style="flex:1;min-width:0;margin-right:10px"><div style="font-size:12px;color:#fff;font-weight:500">'+item.n+(isCustom?' <span style="font-size:8px;color:var(--ye);font-family:\'DM Mono\',monospace">CUSTOM</span>':'')+'</div><div style="font-size:9px;color:var(--mu);font-family:\'DM Mono\',monospace">'+item.muscles+'</div></div>';
+      row+='<button class="ex-info-exercise-btn" data-exname="'+encodeURIComponent(item.n)+'" data-muscles="'+encodeURIComponent(item.muscles||'')+'" style="width:28px;height:28px;border-radius:8px;border:1px solid var(--b2);background:var(--s3);color:#94a3b8;font-size:13px;cursor:pointer;flex-shrink:0;margin-right:8px">ℹ️</button>';
       if(isCustom){
-        html+='<button class="ex-del-custom-btn" data-catid="'+cat.id+'" data-exname="'+encodeURIComponent(item.n)+'" style="width:28px;height:28px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.08);color:var(--re);font-size:11px;cursor:pointer;flex-shrink:0;margin-right:6px">🗑</button>';
+        row+='<button class="ex-del-custom-btn" data-catid="'+cat.id+'" data-exname="'+encodeURIComponent(item.n)+'" style="width:28px;height:28px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.08);color:var(--re);font-size:11px;cursor:pointer;flex-shrink:0;margin-right:6px">🗑</button>';
       }
-      html+='<div class="ex-toggle-btn" data-catid="'+cat.id+'" data-exname="'+encodeURIComponent(item.n)+'" style="cursor:pointer;width:44px;height:24px;border-radius:12px;background:'+(on?'var(--gr)':'var(--b2)')+';position:relative;flex-shrink:0;transition:background .2s"><div style="position:absolute;top:2px;'+(on?'right:2px':'left:2px')+';width:20px;height:20px;border-radius:50%;background:#fff;transition:all .2s"></div></div></div>';
-    });
+      row+='<div class="ex-toggle-btn" data-catid="'+cat.id+'" data-exname="'+encodeURIComponent(item.n)+'" style="cursor:pointer;width:44px;height:24px;border-radius:12px;background:'+(on?'var(--gr)':'var(--b2)')+';position:relative;flex-shrink:0;transition:background .2s"><div style="position:absolute;top:2px;'+(on?'right:2px':'left:2px')+';width:20px;height:20px;border-radius:50%;background:#fff;transition:all .2s"></div></div></div>';
+      return row;
+    },!!search);
     html+='</div>';
   });
   el2.innerHTML=html;
+  el2.querySelectorAll('.movement-family').forEach(function(family){
+    if(expanded.has(family.querySelector('.movement-family-title').textContent)) family.open=true;
+  });
   try{ reapplyEquipSearch('exercises'); }catch(e){}
   el2.onclick=function(e){
     var t=e.target;
@@ -29649,7 +29857,7 @@ function openSplitSwitcher(){
   var k=dKey(vDate);
   var currentSplit=getEffTpl(k);
   var recentSplits=getRecentSplits(7);
-  var allSplits=GYM_SPLIT_GROUPS[0].keys;
+  var allSplits=GYM_SPLIT_FAMILIES.map(function(family){return family.main;});
   // Score each split: lower = better recommendation (0 = not done recently)
   var scores={};
   allSplits.forEach(function(s){
@@ -29676,8 +29884,7 @@ function openSplitSwitcher(){
     return splitOverlapScore(a)-splitOverlapScore(b);
   })[0];
 
-  var html=GYM_SPLIT_GROUPS.map(function(group){
-    return '<div class="slbl" style="margin:10px 0 4px">'+group.label+'</div>'+group.keys.map(function(s){
+  var html='<div class="slbl" style="margin:10px 0 4px">Main workouts</div>'+renderGymSplitFamilies(function(s,main){
     var tpl=WTPL[s]; if(!tpl) return '';
     var isCurrent=s===currentSplit;
     var isRec=s===recommended&&!isCurrent;
@@ -29690,13 +29897,12 @@ function openSplitSwitcher(){
     var si=SPLIT_INFO[s]||{short:(SPLIT_META[s]||{}).sb};
     var blurb=si.short||tpl.exercises.slice(0,3).map(function(e){return e.n.split(' ').slice(0,2).join(' ');}).join(' · ');
     return '<div class="'+cls+'" onclick="confirmSplitSwitch(\''+s+'\')'+(isCurrent?';return':'')+'">'
-      +'<div class="split-opt-name" style="display:flex;align-items:center;justify-content:space-between;gap:8px"><span>'+tpl.focus+recNote+(isCurrent?' <span style="font-size:9px;color:var(--mu)">(current)</span>':'')+'</span>'
+      +'<div class="split-opt-name" style="display:flex;align-items:center;justify-content:space-between;gap:8px"><span>'+(main?'Standard '+SPLIT_META[s].nm:tpl.focus)+recNote+(isCurrent?' <span style="font-size:9px;color:var(--mu)">(current)</span>':'')+'</span>'
       +'<button onclick="event.stopPropagation();openSplitInfo(\''+s+'\')" title="What is this split?" style="flex-shrink:0;width:26px;height:26px;border-radius:7px;border:1px solid var(--b2);background:var(--s3);color:#94a3b8;font-size:12px;cursor:pointer">ℹ️</button></div>'
       +'<div class="split-opt-sub">'+escapeHtml(blurb)+'</div>'
       +'<div style="font-size:9px;color:var(--mu);margin-top:3px">'+(si.bestFor?'<span style="color:#64748b">Best for '+escapeHtml(si.bestFor)+'</span>':'')+doneNote+overlapNote+'</div>'
       +'</div>';
-    }).join('');
-  }).join('');
+  },currentSplit);
 
   var modal=el('splitSwitcherModal');
   if(modal){
@@ -30165,7 +30371,8 @@ function openCardioSwap(type, idx, tplKey){
   Object.keys(_bySlot).forEach(function(slot){ if(slot!==type+'-'+idx) _usedTypes[cardioTypeKey(_bySlot[slot])]=1; });
   var _filtered=available.filter(function(opt){ return !_usedTypes[cardioTypeKey(opt.n)]; });
   if(_filtered.length) available=_filtered; // never leave the picker empty
-  list.innerHTML=available.map(function(opt){
+  var choices=available.map(function(opt){return Object.assign({cat:'cardio'},opt);});
+  list.innerHTML=renderExerciseChoices(groupExerciseChoices(choices),function(opt){
     // Find the real index in CARDIO_OPTIONS so selectCardioSwap can look it up
     var realIdx = -1;
     for(var ri=0;ri<CARDIO_OPTIONS.length;ri++){
@@ -30178,7 +30385,7 @@ function openCardioSwap(type, idx, tplKey){
       '</div>'+
       '<div style="font-size:11px;color:var(--mu);margin-top:3px">'+opt.tgt+'</div>'+
     '</div>';
-  }).join('');
+  },false);
   openModal('cardioSwapModal');
 }
 

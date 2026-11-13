@@ -1258,7 +1258,8 @@ let server, browser;
       const old=g.exercises[i];updateSet(i,0,'reps','5');
       const reps=old.sets.filter(isStraightWorkSet).map(x=>x.reps),warmups=old.warmupPlan.length;
       openSwap(i,'Barbell Back Squat'); toggleSwapBusyFilter();
-      const choice=Array.from(el('swapList').querySelectorAll('.sopt')).find(x=>x.querySelector('.sname')?.textContent===name);
+      const swapList=el('swapList');
+      const choice=Array.from(swapList.querySelectorAll('.sopt[data-n]')).find(x=>swapList._list[Number(x.dataset.n)].n===name);
       check(choice,'leg press omitted by busy filter'); choice.click();
       const replaced=g.exercises[i];
       check(g.exList[i].n===name&&g.exList[i].main&&g.exList[i].replaces==='Barbell Back Squat','main role or identity lost');
@@ -1411,6 +1412,73 @@ let server, browser;
       check(_buildSplitPool('glutes',gym).some(e=>e.n==='High Foot Placement Press'),'glute emphasis absent from glute workout');
       check(_buildSplitPool('calves',gym).some(e=>e.n==='Leg Press Calf Raise'),'calf emphasis absent from calf workout');
       check(getLastExSession('Single-Arm Lat Pull-Down')===null,'unlogged variant inherited another lift history');
+    });
+    test('movement families nest standard choices and variations across the exercise catalog', () => {
+      reset();const library=allLibraryExercises();
+      const examples=[
+        ['Chest Press Machine',['Chest Press Machine','Single-Arm Chest Press Machine','Wide-Grip Chest Press Machine','Close-Grip Chest Press Machine']],
+        ['Lat Pull-Down Machine',['Lat Pull-Down Machine','Single-Arm Lat Pull-Down','Neutral-Grip Lat Pull-Down']],
+        ['Plate-Loaded Leg Press',['Plate-Loaded Leg Press','High Foot Placement Press','Leg Press Calf Raise']],
+        ['Smith Machine Squat',['Smith Machine Squat','Smith Machine Front Squat','Smith Machine Box Squat']],
+        ['Smith Machine Bench Press',['Smith Machine Bench Press','Smith Machine Incline Press','Smith Machine Reverse-Grip Bench Press']],
+        ['Pec Deck / Fly Machine',['Pec Deck / Fly Machine','Single-Arm Pec Deck Fly','Pec Fly / Rear Delt (Rear)']],
+        ['Cable Low Row',['Cable Low Row','Single-Arm Seated Cable Row','Rope Seated Cable Row']],
+        ['Cable Chest Fly',['Cable Chest Fly (High to Low)','Cable Chest Fly (Low to High)']],
+        ['Leg Extension Machine',['Leg Extension Machine','Single-Leg Leg Extension','Toes-Out Leg Extension']],
+        ['Dips',['Dips','Chest Dip (Forward Lean)','Tricep Dip']],
+        ['Pull-Ups',['Pull-Ups','Chin-Ups','Neutral-Grip Pull-Up']],
+        ['Push-Ups',['Push-Ups','Diamond Push-Up','Wide Push-Up']],
+        ['Barbell Back Squat',['Barbell Back Squat','Barbell Pause Squat']],
+        ['Dumbbell Bicep Curls',['Dumbbell Bicep Curls','Incline Dumbbell Curl']],
+        ['TRX Row',['TRX Row','TRX Single-Arm Row']]
+      ];
+      const grouped=groupExerciseChoices(library);
+      check(grouped.flatMap(g=>g.items).length===library.length,'catalog lost options');
+      for(const [parent,children] of examples){
+        const family=grouped.find(g=>g.name===parent);
+        check(family&&children.every(name=>family.items.some(e=>e.n===name)),parent+' has an ungrouped variation');
+      }
+      openExerciseLibrary('browse','all','Plate-Loaded Leg Press');
+      const family=Array.from(el('exLibList').querySelectorAll('details')).find(x=>x.querySelector('summary').textContent.includes('Plate-Loaded Leg Press'));
+      check(family&&!family.open,'leg press variations should start collapsed');
+      check(family.querySelector('.exlib-info[data-n="'+encodeURIComponent('Leg Press Calf Raise')+'"]'),'calf variation escaped the leg press parent');
+      openExerciseLibrary('browse','all','Treadmill');
+      check(el('exLibList').querySelector('details')?.textContent.includes('Reverse Treadmill Walk'),'cardio modes are not nested');
+    });
+    test('expand and search exercise variations, then save the chosen identity', () => {
+      const k=liveReset('push');buildTodayWorkout();const gym=GS(k);
+      const i=gym.exList.findIndex(e=>e.n==='Bench Press (Barbell)');
+      check(i>=0,'fixture missing barbell bench');
+      openSwap(i,gym.exList[i].n);
+      const list=el('swapList');
+      const chest=()=>Array.from(list.querySelectorAll('.movement-family')).find(x=>x.querySelector('.movement-family-title').textContent==='Chest Press Machine');
+      const variant='Single-Arm Chest Press Machine';
+      const swap=()=>Array.from(list.querySelectorAll('.sopt[data-n]')).find(x=>list._list[Number(x.dataset.n)].n===variant);
+      check(chest()&&!chest().open&&swap().closest('details')===chest(),'single-arm press is not under a collapsed chest press');
+      check(chest().querySelector('.sname').textContent==='Standard','standard press is not the first option');
+      chest().querySelector('summary').click();
+      check(chest().open,'chest press could not expand');
+      el('swapFilter').value='single-arm chest';
+      el('swapFilter').dispatchEvent(new Event('input'));
+      check(chest().open&&swap().closest('details')===chest(),'search did not open the matching parent');
+      swap().click();
+      check(gym.exList[i].n===variant,'swap saved the family name');
+      gym.exercises[i].sets[0].done=true;
+      doSaveWorkout(3,'');
+      check(S.history.find(h=>h.date===k).exercises.some(e=>e.name===variant&&e.sets[0].done),'logged variation lost its identity');
+    });
+    test('workout pickers nest specialized plans under their main workout', () => {
+      const k=liveReset('lower');buildTodayWorkout();openSplitSwitcher();
+      const today=Array.from(el('splitSwitcherList').querySelectorAll('details')).find(x=>x.querySelector('summary').textContent.includes('Lower Body Strength'));
+      check(today&&today.textContent.includes('Standard Lower')&&today.textContent.includes('Quads & Calves')&&today.textContent.includes('Hamstrings & Posterior Chain'),'Today lower workout missing children');
+      closeModal('splitSwitcherModal');
+      openDayModal(k);
+      const plan=Array.from(el('splitGrid').querySelectorAll('details')).find(x=>x.querySelector('summary').textContent.includes('Lower Body Strength'));
+      plan.querySelector('summary').click();
+      plan.querySelector('button[onclick*="quads"]').click();
+      check(mDaySplit==='quads'&&el('splitGrid').querySelector('details[open] button.active'),'Plan did not preserve the selected child');
+      saveDayConfig();
+      check(getEffTpl(k)==='quads','specialized workout did not save');
     });
     reset(); saveS();
     return results;
