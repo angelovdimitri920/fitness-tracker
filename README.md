@@ -83,10 +83,11 @@ appropriate session, then gives you a deep logging surface.
   actual muscle groups of the exercises picked (true antagonists first; non-competing pairs only
   on metabolic focuses; never on Power). The app alternates them, equalizes their set counts, and
   visually groups the cards.
-- **Per-exercise swap** — find available alternatives grouped by equipment, including variations
-  that share a station. The replacement inherits the work sets, reps, warm-up ramp, and main-lift
+- **Per-exercise swap** — choose **Same muscle** for alternatives to the planned exercise or
+  **Same equipment** to see variations and other muscle targets on the station. The replacement inherits the work sets, reps, warm-up ramp, and main-lift
   role. Its load comes from its own history or estimate, adjusted to the original slot's
-  relative effort. It saves under the exercise you actually performed.
+  relative effort when the muscle target is comparable. It saves under the exercise you actually
+  performed. Use **Equipment → Exercises** on any station to browse its catalogued movements.
 - **Skip** — drop an exercise for today without losing it from the template (excluded from
   volume / completion / PRs).
 - **Pre-loaded ("starts at") weight** — bars and plate-loaded machines already weigh something

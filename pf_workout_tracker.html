@@ -2018,15 +2018,17 @@ canvas{width:100%!important;display:block}
 <div class="mo" id="swapModal"><div class="md"><div class="mh"></div><button class="mc" onclick="closeModal('swapModal')">✕</button><div class="mt">🔄 SWAP EXERCISE</div><div style="font-size:12px;color:var(--mu);margin-bottom:8px" id="swapHint"></div>
 <input id="swapFilter" type="search" class="ex-note-inp" placeholder="Search alternatives…" oninput="renderSwapList(this.value)" style="width:100%;padding:9px 11px;font-size:13px;margin-bottom:8px">
 <button id="swapBusyBtn" onclick="toggleSwapBusyFilter()" title="Someone's on the machine? Show only alternatives that use different equipment." style="width:100%;padding:7px 11px;margin-bottom:10px;border-radius:8px;border:1px solid var(--b2);background:var(--s3);color:var(--mu);font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.5px;cursor:pointer">🚧 Machine busy?</button>
+<div id="swapScope" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px"></div>
 <div id="swapCatChips" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px"></div>
 <div id="swapList"></div></div></div>
 
 <div class="mo" id="exLibModal"><div class="md"><div class="mh"></div><button class="mc" onclick="closeModal('exLibModal')">✕</button><div class="mt" id="exLibTitle">📚 EXERCISE LIBRARY</div>
 <div style="font-size:11px;color:var(--mu);margin-bottom:8px" id="exLibHint"></div>
 <input id="exLibSearch" type="search" class="ex-note-inp" placeholder="Search exercises…" oninput="renderExerciseLibrary()" style="width:100%;padding:9px 11px;font-size:13px;margin-bottom:8px">
+<select id="exLibEquipment" class="ex-note-inp" aria-label="Equipment" onchange="setExLibEquipment(this.value)" style="width:100%;padding:8px;margin-bottom:8px"></select>
 <div id="exLibCats" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px"></div>
 <div id="exLibAreas" style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px"></div>
-<label style="display:flex;align-items:center;gap:7px;font-size:11px;color:var(--mu);margin:2px 0 10px;cursor:pointer"><input type="checkbox" id="exLibAvailOnly" onchange="renderExerciseLibrary()" checked> Only what this gym has</label>
+<label style="display:flex;align-items:center;gap:7px;font-size:11px;color:var(--mu);margin:2px 0 10px;cursor:pointer"><input type="checkbox" id="exLibAvailOnly" style="width:auto;flex:0 0 auto" onchange="renderExerciseLibrary()" checked> Only what this gym has</label>
 <div id="exLibList"></div></div></div>
 
 <div class="mo" id="intervalTimerModal"><div class="md"><div class="mh"></div><button class="mc" onclick="ivtReset(true);closeModal('intervalTimerModal')">✕</button><div class="mt">⏱️ INTERVAL TIMER</div>
@@ -2355,6 +2357,7 @@ chest:[
   {n:'Elevated Push-Up',t:'Upper Chest · Shoulders'},
   {n:'Archer Push-Up',t:'Chest · Triceps'},
   {n:'Dips',t:'Chest · Triceps · Shoulders'},
+  {n:'Chest Dip (Forward Lean)',t:'Chest emphasis · Triceps',p:2},
   {n:'TRX Chest Press',t:'Chest · Triceps'},
   {n:'Close-Grip Bench Press',t:'Triceps · Inner Chest'},
 ],
@@ -2619,6 +2622,7 @@ triceps:[
   {n:'Cable Overhead Tricep Extension',t:'Triceps long head'},
   {n:'Dumbbell Tricep Kickback',t:'Triceps'},
   {n:'Bench Dips',t:'Triceps'},
+  {n:'Tricep Dip',t:'Triceps emphasis · Chest',p:2},
   {n:'Chin/Dip Machine',t:'Triceps · Lats'},
   {n:'Chin/Dip Machine (Dip)',t:'Triceps · Chest'},
   {n:'Diamond Push-Up',t:'Triceps · Chest'},
@@ -2726,11 +2730,9 @@ quads:[
   {n:'Dumbbell Step-Up',t:'Quads · Glutes'},
   {n:'Dumbbell Reverse Lunge',t:'Quads · Glutes'},
   {n:'Dumbbell Walking Lunge',t:'Quads · Glutes'},
-  {n:'High Foot Placement Press',t:'Glutes · Hamstrings'},
   {n:'Low Foot Placement Press',t:'Quads · Emphasis'},
   {n:'Single-Leg Press',t:'Quads · Glutes · Unilateral'},
-  {n:'Narrow Stance Press',t:'Quads · Inner'},
-  {n:'Wide Stance Press',t:'Glutes · Adductors'},
+  {n:'Narrow Stance Press',t:'Quads · Glutes · Narrow stance'},
   {n:'Bulgarian Split Squat (Box)',t:'Quads · Glutes'},
   {n:'Step-Up with Dumbbell',t:'Quads · Glutes'},
 ],
@@ -2808,6 +2810,8 @@ glutes:[
   {n:"Reverse Hack Squat",t:"Glutes · Hamstrings · Quads",p:2},
   {n:"Glute Kickback Machine (Standing)",t:"Glutes · Hamstrings · Glute Medius",p:2},
   {n:"Wide-Stance Hack Squat",t:"Glutes · Adductors · Quads",p:3},
+  {n:'High Foot Placement Press',t:'Glutes emphasis · Quads',p:2},
+  {n:'Wide Stance Press',t:'Glutes · Adductors · Quads',p:2},
   {n:'Hip Thrust (Barbell)',t:'Glutes'},
   {n:'Smith Machine Hip Thrust',t:'Glutes · Hamstrings'},
   {n:'Hip Thrust Machine',t:'Glutes · Hamstrings'},
@@ -2920,6 +2924,7 @@ core:[
   {n:"Ab Wheel Plank Hold",t:"Abs · Anti-Extension Core",p:3},
   {n:"Stability Ball V-Pass",t:"Abs · Hip Flexors",p:3},
   {n:'Hanging Leg Raise',t:'Abs · Hip Flexors'},
+  {n:'Hanging Knee Raise',t:'Abs · Hip Flexors · Bent knees',p:2},
   {n:'Parallette L-Sit',t:'Abs · Hip Flexors · Triceps',p:3},
   {n:"Captain's Chair Leg Raise",t:'Abs · Hip Flexors'},
   {n:'Ab Roller / Ab Wheel',t:'Abs · Lats'},
@@ -3356,7 +3361,7 @@ var EXERCISE_DEPS={
 "Toes-In Leg Extension":["Leg Extension Machine"],
 "Toes-Out Leg Extension":["Leg Extension Machine"],
 "Single-Leg Seated Leg Curl":["Seated Leg Curl Machine"],
-"Single-Leg Lying Leg Curl":["Prone Leg Curl Machine"],
+"Single-Leg Lying Leg Curl":["Prone Leg Curl Machine","Lying Leg Curl Machine"],
 "Banded Leg Press":["Leg Press Machine"],
 "Single-Leg Hack Squat":["Hack Squat Machine"],
 "Reverse Hack Squat":["Hack Squat Machine"],
@@ -3512,7 +3517,32 @@ var EXERCISE_DEPS={
   'Concentration Curl':['Dumbbells (5-75 lbs)','Dumbbells (80-150 lbs)'],
   'Spider Curl':['Dumbbells (5-75 lbs)','Incline Bench','Adjustable FID Bench'],
   'Zottman Curl':['Dumbbells (5-75 lbs)','Dumbbells (80-150 lbs)'],
+  'Machine Lateral Raise':['Lateral Raise Machine','Plate-Loaded Lateral Raise'],
+  'Machine Shrug':['Shrug Machine','Plate-Loaded Shrug Machine'],
+  'Machine Face Pull':['Face Pull Cable Station','Cable Crossover Machine','Functional Trainer','Cable Adjustable Pulley'],
+  'Machine Upright Row':['Cable Upright Row Station','Cable Crossover Machine','Functional Trainer','Cable Adjustable Pulley'],
+  'Rotary Shoulder Press':['Rotary Shoulder Machine'],
+  'Neck Flexion (Machine)':['Neck Machine (4-Way)'],
+  'Neck Extension (Machine)':['Neck Machine (4-Way)'],
+  'Neck Lateral Flexion (Machine)':['Neck Machine (4-Way)'],
+  'Plate-Loaded Preacher Curl':['Plate-Loaded Preacher Curl'],
+  'Dual-Arm Independent Curl':['Dual Bicep Curl Machine'],
+  'Cable Preacher Curl':['Cable Preacher Curl Station','Cable Crossover Machine','Functional Trainer','Cable Adjustable Pulley'],
+  'Overhead Machine Tricep Extension':['Overhead Tricep Extension Machine'],
+  'Rope Tricep Pushdown':['Rope Tricep Pushdown Station','Cable Crossover Machine','Functional Trainer','Cable Adjustable Pulley'],
+  'Machine Reverse Curl':['Reverse Curl Machine'],
+  'Sled Push (Moveable Fitness Tank)':['Moveable Fitness Tank','Turf / Sled Track'],
+  'Sled Pull (Moveable Fitness Tank)':['Moveable Fitness Tank','Turf / Sled Track'],
+  'Medicine Ball Slam':['Slam Ball','Medicine Ball Station'],
+  'Medicine Ball Wall Ball':['Wall Ball','Medicine Ball Station'],
+  'Farmer Carry':['Farmer Handles','Dumbbells'],
+  'Farmer Walk':['Farmer Handles','Dumbbells'],
+  'Sandbag Carry':['Sandbag'],
+  'Cable Chest Fly (High to Low)':['Cable Crossover Machine','Cable Crossover (Chest Fly)','Functional Trainer','Cable Adjustable Pulley'],
+  'Cable Chest Fly (Low to High)':['Cable Crossover Machine','Cable Crossover (Chest Fly)','Functional Trainer','Cable Adjustable Pulley'],
   'Dips':['Dip Station / Parallel Bars','Dip Bars (Portable)','Equalizer Bars'],
+  'Chest Dip (Forward Lean)':['Dip Station / Parallel Bars','Dip Bars (Portable)','Equalizer Bars'],
+  'Tricep Dip':['Dip Station / Parallel Bars','Dip Bars (Portable)','Equalizer Bars'],
   'Bench Dips':['Flat Bench','Adjustable FID Bench','Incline Bench','Decline Bench'],
   'Decline Bench Sit-Up':['Decline Bench','Target Abs Bench'],
   'Preacher Curl Bench':['Preacher Curl Bench'],
@@ -3546,7 +3576,7 @@ var EXERCISE_DEPS={
   'Leg Press Machine':['Leg Press Machine'],
   'Leg Extension Machine':['Leg Extension Machine'],
   'Seated Leg Curl Machine':['Seated Leg Curl Machine'],
-  'Prone Leg Curl Machine':['Prone Leg Curl Machine','Seated Leg Curl Machine'],
+  'Prone Leg Curl Machine':['Prone Leg Curl Machine','Lying Leg Curl Machine'],
   'Standing Leg Curl Machine':['Standing Leg Curl Machine','Seated Leg Curl Machine'],
   'Hip Thrust Machine':['Hip Thrust Machine','Plate-Loaded Glute Trainer'],
   'Glute Kickback Machine':['Glute Kickback Machine'],
@@ -3682,13 +3712,13 @@ function isExerciseAvailable(exName, gymEquipment){
   var hasRack=gymEquipment.some(function(e){return /power rack|squat cage|squat rack/i.test(e);});
   if(/barbell/i.test(exName)&&/bench press|pin press/i.test(exName)&&(!hasBench||!hasRack)) return false;
   if(/barbell/i.test(exName)&&/back squat|front squat|pause squat|pin squat/i.test(exName)&&!hasRack) return false;
-  if(/dumbbell/i.test(exName)&&/bench press|incline.*press|incline.*fly/i.test(exName)&&!hasBench) return false;
+  if(/dumbbell/i.test(exName)&&/bench press|incline.*press|incline.*fly|incline.*curl|incline.*row|decline.*press/i.test(exName)&&!hasBench) return false;
   // Direct match - exercise name is in equipment list
   if(gymEquipment.indexOf(exName) >= 0) return true;
   // Check dependency table
   var deps = EXERCISE_DEPS[exName];
   if(deps){
-    if(/^(Dips|Pull-Ups|Chin-Ups|Hanging (Knee|Leg) Raise|Dead Hang)$/.test(exName)||deps.indexOf('Pull-Up Bar (Doorframe)')>=0){
+    if(deps.indexOf('Dip Station / Parallel Bars')>=0||deps.indexOf('Pull-Up Bar (Doorframe)')>=0){
       return deps.some(function(dep){return gymEquipment.indexOf(dep)>=0;})||
         (deps.indexOf('Power Rack / Squat Cage')>=0&&hasRack);
     }
@@ -3720,7 +3750,7 @@ function isExerciseAvailable(exName, gymEquipment){
   // Smith machine
   if(xl.indexOf('smith machine')>=0) return gymEquipment.some(function(e){return e.toLowerCase().indexOf('smith')>=0;});
   // Cable-based moves without an explicit dep above (e.g. Cable Chest Fly variants)
-  if(xl.indexOf('cable')>=0) return gymEquipment.some(function(e){var l=e.toLowerCase();return l.indexOf('cable')>=0||l.indexOf('functional trainer')>=0||l.indexOf('crossover')>=0;});
+  if(xl.indexOf('cable')>=0) return gymEquipment.some(function(e){return exerciseUsesEquipment(exName,e);});
   // EZ curl bar
   if(xl.indexOf('ez bar')>=0||xl.indexOf('ez curl')>=0) return gymEquipment.some(function(e){var l=e.toLowerCase();return l.indexOf('ez curl')>=0||l.indexOf('ez bar')>=0;});
   // Trap / hex bar
@@ -3728,7 +3758,7 @@ function isExerciseAvailable(exName, gymEquipment){
   // Landmine
   if(xl.indexOf('landmine')>=0) return gymEquipment.some(function(e){return e.toLowerCase().indexOf('landmine')>=0;});
   // Leg-press machine variations (Standard/Single-Leg/Foot-Placement/Stance Press)
-  if(xl.indexOf('leg press')>=0||xl.indexOf('foot placement press')>=0||xl.indexOf('stance press')>=0) return gymEquipment.some(function(e){return e.toLowerCase().indexOf('leg press')>=0;});
+  if(isLegPressVariation(exName)) return gymEquipment.some(function(e){return exerciseUsesEquipment(exName,e);});
   // Medicine ball
   if(xl.indexOf('medicine ball')>=0||xl.indexOf('wall ball')>=0||xl.indexOf('med ball')>=0) return gymEquipment.some(function(e){return e.toLowerCase().indexOf('medicine ball')>=0;});
   // Battle rope
@@ -4335,6 +4365,7 @@ var TYPES={
 'Elevate Row Adjustable':'bodyweight'
 };
 if(TYPES[name]) return TYPES[name];
+if(isLegPressVariation(name)) return getBaseWeight(name)>0?'plate_machine':'machine';
 if(['Side Plank','Dead Bug','Bicycle Crunch','Pike Push-Up','Diamond Push-Up','Archer Push-Up','Jump Squat','Pistol Squat','Burpee'].indexOf(name)>=0) return 'bodyweight';
 if(/dumbbell|kettlebell/i.test(name)) return 'compound_db';
 if(/barbell/i.test(name)) return 'compound';
@@ -4424,7 +4455,7 @@ function exerciseCategory(name){
   // cable machine specifically.
   if(c==='pin'&&/cable|pulley|crossover|rope (tricep|push|pull|curl|face)|rope tricep|face pull|pull-?down station/i.test(n)) c='cable';
   // Bodyweight on a bench, bar or station.
-  if(c==='calisthenics'&&STATION_RE.test(n)) c='station';
+  if((c==='calisthenics'&&STATION_RE.test(n))||/^(Chest Dip \(Forward Lean\)|Tricep Dip)$/.test(n)) c='station';
   _exCatCache[name]=c;
   return c;
 }
@@ -4749,7 +4780,7 @@ var WTPL={upper:{focus:'Upper Body Strength',exercises:[{n:'Bench Press (Barbell
 {n:'Dumbbell Shoulder Press',t:'Shoulders · Triceps',sets:3,reps:10,rest:90,p:2},
 {n:'Calf Extension Machine',t:'Calves',sets:3,reps:12,rest:60,p:2},
 {n:'Plank',t:'Core',sets:3,reps:30,rest:60,p:3}
-],cardio:[{n:'Stair Stepper',dur:20,tgt:'Level 6-9, steady pace  --  lower body cardio finisher'}]},glutes:{focus:'Glutes & Legs Hypertrophy',exercises:[{n:'Deadlifts (Barbell)',t:'Full Posterior Chain',sets:4,reps:5,rest:120,p:1},{n:'Plate-Loaded Hack Squat',t:'Quads · Glutes',sets:4,reps:10,rest:90,p:1},{n:'Hip Thrust Machine',t:'Glutes · Hamstrings',sets:4,reps:12,rest:75,p:1},{n:'Hip Abductor / Adductor Machine',t:'Inner/Outer Thigh',sets:3,reps:15,rest:45,p:2},{n:'Prone Leg Curl Machine',t:'Hamstrings',sets:3,reps:12,rest:60,p:2},{n:'Plate-Loaded Standing Calf',t:'Gastrocnemius',sets:4,reps:15,rest:45,p:2},{n:'Glute Kickback Machine',t:'Glutes',sets:3,reps:15,rest:45,p:3}],cardio:[{n:'Stair Stepper',dur:20,tgt:'Level 8-12'}]},arms:{focus:'Shoulders, Arms + Cardio',exercises:[{n:'Barbell Overhead Press',t:'All Deltoids · Triceps',sets:4,reps:8,rest:90,p:1},{n:'Dumbbell Lateral Raises',t:'Lateral Deltoids',sets:4,reps:12,rest:60,p:1},{n:'Pec Fly / Rear Delt (Rear)',t:'Rear Deltoids',sets:3,reps:15,rest:60,p:1},{n:'Triceps Extension Machine',t:'Triceps',sets:3,reps:12,rest:60,p:2},{n:'Dependent Curl Machine',t:'Biceps peak',sets:3,reps:12,rest:60,p:2},{n:'Cable Tricep Push-Down',t:'Triceps',sets:3,reps:12,rest:60,p:2},{n:'Rotary Torso Machine',t:'Obliques',sets:3,reps:15,rest:45,p:3}],cardio:[{n:'Elliptical Machine',dur:20,tgt:'Resistance 10-14, moderate pace  --  low-impact cardio finisher that complements arm training'}]},push:{focus:'Push Day',exercises:[{n:'Bench Press (Barbell)',t:'Chest · Triceps',sets:4,reps:8,rest:90,p:1},{n:'Plate-Loaded Incline Press',t:'Upper Chest',sets:3,reps:10,rest:75,p:1},{n:'Plate-Loaded Shoulder Press',t:'Deltoids · Triceps',sets:3,reps:10,rest:75,p:1},{n:'Dumbbell Lateral Raises',t:'Lateral Deltoids',sets:3,reps:12,rest:60,p:2},{n:'Cable Tricep Push-Down',t:'Triceps',sets:3,reps:12,rest:60,p:2},{n:'Triceps Extension Machine',t:'Triceps',sets:3,reps:10,rest:60,p:3}],cardio:[{n:'Treadmill (Incline Walk)',dur:15,tgt:'Brisk pace'}]},pull:{focus:'Pull Day',exercises:[{n:'Lat Pull-Down Machine',t:'Lats · Biceps',sets:4,reps:8,rest:90,p:1},{n:'Cable Low Row',t:'Middle Back · Lats',sets:4,reps:10,rest:75,p:1},{n:'Plate-Loaded Seated Row',t:'Middle Back',sets:3,reps:10,rest:75,p:1},{n:'Pec Fly / Rear Delt (Rear)',t:'Rear Deltoids',sets:3,reps:15,rest:60,p:2},{n:'Dumbbell Bicep Curls',t:'Biceps',sets:3,reps:10,rest:60,p:2},{n:'Hammer Curls (Dumbbells)',t:'Biceps',sets:3,reps:12,rest:60,p:3}],cardio:[{n:'Rowing Machine',dur:15,tgt:'Steady moderate'}]},core:{focus:'Core & Stability',exercises:[{n:'Abdominal Crunch Machine',t:'Core',sets:4,reps:15,rest:45,p:1},{n:'Rotary Torso Machine',t:'Obliques \xB7 Core',sets:3,reps:15,rest:45,p:1},{n:'Decline Bench Sit-Up',t:'Abs · Hip Flexors',sets:3,reps:12,rest:45,p:2},{n:'Back Extension Machine',t:'Lower Back',sets:3,reps:15,rest:45,p:1},{n:'Cable Wood Chop',t:'Obliques \xB7 Core',sets:3,reps:12,rest:45,p:2},{n:'Plank',t:'Core',sets:3,reps:1,rest:60,p:3},{n:'Side Plank',t:'Obliques \xB7 Core',sets:3,reps:1,rest:60,p:3},{n:'Dead Bug',t:'Core \xB7 Stability',sets:3,reps:10,rest:45,p:3}],cardio:[{n:'Elliptical Machine',dur:15,tgt:'Light resistance, focus on core engagement throughout'}]}};
+],cardio:[{n:'Stair Stepper',dur:20,tgt:'Level 6-9, steady pace  --  lower body cardio finisher'}]},glutes:{focus:'Glutes & Legs Hypertrophy',exercises:[{n:'Deadlifts (Barbell)',t:'Full Posterior Chain',sets:4,reps:5,rest:120,p:1},{n:'Plate-Loaded Hack Squat',t:'Quads · Glutes',sets:4,reps:10,rest:90,p:1},{n:'Hip Thrust Machine',t:'Glutes · Hamstrings',sets:4,reps:12,rest:75,p:1},{n:'High Foot Placement Press',t:'Glutes emphasis · Quads',sets:3,reps:12,rest:75,p:2},{n:'Prone Leg Curl Machine',t:'Hamstrings',sets:3,reps:12,rest:60,p:2},{n:'Plate-Loaded Standing Calf',t:'Gastrocnemius',sets:4,reps:15,rest:45,p:2},{n:'Glute Kickback Machine',t:'Glutes',sets:3,reps:15,rest:45,p:3}],cardio:[{n:'Stair Stepper',dur:20,tgt:'Level 8-12'}]},arms:{focus:'Shoulders, Arms + Cardio',exercises:[{n:'Barbell Overhead Press',t:'All Deltoids · Triceps',sets:4,reps:8,rest:90,p:1},{n:'Dumbbell Lateral Raises',t:'Lateral Deltoids',sets:4,reps:12,rest:60,p:1},{n:'Pec Fly / Rear Delt (Rear)',t:'Rear Deltoids',sets:3,reps:15,rest:60,p:1},{n:'Triceps Extension Machine',t:'Triceps',sets:3,reps:12,rest:60,p:2},{n:'Dependent Curl Machine',t:'Biceps peak',sets:3,reps:12,rest:60,p:2},{n:'Cable Tricep Push-Down',t:'Triceps',sets:3,reps:12,rest:60,p:2},{n:'Rotary Torso Machine',t:'Obliques',sets:3,reps:15,rest:45,p:3}],cardio:[{n:'Elliptical Machine',dur:20,tgt:'Resistance 10-14, moderate pace  --  low-impact cardio finisher that complements arm training'}]},push:{focus:'Push Day',exercises:[{n:'Bench Press (Barbell)',t:'Chest · Triceps',sets:4,reps:8,rest:90,p:1},{n:'Plate-Loaded Incline Press',t:'Upper Chest',sets:3,reps:10,rest:75,p:1},{n:'Plate-Loaded Shoulder Press',t:'Deltoids · Triceps',sets:3,reps:10,rest:75,p:1},{n:'Dumbbell Lateral Raises',t:'Lateral Deltoids',sets:3,reps:12,rest:60,p:2},{n:'Cable Tricep Push-Down',t:'Triceps',sets:3,reps:12,rest:60,p:2},{n:'Triceps Extension Machine',t:'Triceps',sets:3,reps:10,rest:60,p:3}],cardio:[{n:'Treadmill (Incline Walk)',dur:15,tgt:'Brisk pace'}]},pull:{focus:'Pull Day',exercises:[{n:'Lat Pull-Down Machine',t:'Lats · Biceps',sets:4,reps:8,rest:90,p:1},{n:'Cable Low Row',t:'Middle Back · Lats',sets:4,reps:10,rest:75,p:1},{n:'Plate-Loaded Seated Row',t:'Middle Back',sets:3,reps:10,rest:75,p:1},{n:'Pec Fly / Rear Delt (Rear)',t:'Rear Deltoids',sets:3,reps:15,rest:60,p:2},{n:'Dumbbell Bicep Curls',t:'Biceps',sets:3,reps:10,rest:60,p:2},{n:'Hammer Curls (Dumbbells)',t:'Biceps',sets:3,reps:12,rest:60,p:3}],cardio:[{n:'Rowing Machine',dur:15,tgt:'Steady moderate'}]},core:{focus:'Core & Stability',exercises:[{n:'Abdominal Crunch Machine',t:'Core',sets:4,reps:15,rest:45,p:1},{n:'Rotary Torso Machine',t:'Obliques \xB7 Core',sets:3,reps:15,rest:45,p:1},{n:'Decline Bench Sit-Up',t:'Abs · Hip Flexors',sets:3,reps:12,rest:45,p:2},{n:'Back Extension Machine',t:'Lower Back',sets:3,reps:15,rest:45,p:1},{n:'Cable Wood Chop',t:'Obliques \xB7 Core',sets:3,reps:12,rest:45,p:2},{n:'Plank',t:'Core',sets:3,reps:1,rest:60,p:3},{n:'Side Plank',t:'Obliques \xB7 Core',sets:3,reps:1,rest:60,p:3},{n:'Dead Bug',t:'Core \xB7 Stability',sets:3,reps:10,rest:45,p:3}],cardio:[{n:'Elliptical Machine',dur:15,tgt:'Light resistance, focus on core engagement throughout'}]}};
 // Ordered alternatives for the same movement slot. A station can serve several
 // movements without combining their loads or their histories.
 var GYM_MOVEMENT_OPTIONS=[
@@ -4768,9 +4799,9 @@ var SPECIALIZED_GYM_SPLITS={
   chest:{label:'Chest',parent:'push',focus:'Chest & Pressing',moves:['Plate-Loaded Incline Press','Dips','Chest Press Machine','Pec Deck / Fly Machine','Cable Chest Fly (High)']},
   back:{label:'Back',parent:'pull',focus:'Back & Lats',moves:['Pull-Ups','Cable Low Row','Single-Arm Lat Pull-Down','Plate-Loaded Seated Row','Cable Straight-Arm Pull-Down']},
   shoulders:{label:'Shoulders',parent:'push',focus:'Shoulders & Delts',moves:['Plate-Loaded Shoulder Press','Dumbbell Shoulder Press','Cable Lateral Raise','Pec Fly / Rear Delt (Rear)','Cable Face Pull']},
-  quads:{label:'Quads',parent:'lower',focus:'Quads & Calves',moves:['Barbell Back Squat','Dumbbell Reverse Lunge','Leg Extension Machine','Plate-Loaded Standing Calf','Seated Calf Raise Machine']},
+  quads:{label:'Quads',parent:'lower',focus:'Quads & Calves',moves:['Barbell Back Squat','Low Foot Placement Press','Leg Extension Machine','Plate-Loaded Standing Calf','Seated Calf Raise Machine']},
   hamstrings:{label:'Hamstrings',parent:'lower',focus:'Hamstrings & Posterior Chain',moves:['Romanian Deadlift (Dumbbell)','Hip Thrust Machine','Seated Leg Curl Machine','Prone Leg Curl Machine','Back Extension Bench']},
-  calves:{label:'Calves',parent:'lower',focus:'Calves & Lower Legs',moves:['Plate-Loaded Standing Calf','Plate-Loaded Seated Calf','Calf Extension Machine','Leg Press Calf Raise']}
+  calves:{label:'Calves',parent:'lower',focus:'Calves & Lower Legs',moves:['Plate-Loaded Standing Calf','Leg Press Calf Raise','Plate-Loaded Seated Calf','Calf Extension Machine']}
 };
 Object.keys(SPECIALIZED_GYM_SPLITS).forEach(function(key){
   var option=SPECIALIZED_GYM_SPLITS[key];
@@ -5969,6 +6000,9 @@ function _buildSplitPool(tplKey,gym){
   var tpl=WTPL[tplKey]||WTPL.upper, gymFirst=!tpl.home&&!gym.isHome;
   var usage=gymFirst?gymWorkoutUsage(gym):{names:{},categories:{}};
   var used=new Set(), pool=[];
+  var reserved=new Set(tpl.exercises.map(function(ex){return ex.n;}));
+  var equipment=gym.equipment;
+  var hasUsage=Object.keys(usage.names).length>0;
   function available(name){return !used.has(name)&&isExerciseAvailable(name,gym.equipment)&&isExerciseUserEnabled(name);}
   function compareUsage(a,b){
     return (usage.names[a]||'').localeCompare(usage.names[b]||'')||
@@ -5980,22 +6014,35 @@ function _buildSplitPool(tplKey,gym){
     var canRotate=gymFirst&&key&&(ex.p===1||key[0]==='Lat Pull-Down Machine')&&
       (!SPECIALIZED_GYM_SPLITS[tplKey]||exerciseCategory(ex.n)!=='station');
     var choice=ex.n;
-    if(canRotate&&!getActiveProgramFor(ex.n)){
-      var options=[ex.n].concat(key.filter(function(n){return n!==ex.n;})).filter(available);
-      options.sort(function(a,b){
-        return gymEquipmentTier(a)-gymEquipmentTier(b)||compareUsage(a,b);
-      });
+    if(gymFirst&&!getActiveProgramFor(ex.n)){
+      var alternatives=canRotate?key.filter(function(name){return name!==ex.n;}):[];
+      // A logged slot can rotate through other catalogued variations of its movement
+      // on the same equipment. Keep the primary muscle and movement pattern in the slot.
+      if(hasUsage&&usage.names[ex.n]&&(!SPECIALIZED_GYM_SPLITS[tplKey]||exerciseCategory(ex.n)!=='station')){
+        var group=getMG(ex.n), pattern=movementPattern(ex.n), stations=exerciseStations(ex.n,equipment);
+        if(pattern&&stations.length){
+          (ELIB[group]||[]).forEach(function(entry){
+            var name=entry.n;
+            if(movementPattern(name)===pattern&&stations.some(function(station){return exerciseUsesEquipment(name,station);})) alternatives.push(name);
+          });
+        }
+      }
+      var options=[ex.n].concat(Array.from(new Set(alternatives)).filter(function(name){
+        return !reserved.has(name)&&!/behind-the-neck/i.test(name)&&
+          (isAssistanceExercise(name)===isAssistanceExercise(ex.n));
+      })).filter(available);
+      options.sort(function(a,b){return gymEquipmentTier(a)-gymEquipmentTier(b)||compareUsage(a,b);});
       choice=options[0]||choice;
     }
     var entry=(ELIB[getMG(choice)]||[]).find(function(e){return e.n===choice;});
     var move=Object.assign({},ex,{n:choice,t:entry?entry.t:ex.t,_src:'tpl'});
-    if(canRotate&&choice!==ex.n&&_isCompSlot(ex)) move.main=true;
+    if(choice!==ex.n&&_isCompSlot(ex)) move.main=true;
     add(getEquipmentSafeExercise(move,gym,Array.from(used)));
   });
   var groups=Array.from(new Set(tpl.exercises.map(function(ex){return getMG(ex.n);}).filter(Boolean)));
   var candidates=groups.map(function(g){
     return (ELIB[g]||[]).filter(function(e){
-      return available(e.n)&&(!gymFirst||(!/behind-the-neck/i.test(e.n)&&!GYM_MOVEMENT_OPTIONS.some(function(names){
+      return available(e.n)&&(!gymFirst||(!/behind-the-neck|^neck .*\(machine\)/i.test(e.n)&&!GYM_MOVEMENT_OPTIONS.some(function(names){
         return names.indexOf(e.n)>=0&&names.some(function(name){return used.has(name);});
       })));
     }).sort(function(a,b){
@@ -7885,15 +7932,16 @@ var MOVEMENT_PATTERNS=[
   {re:/leg curl|nordic/i,                                           s:'Hamstring isolation'},
   {re:/calf/i,                                                      s:'Calf raise'},
   {re:/shrug/i,                                                     s:'Trap isolation'},
-  {re:/pull-?down|pull-?up|chin-?up|pullover/i,                     s:'Vertical pull'},
+  {re:/pullover|straight-arm pull-?down/i,                          s:'Lat isolation'},
+  {re:/pull-?down|pull-?up|chin-?up/i,                              s:'Vertical pull'},
+  {re:/lateral raise|front raise|rear delt|reverse fly|face pull|upright row/i, s:'Shoulder isolation'},
   {re:/\brow\b|rows\b/i,                                            s:'Horizontal pull'},
   {re:/overhead press|shoulder press|push press|military|arnold/i,  s:'Vertical press'},
   {re:/bench press|chest press|floor press|incline press|decline press|supine press|push-?up/i, s:'Horizontal press'},
-  {re:/lateral raise|front raise|rear delt|reverse fly|face pull|upright row/i, s:'Shoulder isolation'},
   {re:/\bfly\b|flye|pec deck|crossover/i,                           s:'Chest isolation'},
   {re:/deadlift|romanian|\brdl\b|good morning|hip thrust|glute bridge|hyperextension|back extension/i, s:'Hip hinge'},
   {re:/abduct|adduct|kickback|glute (machine|trainer)/i,            s:'Hip isolation'},
-  {re:/squat|leg press|hack|lunge|step-?up|sissy|pistol/i,          s:'Knee-dominant leg'},
+  {re:/squat|leg press|foot placement press|stance press|single-leg press|hack|lunge|step-?up|sissy|pistol/i,          s:'Knee-dominant leg'},
   {re:/tricep|skull|push-?down|press-?down|\bdips?\b|kickback/i,    s:'Elbow extension'},
   {re:/\bcurl\b/i,                                                  s:'Elbow flexion'},
   {re:/crunch|sit-?up|\bplank\b|pallof|wood ?chop|rotary torso|leg raise|dead bug|russian twist|\bab\b|abdominal|oblique|hollow/i, s:'Core'},
@@ -8154,57 +8202,91 @@ function openStallInfo(){
   openModal('exInfoModal');
 }
 
-// What equipment does this movement actually occupy? Used by the "machine is busy"
-// filter, which needs alternatives that don't queue you for the same station.
-// Falls back to the name when there is no explicit dependency entry.
-var _exEquipCache={};
-function exerciseEquipmentKeys(exName){
-  if(_exEquipCache[exName]) return _exEquipCache[exName];
-  var keys={};
-  var deps=(typeof EXERCISE_DEPS!=='undefined')&&EXERCISE_DEPS[exName];
-  if(deps&&deps.length){
-    deps.forEach(function(d){ _equipVariants(d).forEach(function(v){ if(v) keys[v]=1; }); });
-  }
-  // Name-derived station, so two movements on the same machine collide even when their
-  // dependency lists differ (or are missing).
-  var n=String(exName||'').toLowerCase();
-  [['smith machine','smith machine'],['leg press','leg press'],['hack squat','hack squat'],
-   ['lat pull','lat pulldown'],['pull-down','lat pulldown'],['pulldown','lat pulldown'],
-   ['cable','cable'],['crossover','cable'],['pec deck','pec deck'],['pec fly','pec deck'],
-   ['leg extension','leg extension'],['leg curl','leg curl'],['calf','calf station'],
-   ['hip thrust','hip thrust'],['abductor','hip abductor'],['adductor','hip abductor'],
-   ['dumbbell','dumbbells'],['barbell','barbell'],['ez bar','ez bar'],['ez-bar','ez bar'],
-   ['kettlebell','kettlebells'],['trx','trx'],['band','bands'],['machine','machine'],
-   ['bench press','bench'],['squat rack','rack'],['power rack','rack'],['rowing','row station'],
-   ['seated row','row station'],['chest press','chest press'],['shoulder press','shoulder press']
-  ].forEach(function(p){ if(n.indexOf(p[0])>=0) keys[p[1]]=1; });
-  _exEquipCache[exName]=keys;
-  return keys;
+// These names are shared by the pin-stack and plate-loaded leg press options.
+function isLegPressVariation(name){
+  return /^(standard leg press|(?:high|low) foot placement press|single-leg press|(?:narrow|wide) stance press|leg press calf raise)$/i.test(name);
 }
-// True when two exercises would put you at the same piece of equipment.
-function sharesEquipment(a,b){
-  var ka=exerciseEquipmentKeys(a), kb=exerciseEquipmentKeys(b);
-  // "machine" alone is too generic to count as a collision on its own.
-  return Object.keys(ka).some(function(k){ return k!=='machine' && kb[k]; });
+var STATION_ALIASES=[
+  ["Captain's Chair","Captain's Chair Leg Raise"],
+  ['Ab Wheel / Ab Roller','Ab Roller / Ab Wheel'],
+  ['Power Rack / Squat Cage','Half Rack']
+].map(function(pair){return pair.map(_equipKey);});
+var EXERCISE_EQUIPMENT_FAMILIES=[
+  {match:/^smith machine/i,gear:['Smith Machine']},
+  {match:/leg press|foot placement press|stance press$|^single-leg press$/i,gear:['Leg Press Machine','Plate-Loaded Leg Press']},
+  {match:/cable/i,gear:['Cable Crossover Machine','Functional Trainer','Cable Adjustable Pulley']},
+  {match:/dumbbell|^farmer (carry|walk)$/i,gear:['Dumbbells']},
+  {match:/^trx /i,gear:['TRX Suspension Trainer']},
+  {match:/kettlebell/i,gear:['Kettlebells']},
+  {match:/ez[- ]?bar|ez curl/i,gear:['EZ Curl Bar']},
+  {match:/trap bar|hex bar/i,gear:['Trap Bar / Hex Bar']},
+  {match:/landmine/i,gear:['Landmine Station']},
+  {match:/barbell/i,gear:['Olympic Barbells','Fixed Barbells']},
+  {match:/medicine ball|wall ball/i,gear:['Medicine Ball','Medicine Ball Station']},
+  {match:/battle rope/i,gear:['Battle Rope Station','Connexus Functional Station']},
+  {match:/box jump|depth jump|elevated push-up/i,gear:['Plyometric Box']},
+  {match:/resistance band|^band /i,gear:['Resistance Bands']},
+  {match:/tire flip/i,gear:['Tire Flip Area']}
+];
+function exerciseStationRequirements(name){
+  var required=typeof EXERCISE_REQUIRES_ALL!=='undefined'&&EXERCISE_REQUIRES_ALL[name];
+  if(required) return required;
+  var deps=EXERCISE_DEPS[name];
+  var declared=deps?deps.filter(function(dep){return dep!=='Bodyweight';}):null;
+  var family=EXERCISE_EQUIPMENT_FAMILIES.find(function(f){return f.match.test(name);});
+  var gear=declared||(family?family.gear.slice():[name]);
+  if(/cable chest fly|cable crossover/i.test(name)&&!gear.includes('Cable Crossover (Chest Fly)')) gear.push('Cable Crossover (Chest Fly)');
+  if(/(dumbbell|barbell|smith).*(bench press|incline|decline)|(bench press|incline|decline).*(dumbbell|barbell)/i.test(name)){
+    if(/incline/i.test(name)) gear.push('Incline Bench','Adjustable FID Bench');
+    else if(/decline/i.test(name)) gear.push('Decline Bench','Adjustable FID Bench');
+    else gear.push('Flat Bench','Adjustable FID Bench');
+  }
+  return gear;
+}
+function stationMatches(requirement,equipment){
+  if(requirement===equipment) return true;
+  var want=_equipKey(requirement), have=_equipKey(equipment);
+  if(want===have) return true;
+  if(STATION_ALIASES.some(function(pair){return pair.includes(want)&&pair.includes(have);})) return true;
+  // Inventory labels may include weight ranges or a named attachment variant.
+  // Compare full station names, so a dip belt cannot match a dip station.
+  return ['dumbbells','kettlebells','resistance bands','medicine ball','olympic barbell','olympic barbells'].some(function(family){
+    return (want===family||want.indexOf(family+' ')===0)&&(have===family||have.indexOf(family+' ')===0);
+  });
+}
+function exerciseUsesEquipment(name,equipment){
+  if(name===equipment) return true;
+  if(equipment==='Bodyweight') return exerciseCategory(name)==='calisthenics';
+  if(equipment==='Push-Up Board') return /^(push-ups|wide push-up|diamond push-up)$/i.test(name);
+  return exerciseStationRequirements(name).some(function(requirement){
+    return requirement.split('|').some(function(option){return stationMatches(option,equipment);});
+  });
+}
+function exerciseStations(name,equipment){
+  return equipment.filter(function(item){return exerciseUsesEquipment(name,item);});
+}
+function sharesEquipment(a,b,equipment){
+  var stations=exerciseStations(a,equipment||getActiveGym().equipment);
+  return stations.some(function(station){return exerciseUsesEquipment(b,station);});
 }
 function openSwap(idx,name){
-  var g=getMG(name);
-  if(!g){showToast('No alternatives found');return;}
-  var gym=getActiveGym();
-  var _swapK=dKey(vDate);
-  var _usedExNames={};
-  (getRenderedExList(_swapK)||[]).forEach(function(e,i){if(i!==idx&&e&&e.n)_usedExNames[e.n]=1;});
-  var list=(ELIB[g]||[]).filter(function(e){
-    return e.n!==name && !_usedExNames[e.n] && isExerciseAvailable(e.n,gym.equipment) && isExerciseUserEnabled(e.n);
-  }).sort(function(a,b){ return a.n.localeCompare(b.n,undefined,{sensitivity:'base'}); });
+  var gym=getActiveGym(), g=getMG(name), stations=exerciseStations(name,gym.equipment);
+  var used=new Set((getRenderedExList(dKey(vDate))||[]).filter(function(_,i){return i!==idx;}).map(function(ex){return ex.n;}));
+  var list=allLibraryExercises().filter(function(e){
+    if(e.n===name||e.cat==='cardio'||used.has(e.n)) return false;
+    var candidateStations=exerciseStations(e.n,gym.equipment);
+    e.sameStation=candidateStations.some(function(station){return stations.includes(station);});
+    return (e.g===g||e.sameStation)&&isExerciseAvailable(e.n,gym.equipment)&&isExerciseUserEnabled(e.n);
+  });
   var listEl=el('swapList');
   listEl._list=list;
   listEl._idx=idx;
   listEl._current=name;
   listEl._busy=false;
+  listEl._sameStation=false;
   listEl._cat='all';
+  el('swapFilter').value='';
   renderSwapList('');
-  var sf=el('swapFilter'); if(sf){ sf.value=''; }
   openModal('swapModal');
 }
 function setSwapCat(c){ var l=el('swapList'); if(!l) return; l._cat=c; renderSwapList((el('swapFilter')||{}).value||''); }
@@ -8213,14 +8295,15 @@ function setSwapCat(c){ var l=el('swapList'); if(!l) return; l._cat=c; renderSwa
 // Every exercise in the app, organised by category (how it is loaded) and body area.
 // mode 'add'    → tap to add the exercise to the workout on screen (gym or home)
 // mode 'browse' → tap for the form guide
-var _exLib={mode:'browse',cat:'all',area:'all'};
+var _exLib={mode:'browse',cat:'all',area:'all',equipment:''};
 function allLibraryExercises(){
   var seen={}, out=[];
   Object.keys(ELIB).forEach(function(g){ (ELIB[g]||[]).forEach(function(e){ if(seen[e.n]) return; seen[e.n]=1; out.push({n:e.n,t:e.t,p:e.p,g:g,cat:exerciseCategory(e.n),area:bodyAreaOf(g)}); }); });
   return out;
 }
-function openExerciseLibrary(mode,presetCat){
-  _exLib.mode=mode||'browse'; _exLib.cat=presetCat||'all'; _exLib.area='all';
+function openExerciseLibrary(mode,presetCat,equipment){
+  _exLib.mode=mode||'browse'; _exLib.cat=presetCat||'all'; _exLib.area='all'; _exLib.equipment=equipment||'';
+  el('exLibAvailOnly').checked=!equipment;
   var srch=el('exLibSearch'); if(srch) srch.value='';
   var t=el('exLibTitle'); if(t) t.textContent=_exLib.mode==='add'?'➕ ADD EXERCISE':'📚 EXERCISE LIBRARY';
   renderExerciseLibrary();
@@ -8228,6 +8311,41 @@ function openExerciseLibrary(mode,presetCat){
 }
 function setExLibCat(c){ _exLib.cat=c; renderExerciseLibrary(); }
 function setExLibArea(a){ _exLib.area=a; renderExerciseLibrary(); }
+function setExLibEquipment(name){
+  _exLib.equipment=name;
+  _exLib.cat='all';
+  _exLib.area='all';
+  renderExerciseLibrary();
+}
+function equipmentGuideExercises(equipment){
+  var cardio=EQUIPMENT_CATALOGUE.some(function(section){
+    return section.id==='cardio'&&section.items.some(function(item){return item.n===equipment;});
+  });
+  if(cardio) return cardioEquipmentExercises(equipment);
+  var info=getExInfo(equipment);
+  if(info&&info.muscles&&info.muscles!==EX_INFO_DEFAULT.muscles){
+    return [{n:equipment,t:info.muscles,cat:equipmentCategory(equipment),area:equipmentBodyArea({n:equipment}),guideOnly:true}];
+  }
+  return [];
+}
+function cardioEquipmentExercises(equipment){
+  var key=cardioTypeKey(equipment);
+  var sections=EXERCISE_CATALOGUE.filter(function(section){
+    return section.equipment&&cardioTypeKey(section.equipment)===key;
+  });
+  var items=sections.flatMap(function(section){return section.items;});
+  var names=new Set(items.map(function(item){return item.n;}));
+  CARDIO_OPTIONS.forEach(function(option){
+    if(cardioTypeKey(option.n)===key&&!names.has(option.n)) items.push({n:option.n,sub:option.tgt});
+  });
+  if(!items.length){
+    var info=getExInfo(equipment);
+    items.push({n:equipment,sub:info&&info.muscles!==EX_INFO_DEFAULT.muscles?info.muscles:'Cardio'});
+  }
+  return items.map(function(item){
+    return {n:item.n,t:item.muscles||item.sub,g:'cardio',cat:'cardio',area:'fullbody',cardioEquipment:equipment};
+  });
+}
 function _exLibGymEquipment(){
   if(_exLib.mode==='add'&&cMode==='home'&&typeof getHomeEquipment==='function') return {name:'Home',equipment:getHomeEquipment()};
   var g=getActiveGym(); return {name:g.name,equipment:g.equipment};
@@ -8239,35 +8357,63 @@ function renderExerciseLibrary(){
   var gym=_exLibGymEquipment();
   var k=dKey(vDate), used={};
   if(_exLib.mode==='add'){ (getRenderedExList(k)||[]).forEach(function(e){ if(e&&e.n) used[e.n]=1; }); }
+  var equipment=Array.from(new Set(EQUIPMENT_CATALOGUE.flatMap(function(section){
+    return section.items.filter(function(item){return _exLib.mode!=='add'||equipmentCategory(item.n,section.id)!=='cardio';}).map(function(item){return item.n;});
+  }).concat(gym.equipment.filter(function(name){
+    return _exLib.mode!=='add'||exerciseCategory(name)!=='cardio';
+  })))).sort(function(a,b){return a.localeCompare(b);});
+  var gear=el('exLibEquipment');
+  gear.replaceChildren(new Option('All equipment',''),new Option('Bodyweight','Bodyweight'));
+  equipment.forEach(function(name){gear.add(new Option(name,name));});
+  gear.value=_exLib.equipment;
   var all=allLibraryExercises().filter(function(e){ return e.cat!=='cardio'; });
+  if(_exLib.equipment){
+    all=all.filter(function(e){return exerciseUsesEquipment(e.n,_exLib.equipment);});
+    if(_exLib.mode==='browse'){
+      var guide=equipmentGuideExercises(_exLib.equipment);
+      var names=new Set(all.map(function(e){return e.n;}));
+      all=all.concat(guide.filter(function(e){return !names.has(e.n);}));
+    }
+  }
+  function isAvailable(e){
+    if(e.guideOnly) return gym.equipment.includes(e.n);
+    if(e.cat==='cardio') return gym.equipment.some(function(name){return cardioTypeKey(name)===cardioTypeKey(e.cardioEquipment);});
+    return isExerciseAvailable(e.n,gym.equipment);
+  }
   var pool=all.filter(function(e){
     if(q&&e.n.toLowerCase().indexOf(q)<0&&(e.t||'').toLowerCase().indexOf(q)<0) return false;
-    if(availOnly&&!isExerciseAvailable(e.n,gym.equipment)) return false;
+    if(availOnly&&!isAvailable(e)) return false;
     return true;
   });
   var catCounts={}, areaCounts={};
   pool.forEach(function(e){ catCounts[e.cat]=(catCounts[e.cat]||0)+1; if(_exLib.cat==='all'||e.cat===_exLib.cat) areaCounts[e.area]=(areaCounts[e.area]||0)+1; });
   function chip(on,label,click){ return '<button onclick="'+click+'" style="padding:4px 9px;border-radius:999px;font-size:10px;cursor:pointer;'+(on?'border:1px solid var(--ye);background:rgba(245,196,0,.12);color:var(--ye)':'border:1px solid var(--b2);background:var(--s3);color:var(--mu)')+'">'+label+'</button>'; }
-  el('exLibCats').innerHTML=chip(_exLib.cat==='all','All · '+pool.length,"setExLibCat('all')")+EX_CATEGORIES.filter(function(c){return c.id!=='cardio'&&catCounts[c.id];}).map(function(c){return chip(_exLib.cat===c.id,c.em+' '+c.lb+' · '+catCounts[c.id],"setExLibCat('"+c.id+"')");}).join('');
+  el('exLibCats').innerHTML=chip(_exLib.cat==='all','All · '+pool.length,"setExLibCat('all')")+EX_CATEGORIES.filter(function(c){return catCounts[c.id];}).map(function(c){return chip(_exLib.cat===c.id,c.em+' '+c.lb+' · '+catCounts[c.id],"setExLibCat('"+c.id+"')");}).join('');
   el('exLibAreas').innerHTML=chip(_exLib.area==='all','All areas',"setExLibArea('all')")+BODY_AREAS.filter(function(a){return areaCounts[a.id];}).map(function(a){return chip(_exLib.area===a.id,a.lb+' · '+areaCounts[a.id],"setExLibArea('"+a.id+"')");}).join('');
   var shown=pool.filter(function(e){ return (_exLib.cat==='all'||e.cat===_exLib.cat)&&(_exLib.area==='all'||e.area===_exLib.area); });
   var hint=el('exLibHint');
-  if(hint) hint.textContent=(_exLib.mode==='add'?'Tap to add to '+(cMode==='home'?'today\'s home workout':'today\'s workout')+' · ':'Tap for the form guide · ')+shown.length+' exercise'+(shown.length===1?'':'s')+(availOnly?' at '+gym.name:'');
+  if(_exLib.equipment&&pool.length===0&&!q) hint.textContent=availOnly?'No exercises available with this gym’s equipment.':'No catalogued exercises for this equipment.';
+  else if(hint) hint.textContent=(_exLib.mode==='add'?'Tap to add to '+(cMode==='home'?'today\'s home workout':'today\'s workout')+' · ':'Tap for the form guide · ')+shown.length+' exercise'+(shown.length===1?'':'s')+(availOnly?' at '+gym.name:'');
   var html='', catOrder=EX_CATEGORIES.map(function(c){return c.id;});
   catOrder.forEach(function(cid){
     var inCat=shown.filter(function(e){return e.cat===cid;}); if(!inCat.length) return;
     var cm=EX_CATEGORIES[catOrder.indexOf(cid)];
     html+='<div style="font-size:11px;color:#fff;font-weight:700;margin:12px 0 2px">'+cm.em+' '+cm.lb+'</div><div style="font-size:9px;color:var(--mu);margin-bottom:4px">'+cm.sb+'</div>';
-    BODY_AREAS.forEach(function(a){
-      var inArea=inCat.filter(function(e){return e.area===a.id;}).sort(function(x,y){return x.n.localeCompare(y.n,undefined,{sensitivity:'base'});});
+    var groupByMuscle=!!_exLib.equipment;
+    var groups=groupByMuscle?Array.from(new Set(inCat.map(function(e){return e.g||e.area;}))).map(function(g){
+      var meta=MG_META[g];
+      return {id:g,lb:meta?(g==='hamstrings'?'Hamstrings':meta.nm):(BODY_AREAS.find(function(area){return area.id===g;})||{}).lb||'Cardio'};
+    }):BODY_AREAS;
+    groups.forEach(function(a){
+      var inArea=inCat.filter(function(e){return (groupByMuscle?(e.g||e.area):e.area)===a.id;}).sort(function(x,y){return x.n.localeCompare(y.n,undefined,{sensitivity:'base'});});
       if(!inArea.length) return;
       html+='<div style="font-size:9px;color:var(--ye);font-family:\'DM Mono\',monospace;letter-spacing:1px;text-transform:uppercase;margin:8px 0 3px">'+a.lb+' · '+inArea.length+'</div>';
       inArea.forEach(function(e){
-        var avail=isExerciseAvailable(e.n,gym.equipment), inToday=!!used[e.n];
+        var avail=isAvailable(e), inToday=!!used[e.n];
         var nm=encodeURIComponent(e.n);
         var action=_exLib.mode==='add'
           ?(inToday?'<span style="font-size:9px;color:var(--gr);flex-shrink:0">✓ in workout</span>':(avail?'<button class="exlib-add" data-n="'+nm+'" style="flex-shrink:0;padding:4px 10px;border-radius:7px;border:1px solid rgba(34,197,94,.4);background:rgba(34,197,94,.1);color:var(--gr);font-size:11px;cursor:pointer">＋ Add</button>':'<span style="font-size:9px;color:var(--mu);flex-shrink:0">🔒 not here</span>'))
-          :'<button class="exlib-info" data-n="'+nm+'" style="flex-shrink:0;width:28px;height:28px;border-radius:8px;border:1px solid var(--b2);background:var(--s3);color:#94a3b8;font-size:13px;cursor:pointer">ℹ️</button>';
+          :'<button class="exlib-info" data-n="'+nm+'" data-muscles="'+_safeAttr(e.t)+'" style="flex-shrink:0;width:28px;height:28px;border-radius:8px;border:1px solid var(--b2);background:var(--s3);color:#94a3b8;font-size:13px;cursor:pointer">ℹ️</button>';
         html+='<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--b1)'+(avail?'':';opacity:.55')+'">'
           +'<div style="flex:1;min-width:0"><div style="font-size:13px;color:#fff;overflow-wrap:anywhere">'+escapeHtml(e.n)+'</div><div style="font-size:10px;color:var(--mu);overflow-wrap:anywhere">'+escapeHtml(e.t||'')+'</div></div>'+action+'</div>';
       });
@@ -8279,7 +8425,7 @@ function renderExerciseLibrary(){
     listEl._wired=true;
     listEl.addEventListener('click',function(ev){
       var b=findClosest(ev.target,'.exlib-add'); if(b){ addExerciseToToday(decodeURIComponent(b.dataset.n)); return; }
-      var i=findClosest(ev.target,'.exlib-info'); if(i){ try{openExInfo(decodeURIComponent(i.dataset.n));}catch(e){} }
+      var i=findClosest(ev.target,'.exlib-info'); if(i){ openExerciseInfoModal(decodeURIComponent(i.dataset.n),i.dataset.muscles||''); }
     });
   }
 }
@@ -8311,16 +8457,27 @@ function addExerciseToToday(name){
 function toggleSwapBusyFilter(){
   var listEl=el('swapList'); if(!listEl) return;
   listEl._busy=!listEl._busy;
+  listEl._sameStation=false;
+  listEl._cat='all';
   var q=(el('swapFilter')||{}).value||'';
   renderSwapList(q);
 }
-// Renders (or re-renders, on search / busy toggle) the alternatives list.
+function setSwapScope(sameStation){
+  var list=el('swapList');
+  list._sameStation=sameStation;
+  list._busy=false;
+  list._cat='all';
+  renderSwapList(el('swapFilter').value);
+}
 function renderSwapList(q){
   var listEl=el('swapList'); if(!listEl) return;
   var list=listEl._list||[], idx=listEl._idx, current=listEl._current, busy=!!listEl._busy;
   q=String(q||'').trim().toLowerCase();
-  var shown=list;
-  if(busy&&current) shown=shown.filter(function(e){ return !sharesEquipment(current,e.n); });
+  var group=getMG(current), sameStation=listEl._sameStation;
+  var shown=list.filter(function(e){return sameStation?e.sameStation:e.g===group&&(!busy||!e.sameStation);});
+  var scope=el('swapScope');
+  scope.innerHTML='<button class="btn bsm '+(sameStation?'':'btn-p')+'" aria-pressed="'+!sameStation+'" onclick="setSwapScope(false)">Same muscle</button>'+
+    '<button class="btn bsm '+(sameStation?'btn-p':'')+'" aria-pressed="'+sameStation+'" onclick="setSwapScope(true)"'+(list.some(function(e){return e.sameStation;})?'':' disabled')+'>Same equipment</button>';
   // Category chips (Calisthenics / Dumbbell-Barbell / Plate-Loaded / Pin-Select …)
   var catSel=listEl._cat||'all', chipsEl=el('swapCatChips');
   if(chipsEl){
@@ -8334,9 +8491,10 @@ function renderSwapList(q){
   if(q) shown=shown.filter(function(e){
     return e.n.toLowerCase().indexOf(q)>=0 || (e.t||'').toLowerCase().indexOf(q)>=0;
   });
-  var g=getMG(current)||'';
   var hint=el('swapHint');
-  if(hint) hint.textContent='Targeting '+g+' · '+shown.length+(busy?' on other equipment':' alternatives');
+  var target=(MG_META[group]||{}).nm||group||'original muscle';
+  if(hint) hint.textContent=sameStation?'Same equipment · '+shown.length+' options':
+    target+' · '+shown.length+(busy?' on other equipment':' alternatives');
   var busyBtn=el('swapBusyBtn');
   if(busyBtn){
     busyBtn.textContent=busy?'🚧 Different equipment only':'🚧 Machine busy?';
@@ -8357,17 +8515,18 @@ function renderSwapList(q){
     var li=list.indexOf(e);
     var _c=exerciseCategory(e.n), _hdr='';
     if(_c!==_lastCat){ _lastCat=_c; var _cm=EX_CATEGORIES[_order[_c]]||{em:'',lb:_c}; _hdr='<div style="font-size:9px;color:var(--ye);font-family:\'DM Mono\',monospace;letter-spacing:1px;text-transform:uppercase;margin:8px 0 4px">'+_cm.em+' '+_cm.lb+'</div>'; }
-    var blurb=exerciseBlurb(e.n,e.t);
+    var blurb=sameStation&&e.t?e.t:exerciseBlurb(e.n,e.t);
+    var groupLabel=sameStation&&e.g!==group?' <span style="color:var(--ye);font-size:10px">· '+escapeHtml((MG_META[e.g]||{}).nm||e.g)+'</span>':'';
     var base=getBaseWeight(e.n);
     var baseTag=base>0?'<span style="color:var(--ye);font-family:\'DM Mono\',monospace;font-size:9px"> · starts at '+toDisplayWeight(base)+' '+getWeightUnit()+'</span>':'';
     return _hdr+'<div class="sopt" data-ei="'+idx+'" data-n="'+li+'" onclick="doSwapIdx('+idx+','+li+')">'
-      +'<div class="sname">'+escapeHtml(e.n)+'</div>'
+      +'<div class="sname">'+escapeHtml(e.n)+groupLabel+'</div>'
       +'<div class="starget">'+escapeHtml(blurb)+baseTag+'</div>'
       +'</div>';
   }).join('');
   if(!shown.length){
     html='<div style="padding:16px;text-align:center;font-size:12px;color:var(--mu)">'
-      +(busy?'No alternatives on different equipment for this muscle.':'Nothing matches “'+escapeHtml(q)+'”.')
+      +(busy?'No alternatives on different equipment for this muscle.':q?'Nothing matches “'+escapeHtml(q)+'”.':'No available exercises in this view.')
       +'</div>';
   }
   html+='<div class="sopt" style="background:var(--bg)" onclick="undoSwap('+idx+')"><div class="sname" style="color:var(--mu)">↩️ Reset to Original</div></div>';
@@ -8393,7 +8552,7 @@ function swapPrescription(current,data,name,target,k){
   var dest=getProgression(name,repsAvg,workCount,focusLoadFactor(focus,repsAvg));
   var sourceBase=getBaseWeight(current.n), destBase=getBaseWeight(name);
   var sourceRef=Math.max(0,(source.weight||0)-sourceBase), destRef=Math.max(0,(dest.weight||0)-destBase);
-  var compatible=getExType(current.n)!=='bodyweight'&&getExType(name)!=='bodyweight'&&
+  var compatible=getMG(current.n)===getMG(name)&&getExType(current.n)!=='bodyweight'&&getExType(name)!=='bodyweight'&&
     !isAssistanceExercise(current.n)&&!isAssistanceExercise(name)&&!timed;
   var sets=reps.map(function(r,i){
     var prior=work[i], load=prior&&prior.weight!==''?Number(prior.weight):source.weight;
@@ -14285,6 +14444,11 @@ function getBaseWeight(exName){
   if(!exName) return 0;
   if(S.baseWeights&&S.baseWeights[exName]!=null) return parseFloat(S.baseWeights[exName])||0;
   if(BASE_WEIGHT_EXACT[exName]!=null) return BASE_WEIGHT_EXACT[exName];
+  if(isLegPressVariation(exName)){
+    var equipment=getActiveGym().equipment;
+    return equipment.includes('Plate-Loaded Leg Press')?getBaseWeight('Plate-Loaded Leg Press'):
+      equipment.includes('Leg Press Machine')?getBaseWeight('Leg Press Machine'):0;
+  }
   if(BASE_WEIGHT_NONE.test(exName)) return 0;
   for(var i=0;i<BASE_WEIGHT_RULES.length;i++){
     if(BASE_WEIGHT_RULES[i].re.test(exName)) return BASE_WEIGHT_RULES[i].w;
@@ -14295,6 +14459,7 @@ function getBaseWeight(exName){
 function getBaseWeightWhy(exName){
   if(S.baseWeights&&S.baseWeights[exName]!=null) return 'Your measured value';
   if(BASE_WEIGHT_EXACT[exName]!=null) return 'Standard for this equipment';
+  if(isLegPressVariation(exName)&&getBaseWeight(exName)>0) return 'Leg press sled';
   for(var i=0;i<BASE_WEIGHT_RULES.length;i++){
     if(BASE_WEIGHT_RULES[i].re.test(exName)) return BASE_WEIGHT_RULES[i].why;
   }
@@ -25658,10 +25823,10 @@ var EXERCISE_CATALOGUE = [
   ]},
   {id:'ex_legpress',label:'🦵 Leg Press Variations',equipment:'Leg Press Machine',items:[
     {n:'Standard Leg Press',sub:'Quads · Glutes',muscles:'Quadriceps · Glutes · Hamstrings'},
-    {n:'High Foot Placement Press',sub:'Glutes · Hamstrings',muscles:'Glutes · Hamstrings'},
-    {n:'Low Foot Placement Press',sub:'Quad Focus',muscles:'Quadriceps (Vastus Lateralis)'},
+    {n:'High Foot Placement Press',sub:'Glute emphasis',muscles:'Glutes · Quadriceps'},
+    {n:'Low Foot Placement Press',sub:'Quad emphasis',muscles:'Quadriceps'},
     {n:'Single-Leg Press',sub:'Unilateral',muscles:'Quadriceps · Glutes (One Side)'},
-    {n:'Narrow Stance Press',sub:'Inner Quads',muscles:'Vastus Medialis (Inner Quad)'},
+    {n:'Narrow Stance Press',sub:'Narrow stance',muscles:'Quadriceps · Glutes'},
     {n:'Wide Stance Press',sub:'Adductors · Glutes',muscles:'Adductors · Glutes'},
     {n:'Leg Press Calf Raise',sub:'Calves',muscles:'Gastrocnemius · Soleus'},
   ]},
@@ -27864,6 +28029,7 @@ function _eqItemRow(item, cat, gym, _equipUsage, _equipLastUsed){
         }
       }
       html += '</div>';
+      html += '<button class="eq-variants-btn btn bsm" data-exname="'+encodeURIComponent(item.n)+'" style="font-size:10px;margin-right:6px">Exercises</button>';
       // Info button - safe via data attribute
       html += '<button class="eq-info-btn" data-exname="'+encodeURIComponent(item.n)+'" style="width:28px;height:28px;border-radius:8px;border:1px solid var(--b2);background:var(--s3);color:#94a3b8;font-size:13px;cursor:pointer;flex-shrink:0;margin-right:8px">ℹ️</button>';
       // Toggle switch - safe via data attribute
@@ -27878,7 +28044,7 @@ function setEquipView(v){ if(!S.prefs) S.prefs={}; S.prefs.equipView=v; saveS();
 function buildEquipmentPage(){
   var gym = getActiveGym();
   // Intro line (matches the Exercises / Accessories sections)
-  var html = '<div style="font-size:11px;color:var(--mu);margin:0 0 10px;line-height:1.5">Toggle machines on/off. Tap ℹ️ for form guides, images, and video demos.</div>';
+  var html = '<div style="font-size:11px;color:var(--mu);margin:0 0 10px;line-height:1.5">Use Exercises to see the movements and muscle groups for each station.</div>';
 
   // ── Gym profile card rendered into #gymProfileTop (persists across tabs) ──
   buildGymProfileCard();
@@ -27978,6 +28144,8 @@ function buildEquipmentPage(){
     ec._eqClickHandler = function(e){
       try{
         var t=e.target; if(!t)return;
+        var variants=findClosest(t,'.eq-variants-btn');
+        if(variants){openExerciseLibrary('browse','all',decodeURIComponent(variants.dataset.exname));return;}
         var ib=findClosest(t,'.eq-info-btn');
         if(ib&&ib.dataset&&ib.dataset.exname){
           var _dn=decodeURIComponent(ib.dataset.exname);
@@ -28868,7 +29036,7 @@ var CARDIO_OPTIONS = [
 // the same movement — all must collapse to ONE key so a single gym day never schedules
 // the same machine across warm-up / mid / finisher. Fan Bike stays distinct from the
 // upright Stationary Bike on purpose (different machine, different stimulus).
-var _CARDIO_TYPE_BY_NAME=(function(){var m={};CARDIO_OPTIONS.forEach(function(o){m[o.n]=o.type;});return m;})();
+var _CARDIO_TYPE_BY_NAME=(function(){var m={'Upright Stationary Bike':'bike','Fan Bike / Assault Bike':'fan_bike'};CARDIO_OPTIONS.forEach(function(o){m[o.n]=o.type;});return m;})();
 function cardioTypeKey(n){
   if(!n) return '';
   if(_CARDIO_TYPE_BY_NAME[n]) return _CARDIO_TYPE_BY_NAME[n];
@@ -31607,6 +31775,27 @@ HOME_EXERCISES.forEach(function(e){
   if(!EXERCISE_DEPS[n]) EXERCISE_DEPS[n]=['Pull-Up Bar','Power Rack / Squat Cage','Pull-Up Bar (Doorframe)'];
 });
 try{ _exCatCache={}; }catch(e){}
+
+// Expose guided machine variants in logging and rotation with their existing names.
+[
+  ['shoulders','Machine Lateral Raise','Lateral deltoids'],
+  ['shoulders','Machine Shrug','Upper traps'],
+  ['shoulders','Machine Face Pull','Rear deltoids · Upper back'],
+  ['shoulders','Machine Upright Row','Lateral deltoids · Traps'],
+  ['shoulders','Rotary Shoulder Press','Deltoids · Triceps'],
+  ['shoulders','Neck Flexion (Machine)','Front of neck'],
+  ['shoulders','Neck Extension (Machine)','Back of neck'],
+  ['shoulders','Neck Lateral Flexion (Machine)','Sides of neck'],
+  ['biceps','Plate-Loaded Preacher Curl','Biceps · Brachialis'],
+  ['biceps','Dual-Arm Independent Curl','Biceps · Independent arms'],
+  ['biceps','Cable Preacher Curl','Biceps · Brachialis'],
+  ['biceps','Machine Reverse Curl','Forearms · Biceps'],
+  ['triceps','Overhead Machine Tricep Extension','Triceps · Long head'],
+  ['triceps','Rope Tricep Pushdown','Triceps']
+].forEach(function(entry){
+  var group=ELIB[entry[0]];
+  if(!group.some(function(ex){return ex.n===entry[1];})) group.push({n:entry[1],t:entry[2],p:3});
+});
 
 // ── Home templates (4-day rotation) ─────────────────────────────────────────
 var HOME_SPLITS=['hpush','hpull','hlegs','hcore'];

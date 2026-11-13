@@ -1329,11 +1329,88 @@ let server, browser;
       check(sharesEquipment('Lat Pull-Down Machine','Single-Arm Lat Pull-Down'),'same station not recognized');
       S.history.push(history(dKey(earlier),[set(0,5)],'Pull-Ups'));
       S.history.push(history(dKey(earlier),[set(100,10)],'Plate-Loaded Lat Pull-Down'));
-      check(lift('pull')==='Single-Arm Lat Pull-Down','unused unilateral option did not rotate in');
+      const singleArm=_buildSplitPool('pull',gym).find(e=>e._src==='tpl'&&isUnilateralPulldown(e.n));
+      check(singleArm,'unused unilateral option did not rotate in');
       check(_buildSplitPool('chest',gym).some(e=>e.n==='Dips'),'dip station missing from chest workout');
       check(_buildSplitPool('core',gym).some(e=>e.n==='Decline Bench Sit-Up'),'decline bench missing from core workout');
       S.history=[history(k,[set(100,12)],'Lat Pull-Down Machine')];
       check(lift('pull')==='Lat Pull-Down Machine','same-day history changed selection');
+    });
+    test('equipment filters show variations and distinct muscle targets across the catalog', () => {
+      reset();
+      const cases=[
+        ['Lat Pull-Down Machine',['Lat Pull-Down Machine','Single-Arm Lat Pull-Down','Neutral-Grip Lat Pull-Down']],
+        ['Rear Delt / Pec Fly Machine',['Pec Deck / Fly Machine','Pec Fly / Rear Delt (Rear)']],
+        ['Plate-Loaded Leg Press',['High Foot Placement Press','Low Foot Placement Press','Leg Press Calf Raise']],
+        ['Smith Machine',['Smith Machine Squat','Smith Machine Bench Press','Smith Machine Hip Thrust']],
+        ['Dumbbells (5-75 lbs)',['Dumbbell Shoulder Press','Dumbbell Reverse Lunge','Dumbbell Bicep Curls']],
+        ['Cable Crossover Machine',['Cable Chest Fly (Low to High)','Cable Face Pull','Cable Pallof Press','Cable Glute Kickback']],
+        ['Dip Station / Parallel Bars',['Chest Dip (Forward Lean)','Tricep Dip']],
+        ['Pull-Up Bar',['Pull-Ups','Hanging Knee Raise','Hanging Leg Raise']],
+        ['Decline Bench',['Decline Bench Sit-Up','Weighted Decline Crunch']],
+        ['Hip Abductor / Adductor Machine',['Seated Hip Adduction Machine','Seated Hip Abduction Machine']],
+        ['TRX Suspension Trainer',['TRX Row','TRX Chest Press','TRX Hamstring Curl']],
+        ['GMWD Chest Press Machine',['GMWD Chest Press (Flat)','GMWD Shoulder Press']],
+        ['Treadmill',['Incline Walk','Reverse Treadmill Walk']]
+      ];
+      buildEquipmentPage();
+      const row=Array.from(el('equipContent').querySelectorAll('.eq-variants-btn')).find(b=>decodeURIComponent(b.dataset.exname)==='Lat Pull-Down Machine');
+      check(row,'equipment row has no exercise button');row.click();
+      check(el('exLibEquipment').value==='Lat Pull-Down Machine','equipment button did not scope the library');
+      const catalog=EQUIPMENT_CATALOGUE.flatMap(section=>section.items.map(e=>e.n));
+      const filter=Array.from(el('exLibEquipment').options,x=>x.value);
+      check(catalog.every(name=>filter.includes(name)),'equipment omitted from filter');
+      const library=allLibraryExercises();
+      const uncovered=catalog.filter(name=>name!=='Weight Storage Tree'&&
+        !library.some(e=>exerciseUsesEquipment(e.n,name))&&!equipmentGuideExercises(name).length);
+      check(uncovered.length===0,'equipment has no linked exercise or guide: '+uncovered.join(', '));
+      for(const [equipment,exercises] of cases){
+        el('exLibEquipment').value=equipment;
+        el('exLibEquipment').dispatchEvent(new Event('change'));
+        const result=el('exLibList').textContent;
+        check(exercises.every(name=>result.includes(name)),equipment+' missing '+exercises.filter(name=>!result.includes(name)).join(', '));
+      }
+      check(!exerciseUsesEquipment('Tricep Dip','Dip Belt (Weighted)'),'belt matched as a dip station');
+      check(!exerciseUsesEquipment('Cable Chest Fly (Low to High)','Cable Low Row'),'dedicated low row matched a cable fly');
+    });
+    test('same equipment swaps expose cross-muscle variations while busy swaps stay in the target group', () => {
+      const k=liveReset('pull');buildTodayWorkout();
+      const g=GS(k), i=g.exList.findIndex(e=>e.n==='Lat Pull-Down Machine');
+      check(i>=0,'pulldown fixture missing');
+      const excluded=new Set(g.exList.map(e=>e.n));
+      const availableBarMove=ELIB.back.find(e=>/pull-up|chin-up/i.test(e.n)&&!excluded.has(e.n)&&isExerciseAvailable(e.n,getActiveGym().equipment)&&!sharesEquipment(e.n,'Lat Pull-Down Machine'));
+      check(availableBarMove,'different-station fixture missing');
+      openSwap(i,'Lat Pull-Down Machine');
+      const list=el('swapList');
+      const shown=(name)=>Array.from(list.querySelectorAll('.sopt[data-n]')).some(row=>list._list[Number(row.dataset.n)].n===name);
+      check(shown('Single-Arm Lat Pull-Down'),'same-muscle variant missing');
+      document.querySelector('#swapScope button:last-child').click();
+      check(shown('Single-Arm Lat Pull-Down')&&!shown(availableBarMove.n),'same-equipment filter wrong');
+      toggleSwapBusyFilter();
+      check(!shown('Single-Arm Lat Pull-Down')&&shown(availableBarMove.n),'busy filter did not switch back to same-muscle alternatives');
+      openSwap(i,'Pec Deck / Fly Machine');
+      document.querySelector('#swapScope button:last-child').click();
+      check(list._list.some(e=>e.n==='Pec Fly / Rear Delt (Rear)'&&e.sameStation&&e.g==='shoulders')||g.exList.some(e=>e.n==='Pec Fly / Rear Delt (Rear)'),'rear-delt variation missing');
+      openSwap(i,'Plate-Loaded Leg Press');
+      document.querySelector('#swapScope button:last-child').click();
+      for(const [name,group] of [['High Foot Placement Press','glutes'],['Low Foot Placement Press','quads'],['Leg Press Calf Raise','calves']]){
+        check(list._list.some(e=>e.n===name&&e.sameStation&&e.g===group),name+' missing from station or wrong muscle');
+      }
+      openSwap(i,'Dips');
+      document.querySelector('#swapScope button:last-child').click();
+      check(list._list.some(e=>e.n==='Tricep Dip'&&e.sameStation&&e.g==='triceps'),'triceps dip missing');
+    });
+    test('the workout planner rotates catalog variations in the same muscle slot', () => {
+      liveReset('push');
+      const gym=getActiveGym(), previous=new Date(vDate);previous.setDate(previous.getDate()-1);
+      const lift='Dumbbell Lateral Raises';
+      S.history=[history(dKey(previous),[set(15,12)],lift)];
+      const pool=_buildSplitPool('push',gym);
+      check(pool.some(e=>e._src==='tpl'&&e.n!==lift&&getMG(e.n)==='shoulders'&&movementPattern(e.n)==='Shoulder isolation'&&sharesEquipment(e.n,lift,gym.equipment)),'dumbbell shoulder slot did not rotate within its equipment');
+      check(_buildSplitPool('quads',gym).some(e=>e.n==='Low Foot Placement Press'),'quad emphasis absent from quad workout');
+      check(_buildSplitPool('glutes',gym).some(e=>e.n==='High Foot Placement Press'),'glute emphasis absent from glute workout');
+      check(_buildSplitPool('calves',gym).some(e=>e.n==='Leg Press Calf Raise'),'calf emphasis absent from calf workout');
+      check(getLastExSession('Single-Arm Lat Pull-Down')===null,'unlogged variant inherited another lift history');
     });
     reset(); saveS();
     return results;
