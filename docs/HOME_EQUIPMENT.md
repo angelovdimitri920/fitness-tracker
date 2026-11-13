@@ -28,7 +28,7 @@ sessions.
 | APEXUP weighted vest (20–32 lb model) | `Weighted Vest` | Pounds of vest load: 20–32 lb in 2 lb steps (20 lb shell + six 2 lb packs); starts at 20 |
 | APEXUP ankle weights (1 lb modules) | `Ankle Weights` | 1–5 lb on one ankle |
 | DMoose wrist roller | `Wrist Roller` | Pounds of the plate hung on it (10–45 bumpers) |
-| Doorframe pull-up bar | `Pull-Up Bar (Doorframe)` | Strict bar work only. Muscle-ups, skin-the-cats and kipping variations are excluded. |
+| Optional doorframe pull-up bar | `Pull-Up Bar (Doorframe)` | Strict bar work only. Muscle-ups, skin-the-cats and kipping variations are excluded. |
 | EAST MOUNT hydraulic twister, Oscillating Slim spring twister | `Twister Arm Trainer` | **Level** (dial / setting). Pound ratings are not trustworthy. |
 | Python Power Twister | `Power Twister Bar` | **Level** (hand position) |
 | GoFitness push-down bar | `Push Down Bar` | **Level** (springs attached) |
@@ -40,6 +40,8 @@ sessions.
 
 Level-based exercises (`isLevelExercise`) never feed volume, 1RM or records.
 
+Pull-ups and dips appear in Home workouts only when the appropriate equipment is enabled in the Home profile.
+
 ## Home rotation
 
 Four home splits rotate daily: `hpush`, `hpull`, `hlegs` and `hcore`. `homeSplitFor(k)` picks
@@ -50,7 +52,7 @@ fits.
 
 ## Confirmed by the user (Oct 11)
 
-- Pull-up bar: doorframe. Home session length: 30–45 min. It is an extra session that counts toward the streak, calories and recovery.
+- Home session length: 30–45 min. It is an extra session that counts toward the streak, calories and recovery.
 - Vest 20–32 lb; GMWD arms ~10 lb each; treadmill has no incline.
 
 ## Still open

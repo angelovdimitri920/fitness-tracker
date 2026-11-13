@@ -127,9 +127,12 @@ let server, browser;
       vDate=new Date('2026-10-02T12:00:00');check(next&&getProgression(name,9,3,0.95).weight===next.nextW,'next load disagrees');
     });
     test('quick fill and typed reps survive a render', () => {
-      reset(); S.weekFocus='general';S.history=[history('2026-09-29',[set(100,12),set(100,12),set(100,12)])];
-      buildTodayWorkout();quickFillExercise(0);check(S.sessions[dKey(vDate)].gym.exercises[0].sets[0].weight==='100','quick fill overwritten');
-      updateSet(0,0,'reps','11');buildTodayWorkout();check(S.sessions[dKey(vDate)].gym.exercises[0].sets[0].reps==='11','typed reps overwritten');
+      reset(); S.weekFocus='general';buildTodayWorkout();const g=GS(dKey(vDate)),i=g.exList.findIndex(e=>e.n==='Bench Press (Barbell)');
+      check(i>=0,'fixture: choose a past bench workout');
+      S.history=[history('2026-09-29',[set(100,12),set(100,12),set(100,12)])];
+      g.exListPinned=true;
+      quickFillExercise(i);check(g.exercises[i].sets[0].weight==='100','quick fill overwritten');
+      updateSet(i,0,'reps','11');buildTodayWorkout();check(g.exercises[i].sets[0].reps==='11','typed reps overwritten');
     });
     test('logged lift cannot be erased by a swap', () => {
       reset();buildTodayWorkout();const k=dKey(vDate),g=S.sessions[k].gym,name=g.exList[0].n;g.exercises[0].sets[0]=set(100,8);
@@ -217,7 +220,7 @@ let server, browser;
     });
     test('a past, unsaved started workout keeps its focus snapshot; the next day adopts the default', () => {
       reset();S.weekFocus='tone';buildTodayWorkout();const k=dKey(vDate),g=S.sessions[k].gym;
-      g.exercises[0].sets[0]=set(100,12);g.supersets={0:1};
+      g.exercises[0].sets[0]=set(100,12);g.supersets={0:1};buildTodayWorkout();
       const before=JSON.stringify({ex:g.exList,plan:g._cardioPlan,sets:g.exercises});
       setWeeklyFocus('power');
       check(S.weekFocus==='power'&&getWorkoutFocus()==='tone','default/session focus mixed');
@@ -373,11 +376,10 @@ let server, browser;
       check(!Object.values(g.exercises||{}).some(e=>(e.sets||[]).some(s=>s.done)),'logged sets kept');
     });
     test('each focus gets its own specialty sets as extras; the switch is separate from supersets', () => {
-      const want={power:'cl',hybrid:'cl',muscle:'ds',tone:'ds',endurance:'rp',general:'ds'};
-      for(const f of Object.keys(want)){
+      for(const f of Object.keys(SPECIALTY_BY_FOCUS)){
         const k=liveReset(f==='general'?'upper':'push'); _advSuggestEnabled=true; S.weekFocus=f; buildTodayWorkout(); const g=S.sessions[k].gym;
         const specs=[]; g.exList.forEach((e,i)=>(g.exercises[i].sets||[]).forEach(s=>{ if(s.spec) specs.push({n:e.n,t:s.type,i}); }));
-        check(specs.some(x=>x.t===want[f]),f+': no '+want[f]+' set ('+JSON.stringify(specs)+')');
+        check(specs.length>0&&specs.every(x=>SPECIALTY_BY_FOCUS[f].some(r=>r.type===x.t)),f+': incorrect extras '+JSON.stringify(specs));
         for(const x of specs){ const work=g.exercises[x.i].sets.filter(s=>!s.spec&&(s.type||'wk')==='wk').length; check(work>=g.exList[x.i].sets,f+': specialty replaced a work set on '+x.n); }
         if(f==='power') check(!specs.some(x=>x.t==='ds'||x.t==='fl'),'strength got drops/failure');
       }
@@ -452,7 +454,10 @@ let server, browser;
       check(snapToLoadable('Weighted Vest Push-Up',4)===20&&snapToLoadable('Weighted Vest Push-Up',40)===32,'vest range not 20-32');
       check(!getAvailableCardioOptions().some(o=>/incline/i.test(o.n)),'incline treadmill offered at home');
       check(snapToLoadable('Kettlebell Goblet Squat',45)===20,'kettlebell not fixed at 20');
-      const eq=getHomeEquipment(); check(isExerciseAvailable('Pull-Ups',eq)&&isExerciseAvailable('Dead Hang',eq),'doorframe bar unusable');
+      const eq=getHomeEquipment();
+      check(!isExerciseAvailable('Pull-Ups',eq)&&!isExerciseAvailable('Dips',eq),'gym stations appeared in the default home inventory');
+      eq.push('Pull-Up Bar (Doorframe)');
+      check(isExerciseAvailable('Pull-Ups',eq)&&isExerciseAvailable('Dead Hang',eq),'configured doorframe bar unusable');
       check(!isExerciseAvailable('Muscle-Up',eq),'muscle-ups allowed on a doorframe bar');
       check(isLevelExercise('Twister Chest Squeeze')&&getExType('Twister Chest Squeeze')==='bodyweight','twister given a pound load');
       cMode='gym';
@@ -586,18 +591,23 @@ let server, browser;
       check(JSON.stringify(S.sessions[k].home.supersets)===before&&!S.sessions[k].home.userUnlinkedSupersets,'saved home session mutated');
       cMode='gym';
     });
-    test('each focus gets exactly its specialty-set mix; Quick gets one', () => {
-      const want={power:{cl:1},hybrid:{cl:1,rp:1},muscle:{ds:2},tone:{ds:2},endurance:{rp:2},general:{ds:1}};
-      for(const sp of ['push','pull','upper','lower']) for(const f of Object.keys(want)) for(const it of ['standard','full','quick']){
-        const k=liveReset(sp); _advSuggestEnabled=true; S.weekFocus=f; S.sessions[k]={gym:{exercises:{},cardio:{},cardioBlocks:{},intensity:it}}; buildTodayWorkout(); const g=S.sessions[k].gym;
-        const got={}; let total=0; g.exList.forEach((e,i)=>(g.exercises[i].sets||[]).forEach(s=>{ if(s.spec){ got[s.type]=(got[s.type]||0)+1; total++; } }));
-        const ctx=sp+'/'+f+'/'+it+' '+JSON.stringify(got);
-        if(it==='quick'){ check(total<=1,ctx+': quick has '+total); check(!total||got[Object.keys(want[f])[0]]===1,ctx+': quick used the wrong technique'); continue; }
-        for(const [t,n] of Object.entries(want[f])) check((got[t]||0)<=n,ctx+': too many '+t);
-        for(const t of Object.keys(got)) check(want[f][t]!=null||(f==='muscle'&&t==='fl'),ctx+': '+t+' does not belong to '+f);
-        if(f==='muscle') check((got.fl||0)<=1,ctx+': more than one failure set');
-        if(f!=='power'&&f!=='hybrid') check(total>=1,ctx+': no specialty set at all');
-        if(f==='muscle'){ const eligible=planSpecialtySets(g.exList,'muscle',it,g.exercises); check(!Object.values(eligible).includes('fl')||got.fl===1,ctx+': eligible failure set missing'); }
+    test('specialty techniques rotate by focus and date, with bounded extras and supported movements', () => {
+      for(const f of Object.keys(SPECIALTY_BY_FOCUS)){
+        const k=liveReset('push'); _advSuggestEnabled=true; S.weekFocus=f; buildTodayWorkout();
+        const g=GS(k), quick=new Set(), standard=new Set(), start=new Date(vDate);
+        for(let day=0;day<6;day++){
+          vDate=new Date(start); vDate.setDate(vDate.getDate()+day);
+          for(const [intensity,types,cap] of [['quick',quick,1],['standard',standard,2]]){
+            const planned=planSpecialtySets(g.exList,f,intensity);
+            check(Object.keys(planned).length>0&&Object.keys(planned).length<=cap,f+' '+intensity+' size');
+            for(const [i,type] of Object.entries(planned)){
+              types.add(type);
+              const lift=g.exList[i].n;
+              check(type==='cl'||['cable','machine','plate_machine'].includes(getExType(lift)),type+' on '+lift);
+            }
+          }
+        }
+        check(quick.size>=2&&standard.size>=2,f+' did not vary techniques');
       }
       _advSuggestEnabled=false;
     });
@@ -1148,7 +1158,8 @@ let server, browser;
           const rule=exerciseProgressionRule(e.n,f); if(getExType(e.n)!=='bodyweight'&&!isTimedHold(e.n)&&(e.reps<rule.floor||e.reps>rule.ceil)) bad.push(ctx+': '+e.n+' '+e.reps+' reps'); });
         const types=Object.values(g.exercises).flatMap(d=>(d.sets||[]).filter(x=>x.spec).map(x=>x.type));
         const want=SPECIALTY_BY_FOCUS[f].map(r=>r.type);
-        if(!types.length||!types.every(t=>want.includes(t))) bad.push(ctx+': specialty '+types.join(',')+' (want '+want.join('/')+')');
+        const hasSupported=g.exList.some(e=>['cable','machine','plate_machine'].includes(getExType(e.n))&&!isAssistanceExercise(e.n));
+        if((!types.length&&hasSupported)||!types.every(t=>want.includes(t))) bad.push(ctx+': specialty '+types.join(',')+' (want '+want.join('/')+')');
       }
       _advSuggestEnabled=false; check(!bad.length,bad.slice(0,12).join('; '));
     });
@@ -1160,7 +1171,8 @@ let server, browser;
     });
     test('Full sessions add a set to the main lifts on the strength and muscle focuses', () => {
       for(const f of ['power','hybrid','muscle']) check(_focusSetCount({n:'Bench Press (Barbell)',p:1},'full',f)>_focusSetCount({n:'Bench Press (Barbell)',p:1},'standard',f),f);
-      check(_focusSetCount({n:'Bench Press (Barbell)',p:1},'full','tone')===3,'tone main lift');
+      check(_focusSetCount({n:'Bench Press (Barbell)',p:1,sets:4},'full','tone')===4,'tone primary lift');
+      check(_focusSetCount({n:'Dumbbell Lateral Raises',p:2,sets:3},'full','tone')===3,'tone accessory');
     });
     test('planned cardio is always whole 5-minute blocks', () => {
       const bad=[];
@@ -1218,6 +1230,255 @@ let server, browser;
       check(equipmentCategory('Target Abs Bench','core_machines')==='station','ab bench');
       check(equipmentCategory("Captain's Chair",'core_machines')==='station','captain');
       check(EX_CATEGORIES.map(c=>c.id).indexOf('calisthenics')>EX_CATEGORIES.map(c=>c.id).indexOf('station'),'calisthenics listed before stations');
+    });
+    test('editable warm-ups survive reload and follow corrected equipment base until logged', () => {
+      const k=liveReset('lower'); buildTodayWorkout(); const g=GS(k),i=g.exList.findIndex(e=>e.n==='Barbell Back Squat');
+      check(i>=0,'no squat');
+      const data=g.exercises[i];
+      const inputs=()=>Array.from(document.querySelectorAll('#exCard_'+i+' input[aria-label^="Warm-up"]'));
+      check(inputs().length===2&&inputs().every(x=>!x.readOnly),'editable ramp missing');
+      setWeightEntryMode('Barbell Back Squat','added');buildTodayWorkout();
+      inputs()[0].value='10';inputs()[0].dispatchEvent(new Event('input'));
+      inputs()[1].value='35';inputs()[1].dispatchEvent(new Event('input'));
+      check(data.warmupPlan[0].weight===55&&data.warmupPlan[1].weight===80,'added plates misread');
+      document.querySelector('#exCard_'+i+' .wu-check').click();
+      const promptBefore=window.prompt;window.prompt=()=> '47';
+      try{editBaseWeight(i);}finally{window.prompt=promptBefore;}
+      check(data.warmupPlan[0].weight===55&&data.warmupPlan[0].done,'logged warm-up was rewritten');
+      check(data.warmupPlan[1].weight===82&&inputs()[1].value==='35','edited warm-up did not follow base');
+      S=loadS();buildTodayWorkout();
+      check(GS(k).exercises[i].warmupPlan[1].weight===82,'warm-up lost on reload');
+      updateSet(i,0,'reps','8'); GS(k).exercises[i].sets[0].done=true; doSaveWorkout(3,'');
+      check(S.history[0].exercises.find(e=>e.name==='Barbell Back Squat').warmups[0].weight===55,'logged warm-up absent from history');
+    });
+    test('busy squat swap inherits the work dose, warm-up and main role with leg press loading', () => {
+      const k=liveReset('lower');S.weekFocus='power';buildTodayWorkout();const g=GS(k);
+      const i=g.exList.findIndex(e=>e.n==='Barbell Back Squat'), name='Plate-Loaded Leg Press';
+      check(i>=0&&!g.exList.some(e=>e.n===name),'leg press should be available as an alternative');
+      const old=g.exercises[i];updateSet(i,0,'reps','5');
+      const reps=old.sets.filter(isStraightWorkSet).map(x=>x.reps),warmups=old.warmupPlan.length;
+      openSwap(i,'Barbell Back Squat'); toggleSwapBusyFilter();
+      const swapList=el('swapList');
+      const choice=Array.from(swapList.querySelectorAll('.sopt[data-n]')).find(x=>swapList._list[Number(x.dataset.n)].n===name);
+      check(choice,'leg press omitted by busy filter'); choice.click();
+      const replaced=g.exercises[i];
+      check(g.exList[i].n===name&&g.exList[i].main&&g.exList[i].replaces==='Barbell Back Squat','main role or identity lost');
+      check(JSON.stringify(replaced.sets.filter(isStraightWorkSet).map(x=>x.reps))===JSON.stringify(reps),'work reps changed');
+      check(replaced.warmupPlan.length===warmups&&replaced.warmupPlan.every(w=>w.weight>=getBaseWeight(name)),'warm-up ramp missing or below sled');
+      check(replaced.sets.every(x=>Number(x.weight)>=getBaseWeight(name)&&isLoadableWeight(name,Number(x.weight))),'replacement load is unusable');
+      undoSwap(i);check(g.exercises[i].sets[0].reps==='5','undo lost original edits');
+      doSwap(i,name,'Quads · Glutes');g.exercises[i].sets.forEach(x=>x.done=true);doSaveWorkout(3,'');
+      check(S.history[0].exercises.some(e=>e.name===name&&e.main&&e.replaces==='Barbell Back Squat'),'swap absent from main-lift history');
+      check(!Object.values(S.pbs).some(x=>x.exercise==='Barbell Back Squat'),'leg press became a squat record');
+    });
+    test('logged set count, weight and reps carry forward with a three-set floor', () => {
+      const k=liveReset('push');S.weekFocus='muscle';buildTodayWorkout();const g=GS(k);
+      const i=g.exList.findIndex(e=>e.n==='Bench Press (Barbell)'),data=g.exercises[i],name=g.exList[i].n;
+      const count=()=>data.sets.filter(isStraightWorkSet).length;
+      check(count()===4,'expected four work sets');
+      removeExtraSet(i,3);check(count()===3&&g.exList[i].sets===3,'removal was undone on render');
+      removeExtraSet(i,2);check(count()===3,'fell below three work sets');
+      updateSetType(i,2,'rp');check(count()===3,'set type change bypassed floor');
+      updateSet(i,0,'weight','155');updateSet(i,0,'reps','7');
+      updateSet(i,2,'weight','135');updateSet(i,2,'reps','5');
+      data.sets.forEach(s=>s.done=true);
+      doSaveWorkout(3,'');
+      vDate.setDate(vDate.getDate()+1);
+      const next=getProgression(name,9,3,1);
+      check(next.weight===135&&next.reps===5,JSON.stringify(next));
+      check(_focusSetCount(WTPL.push.exercises[0],'standard','muscle')===3,'set reduction did not carry');
+      check(_focusSetCount(WTPL.push.exercises[0],'full','muscle')===4,'length stopped affecting carried sets');
+    });
+    test('automatic progression needs all planned ceiling sets and uses focus-sized loadable steps', () => {
+      reset();const name='Bench Press (Barbell)';
+      S.history=[history('2026-09-29',[set(100,12),set(100,12),set(100,12)])];
+      S.history[0].exercises[0].plannedWorkSets=4;S.weekFocus='muscle';
+      check(getProgression(name,9,4,1).weight===100,'three of four sets increased load');
+      S.history[0].exercises[0].sets.push(set(100,12));
+      check(getProgression(name,9,4,1).weight===105,'successful lift did not increase');
+      getActiveGym().loading={'Cable Low Row':{min:5,max:120,step:2.5}};
+      check(nextProgressionWeight('Cable Low Row',100,'endurance')===102.5,'endurance increment');
+      check(nextProgressionWeight('Cable Low Row',100,'power')===105,'strength increment');
+      check(nextProgressionWeight('Cable Low Row',120,'power')===120,'stack cap');
+    });
+    test('bodyweight adds one rep only after every target is reached', () => {
+      reset();const name='Pull-Ups';S.weekFocus='muscle';
+      const rows=[set(0,5),set(0,5),set(0,4)];
+      S.history=[history('2026-09-29',rows,name)];
+      Object.assign(S.history[0].exercises[0],{targetReps:5,plannedWorkSets:3});
+      check(getProgression(name,5,3,1).reps===4,'missed target earned an increase');
+      rows[2].reps='5';
+      check(getProgression(name,5,3,1).reps===6,'bodyweight did not add one rep');
+      rows[2].done=false;
+      check(getProgression(name,5,3,1).reps===5,'unchecked set earned an increase');
+    });
+    test('specialized workouts and gym stations are selectable, and gym variation uses past history only', () => {
+      const k=liveReset('pull'),gym=getActiveGym();buildTodayWorkout();
+      openSplitSwitcher();
+      check(el('splitSwitcherList').textContent.includes('Main workouts')&&el('splitSwitcherList').textContent.includes('Specialized workouts'),'Today group headings missing');
+      check(el('splitSwitcherList').textContent.includes('Back & Lats'),'specialized workout missing');
+      openDayModal(k);
+      check(el('splitGrid').textContent.includes('Main workouts')&&el('splitGrid').textContent.includes('Specialized workouts'),'Plan group headings missing');
+      for(const [name,gear] of [['Dips','Dip Station / Parallel Bars'],['Pull-Ups','Pull-Up Bar'],['Decline Bench Sit-Up','Decline Bench']]){
+        check(gym.equipment.includes(gear)&&isExerciseAvailable(name,[gear])&&!isExerciseAvailable(name,[]),name+' does not require its station');
+      }
+      const lift=(tpl)=>_buildSplitPool(tpl,gym)[0].n;
+      check(lift('pull')==='Lat Pull-Down Machine','unexpected first pull day');
+      const earlier=new Date(vDate); earlier.setDate(earlier.getDate()-1);
+      S.history=[history(dKey(earlier),[set(100,12)],'Lat Pull-Down Machine')];
+      check(lift('pull')==='Pull-Ups','unused pull-up station did not rotate in');
+      check(sharesEquipment('Lat Pull-Down Machine','Single-Arm Lat Pull-Down'),'same station not recognized');
+      S.history.push(history(dKey(earlier),[set(0,5)],'Pull-Ups'));
+      S.history.push(history(dKey(earlier),[set(100,10)],'Plate-Loaded Lat Pull-Down'));
+      const singleArm=_buildSplitPool('pull',gym).find(e=>e._src==='tpl'&&isUnilateralPulldown(e.n));
+      check(singleArm,'unused unilateral option did not rotate in');
+      check(_buildSplitPool('chest',gym).some(e=>e.n==='Dips'),'dip station missing from chest workout');
+      check(_buildSplitPool('core',gym).some(e=>e.n==='Decline Bench Sit-Up'),'decline bench missing from core workout');
+      S.history=[history(k,[set(100,12)],'Lat Pull-Down Machine')];
+      check(lift('pull')==='Lat Pull-Down Machine','same-day history changed selection');
+    });
+    test('equipment filters show variations and distinct muscle targets across the catalog', () => {
+      reset();
+      const cases=[
+        ['Lat Pull-Down Machine',['Lat Pull-Down Machine','Single-Arm Lat Pull-Down','Neutral-Grip Lat Pull-Down']],
+        ['Rear Delt / Pec Fly Machine',['Pec Deck / Fly Machine','Pec Fly / Rear Delt (Rear)']],
+        ['Plate-Loaded Leg Press',['High Foot Placement Press','Low Foot Placement Press','Leg Press Calf Raise']],
+        ['Smith Machine',['Smith Machine Squat','Smith Machine Bench Press','Smith Machine Hip Thrust']],
+        ['Dumbbells (5-75 lbs)',['Dumbbell Shoulder Press','Dumbbell Reverse Lunge','Dumbbell Bicep Curls']],
+        ['Cable Crossover Machine',['Cable Chest Fly (Low to High)','Cable Face Pull','Cable Pallof Press','Cable Glute Kickback']],
+        ['Dip Station / Parallel Bars',['Chest Dip (Forward Lean)','Tricep Dip']],
+        ['Pull-Up Bar',['Pull-Ups','Hanging Knee Raise','Hanging Leg Raise']],
+        ['Decline Bench',['Decline Bench Sit-Up','Weighted Decline Crunch']],
+        ['Hip Abductor / Adductor Machine',['Seated Hip Adduction Machine','Seated Hip Abduction Machine']],
+        ['TRX Suspension Trainer',['TRX Row','TRX Chest Press','TRX Hamstring Curl']],
+        ['GMWD Chest Press Machine',['GMWD Chest Press (Flat)','GMWD Shoulder Press']],
+        ['Treadmill',['Incline Walk','Reverse Treadmill Walk']]
+      ];
+      buildEquipmentPage();
+      const row=Array.from(el('equipContent').querySelectorAll('.eq-variants-btn')).find(b=>decodeURIComponent(b.dataset.exname)==='Lat Pull-Down Machine');
+      check(row,'equipment row has no exercise button');row.click();
+      check(el('exLibEquipment').value==='Lat Pull-Down Machine','equipment button did not scope the library');
+      const catalog=EQUIPMENT_CATALOGUE.flatMap(section=>section.items.map(e=>e.n));
+      const filter=Array.from(el('exLibEquipment').options,x=>x.value);
+      check(catalog.every(name=>filter.includes(name)),'equipment omitted from filter');
+      const library=allLibraryExercises();
+      const uncovered=catalog.filter(name=>name!=='Weight Storage Tree'&&
+        !library.some(e=>exerciseUsesEquipment(e.n,name))&&!equipmentGuideExercises(name).length);
+      check(uncovered.length===0,'equipment has no linked exercise or guide: '+uncovered.join(', '));
+      for(const [equipment,exercises] of cases){
+        el('exLibEquipment').value=equipment;
+        el('exLibEquipment').dispatchEvent(new Event('change'));
+        const result=el('exLibList').textContent;
+        check(exercises.every(name=>result.includes(name)),equipment+' missing '+exercises.filter(name=>!result.includes(name)).join(', '));
+      }
+      check(!exerciseUsesEquipment('Tricep Dip','Dip Belt (Weighted)'),'belt matched as a dip station');
+      check(!exerciseUsesEquipment('Cable Chest Fly (Low to High)','Cable Low Row'),'dedicated low row matched a cable fly');
+    });
+    test('same equipment swaps expose cross-muscle variations while busy swaps stay in the target group', () => {
+      const k=liveReset('pull');buildTodayWorkout();
+      const g=GS(k), i=g.exList.findIndex(e=>e.n==='Lat Pull-Down Machine');
+      check(i>=0,'pulldown fixture missing');
+      const excluded=new Set(g.exList.map(e=>e.n));
+      const availableBarMove=ELIB.back.find(e=>/pull-up|chin-up/i.test(e.n)&&!excluded.has(e.n)&&isExerciseAvailable(e.n,getActiveGym().equipment)&&!sharesEquipment(e.n,'Lat Pull-Down Machine'));
+      check(availableBarMove,'different-station fixture missing');
+      openSwap(i,'Lat Pull-Down Machine');
+      const list=el('swapList');
+      const shown=(name)=>Array.from(list.querySelectorAll('.sopt[data-n]')).some(row=>list._list[Number(row.dataset.n)].n===name);
+      check(shown('Single-Arm Lat Pull-Down'),'same-muscle variant missing');
+      document.querySelector('#swapScope button:last-child').click();
+      check(shown('Single-Arm Lat Pull-Down')&&!shown(availableBarMove.n),'same-equipment filter wrong');
+      toggleSwapBusyFilter();
+      check(!shown('Single-Arm Lat Pull-Down')&&shown(availableBarMove.n),'busy filter did not switch back to same-muscle alternatives');
+      openSwap(i,'Pec Deck / Fly Machine');
+      document.querySelector('#swapScope button:last-child').click();
+      check(list._list.some(e=>e.n==='Pec Fly / Rear Delt (Rear)'&&e.sameStation&&e.g==='shoulders')||g.exList.some(e=>e.n==='Pec Fly / Rear Delt (Rear)'),'rear-delt variation missing');
+      openSwap(i,'Plate-Loaded Leg Press');
+      document.querySelector('#swapScope button:last-child').click();
+      for(const [name,group] of [['High Foot Placement Press','glutes'],['Low Foot Placement Press','quads'],['Leg Press Calf Raise','calves']]){
+        check(list._list.some(e=>e.n===name&&e.sameStation&&e.g===group),name+' missing from station or wrong muscle');
+      }
+      openSwap(i,'Dips');
+      document.querySelector('#swapScope button:last-child').click();
+      check(list._list.some(e=>e.n==='Tricep Dip'&&e.sameStation&&e.g==='triceps'),'triceps dip missing');
+    });
+    test('the workout planner rotates catalog variations in the same muscle slot', () => {
+      liveReset('push');
+      const gym=getActiveGym(), previous=new Date(vDate);previous.setDate(previous.getDate()-1);
+      const lift='Dumbbell Lateral Raises';
+      S.history=[history(dKey(previous),[set(15,12)],lift)];
+      const pool=_buildSplitPool('push',gym);
+      check(pool.some(e=>e._src==='tpl'&&e.n!==lift&&getMG(e.n)==='shoulders'&&movementPattern(e.n)==='Shoulder isolation'&&sharesEquipment(e.n,lift,gym.equipment)),'dumbbell shoulder slot did not rotate within its equipment');
+      check(_buildSplitPool('quads',gym).some(e=>e.n==='Low Foot Placement Press'),'quad emphasis absent from quad workout');
+      check(_buildSplitPool('glutes',gym).some(e=>e.n==='High Foot Placement Press'),'glute emphasis absent from glute workout');
+      check(_buildSplitPool('calves',gym).some(e=>e.n==='Leg Press Calf Raise'),'calf emphasis absent from calf workout');
+      check(getLastExSession('Single-Arm Lat Pull-Down')===null,'unlogged variant inherited another lift history');
+    });
+    test('movement families nest standard choices and variations across the exercise catalog', () => {
+      reset();const library=allLibraryExercises();
+      const examples=[
+        ['Chest Press Machine',['Chest Press Machine','Single-Arm Chest Press Machine','Wide-Grip Chest Press Machine','Close-Grip Chest Press Machine']],
+        ['Lat Pull-Down Machine',['Lat Pull-Down Machine','Single-Arm Lat Pull-Down','Neutral-Grip Lat Pull-Down']],
+        ['Plate-Loaded Leg Press',['Plate-Loaded Leg Press','High Foot Placement Press','Leg Press Calf Raise']],
+        ['Smith Machine Squat',['Smith Machine Squat','Smith Machine Front Squat','Smith Machine Box Squat']],
+        ['Smith Machine Bench Press',['Smith Machine Bench Press','Smith Machine Incline Press','Smith Machine Reverse-Grip Bench Press']],
+        ['Pec Deck / Fly Machine',['Pec Deck / Fly Machine','Single-Arm Pec Deck Fly','Pec Fly / Rear Delt (Rear)']],
+        ['Cable Low Row',['Cable Low Row','Single-Arm Seated Cable Row','Rope Seated Cable Row']],
+        ['Cable Chest Fly',['Cable Chest Fly (High to Low)','Cable Chest Fly (Low to High)']],
+        ['Leg Extension Machine',['Leg Extension Machine','Single-Leg Leg Extension','Toes-Out Leg Extension']],
+        ['Dips',['Dips','Chest Dip (Forward Lean)','Tricep Dip']],
+        ['Pull-Ups',['Pull-Ups','Chin-Ups','Neutral-Grip Pull-Up']],
+        ['Push-Ups',['Push-Ups','Diamond Push-Up','Wide Push-Up']],
+        ['Barbell Back Squat',['Barbell Back Squat','Barbell Pause Squat']],
+        ['Dumbbell Bicep Curls',['Dumbbell Bicep Curls','Incline Dumbbell Curl']],
+        ['TRX Row',['TRX Row','TRX Single-Arm Row']]
+      ];
+      const grouped=groupExerciseChoices(library);
+      check(grouped.flatMap(g=>g.items).length===library.length,'catalog lost options');
+      for(const [parent,children] of examples){
+        const family=grouped.find(g=>g.name===parent);
+        check(family&&children.every(name=>family.items.some(e=>e.n===name)),parent+' has an ungrouped variation');
+      }
+      openExerciseLibrary('browse','all','Plate-Loaded Leg Press');
+      const family=Array.from(el('exLibList').querySelectorAll('details')).find(x=>x.querySelector('summary').textContent.includes('Plate-Loaded Leg Press'));
+      check(family&&!family.open,'leg press variations should start collapsed');
+      check(family.querySelector('.exlib-info[data-n="'+encodeURIComponent('Leg Press Calf Raise')+'"]'),'calf variation escaped the leg press parent');
+      openExerciseLibrary('browse','all','Treadmill');
+      check(el('exLibList').querySelector('details')?.textContent.includes('Reverse Treadmill Walk'),'cardio modes are not nested');
+    });
+    test('expand and search exercise variations, then save the chosen identity', () => {
+      const k=liveReset('push');buildTodayWorkout();const gym=GS(k);
+      const i=gym.exList.findIndex(e=>e.n==='Bench Press (Barbell)');
+      check(i>=0,'fixture missing barbell bench');
+      openSwap(i,gym.exList[i].n);
+      const list=el('swapList');
+      const chest=()=>Array.from(list.querySelectorAll('.movement-family')).find(x=>x.querySelector('.movement-family-title').textContent==='Chest Press Machine');
+      const variant='Single-Arm Chest Press Machine';
+      const swap=()=>Array.from(list.querySelectorAll('.sopt[data-n]')).find(x=>list._list[Number(x.dataset.n)].n===variant);
+      check(chest()&&!chest().open&&swap().closest('details')===chest(),'single-arm press is not under a collapsed chest press');
+      check(chest().querySelector('.sname').textContent==='Standard','standard press is not the first option');
+      chest().querySelector('summary').click();
+      check(chest().open,'chest press could not expand');
+      el('swapFilter').value='single-arm chest';
+      el('swapFilter').dispatchEvent(new Event('input'));
+      check(chest().open&&swap().closest('details')===chest(),'search did not open the matching parent');
+      swap().click();
+      check(gym.exList[i].n===variant,'swap saved the family name');
+      gym.exercises[i].sets[0].done=true;
+      doSaveWorkout(3,'');
+      check(S.history.find(h=>h.date===k).exercises.some(e=>e.name===variant&&e.sets[0].done),'logged variation lost its identity');
+    });
+    test('workout pickers nest specialized plans under their main workout', () => {
+      const k=liveReset('lower');buildTodayWorkout();openSplitSwitcher();
+      const today=Array.from(el('splitSwitcherList').querySelectorAll('details')).find(x=>x.querySelector('summary').textContent.includes('Lower Body Strength'));
+      check(today&&today.textContent.includes('Standard Lower')&&today.textContent.includes('Quads & Calves')&&today.textContent.includes('Hamstrings & Posterior Chain'),'Today lower workout missing children');
+      closeModal('splitSwitcherModal');
+      openDayModal(k);
+      const plan=Array.from(el('splitGrid').querySelectorAll('details')).find(x=>x.querySelector('summary').textContent.includes('Lower Body Strength'));
+      plan.querySelector('summary').click();
+      plan.querySelector('button[onclick*="quads"]').click();
+      check(mDaySplit==='quads'&&el('splitGrid').querySelector('details[open] button.active'),'Plan did not preserve the selected child');
+      saveDayConfig();
+      check(getEffTpl(k)==='quads','specialized workout did not save');
     });
     reset(); saveS();
     return results;

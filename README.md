@@ -57,8 +57,10 @@ polish: drag-to-reorder or show/hide cards.
 The most-used screen and the app's centerpiece. Rather than a blank logger, it **auto-builds** an
 appropriate session, then gives you a deep logging surface.
 - **Week strip** — the current week with per-day dots (gym/run/rest + completion); tap any day.
-- **Auto-generated workout** — from your focus × intensity × the day's split × what you trained in
-  the last 48 h, the engine selects exercises, set/rep targets, rest, set types, and cardio.
+- **Auto-generated workout** — focus and intensity set the workout dose. New gym days rotate
+  through available equipment and prioritize movements you have used least recently. The Today
+  and Plan pickers nest specialized workouts under their main workout. The Home tab uses its
+  own equipment inventory, including equipment-free options.
 - **Intensity selector** — Quick / Standard / Full rescale exercise count and cardio to a target
   time band (30–45 / 60–90 / 90–120 min). The estimate is a **range**, and it models the session
   as actually lived: per-rep tempo, set changeover, the rest between sets (with realistic slop),
@@ -69,19 +71,25 @@ appropriate session, then gives you a deep logging surface.
   focus, intensity, weight or rep count. More is fine; fewer is refused, including when you try
   to remove a set by hand. Quick shortens a session by dropping exercises, never by cutting an
   exercise to 2 sets.
-- **Set logging** — per-set weight + reps with done toggles, supporting **work, warm-up, drop,
-  failure, and rest-pause** set types. Warm-up sets auto-suggest from your working weight; advanced
-  set types are auto-assigned per focus and editable.
+- **Set logging** — edit weight and reps, including the load on automatic warm-up sets. Focus
+  and date rotate specialty sets such as drops, clusters, rest-pause, and technical failure.
+  Specialty sets are optional extras after the straight work sets.
+- **Progression** — logged weight, rep, and set-count changes feed the next comparable workout.
+  Complete every planned straight set at the rep ceiling to earn a small loadable increase.
+  Completing all bodyweight targets adds one rep per set, or five seconds for a timed hold.
 - **Add/remove sets & "Continue Drop"** — extend any exercise or build multi-stage drop chains.
 - **Supersets (optional)** — off-able from the 🔗 chip on the Today page or from Settings, and
   turning them off clears them from the workout on screen. When on, pairs are chosen from the
   actual muscle groups of the exercises picked (true antagonists first; non-competing pairs only
   on metabolic focuses; never on Power). The app alternates them, equalizes their set counts, and
   visually groups the cards.
-- **Per-exercise swap** — replace any exercise with an equipment-valid alternative for the same
-  muscle (never one already in today's workout). Alternatives are listed **A→Z with a one-line
-  explanation of each** — movement pattern, primary muscles, modality, whether it is one side at
-  a time, and its starting weight — plus a search box.
+- **Per-exercise swap** — choose **Same muscle** for alternatives to the planned exercise or
+  **Same equipment** to see variations and other muscle targets on the station. Expand a main
+  movement to choose its standard exercise or a variation. The exercise library and cardio
+  picker use the same hierarchy. The replacement inherits the work sets, reps, warm-up ramp, and main-lift
+  role. Its load comes from its own history or estimate, adjusted to the original slot's
+  relative effort when the muscle target is comparable. It saves under the exercise you actually
+  performed. Use **Equipment → Exercises** on any station to browse its catalogued movements.
 - **Skip** — drop an exercise for today without losing it from the template (excluded from
   volume / completion / PRs).
 - **Pre-loaded ("starts at") weight** — bars and plate-loaded machines already weigh something
@@ -90,8 +98,8 @@ appropriate session, then gives you a deep logging surface.
   between gyms), and you can switch any of them to **"+plates" entry** — type only what you load
   and the base is added for you, with a live "= 340 lbs total (160 base + 180 added)" readout.
   What gets stored is always the true total, so 1RM, volume and PR maths are unaffected. Suggested
-  weights never fall below the base, and warm-up ramps run base + pct × (working − base) so every
-  warm-up is actually loadable.
+  loads account for the starting weight. When you correct that base, pending automatic warm-ups
+  recalculate and pending edited warm-ups keep the amount you added. Logged totals are preserved.
 - **Plate calculator** — per-set bar-loading visual (which plates per side), driven by the
   exercise's real base weight rather than assuming a 45 lb bar.
 - **Stall detection + deload** — a lift whose best estimated 1RM hasn't improved across three
