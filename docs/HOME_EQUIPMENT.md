@@ -43,9 +43,11 @@ targets at the same level to earn a rep increase. Level stays a device setting i
 
 ### Chest & Core
 
-Quick prioritizes the main press, the board when available, direct abs and upper-back work.
-Standard rotates the Ultimate Arm Trainer, Python Power Twister and push-down bar as a chest
-accessory. Full has room for more of the available tools and lower-body work. The adjustable chest
+Selecting Chest & Core as the Home focus uses the Chest & Core workout by default. A
+workout you picked for the day still takes precedence. Quick prioritizes the main press, the board
+when available, direct abs and upper-back work. Standard can add a kneeling ab-wheel rollout and
+rotates the Ultimate Arm Trainer, Python Power Twister and push-down bar as a chest accessory.
+Full has room for more of the available tools and lower-body work. The adjustable chest
 expander trains the upper back alongside pressing. Start around 15–18 reps per tool set and build
 according to logged effort. Use the board legend and equipment instructions for setup.
 
