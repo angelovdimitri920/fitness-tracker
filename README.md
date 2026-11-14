@@ -57,10 +57,10 @@ polish: drag-to-reorder or show/hide cards.
 The most-used screen and the app's centerpiece. Rather than a blank logger, it **auto-builds** an
 appropriate session, then gives you a deep logging surface.
 - **Week strip** — the current week with per-day dots (gym/run/rest + completion); tap any day.
-- **Auto-generated workout** — focus and intensity set the workout dose. New gym days rotate
-  through available equipment and prioritize movements you have used least recently. The Today
-  and Plan pickers nest specialized workouts under their main workout. The Home tab uses its
-  own equipment inventory, including equipment-free options.
+- **Auto-generated workout** — focus and intensity set the workout dose. The planner keeps the
+  main lift when it fits and can rotate one supporting movement to a familiar alternative that
+  targets the same muscles and fits the session. The Today and Plan pickers nest specialized
+  workouts under their main workout. Home uses a separate equipment inventory.
 - **Intensity selector** — Quick / Standard / Full rescale exercise count and cardio to a target
   time band (30–45 / 60–90 / 90–120 min). The estimate is a **range**, and it models the session
   as actually lived: per-rep tempo, set changeover, the rest between sets (with realistic slop),
@@ -75,8 +75,20 @@ appropriate session, then gives you a deep logging surface.
   and date rotate specialty sets such as drops, clusters, rest-pause, and technical failure.
   Specialty sets are optional extras after the straight work sets.
 - **Progression** — logged weight, rep, and set-count changes feed the next comparable workout.
-  Complete every planned straight set at the rep ceiling to earn a small loadable increase.
-  Completing all bodyweight targets adds one rep per set, or five seconds for a timed hold.
+  Meet every planned straight work-set target at the same load to earn an increase. Most loaded
+  lifts add about 5 lb when the equipment permits it. A heavy main lift with RPE 7 or lower on
+  every set can add up to 10 lb on strength and muscle focuses. Light loads and equipment
+  limits can reduce or prevent the increase. Bodyweight work adds 2–5 reps per set based on
+  movement and logged effort, or five seconds for a timed hold. Enable **Track RPE** in Settings
+  to record set effort. A set rated RPE 9.5 or higher holds the target.
+- **Chest & Core** — select this Gym focus for progressive pressing, direct core work and
+  moderate cardio within the session's time budget. Chest, Push, Upper and Full Body put extra
+  emphasis on pressing and core work. Pull and Lower still train their usual movement patterns.
+  In Home, choose the **Chest & Core** workout and set **Home focus** independently. Research supports
+  resistance exercise for building muscle and aerobic activity for overall fat loss.
+  [ACSM position stand](https://pmc.ncbi.nlm.nih.gov/articles/PMC12965823/) |
+  [Localized fat loss review](https://doi.org/10.5114/hm.2022.110373) |
+  [Aerobic exercise review](https://pmc.ncbi.nlm.nih.gov/articles/PMC11672165/).
 - **Add/remove sets & "Continue Drop"** — extend any exercise or build multi-stage drop chains.
 - **Supersets (optional)** — off-able from the 🔗 chip on the Today page or from Settings, and
   turning them off clears them from the workout on screen. When on, pairs are chosen from the
