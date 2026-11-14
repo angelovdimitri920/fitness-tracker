@@ -150,7 +150,9 @@ let server, browser;
     });
     test('assistance weight cannot be a record or automatically increase', () => {
       reset();const name='Assisted Machine Dip';S.history=[history('2026-09-30',[set(100,12),set(100,12),set(100,12)],name)];recomputePBs();
-      check(Object.keys(S.pbs).length===0,'assistance PR');check(getProgression(name,10,3,1).weight===100,'more assistance suggested');
+      check(Object.keys(S.pbs).length===0,'assistance PR');check(getProgression(name,10,3,1).weight===100,'legacy assistance unexpectedly changed');
+      S.history[0].exercises[0].targetReps=12;
+      check(getProgression(name,12,3,1).weight===95,'completed targets did not lower assistance');
     });
     test('incomplete named programs do not prescribe malformed set strings', () => {
       reset();for(const id of ['sl5x5','starting','gzclp','nsuns']){S.strengthProgram={id};check(getActiveProgramFor('Barbell Back Squat')===null,id);}
@@ -377,7 +379,7 @@ let server, browser;
     });
     test('each focus gets its own specialty sets as extras; the switch is separate from supersets', () => {
       for(const f of Object.keys(SPECIALTY_BY_FOCUS)){
-        const k=liveReset(f==='general'?'upper':'push'); _advSuggestEnabled=true; S.weekFocus=f; buildTodayWorkout(); const g=S.sessions[k].gym;
+        const k=liveReset(f==='chestcore'?'chest':f==='general'?'upper':'push'); _advSuggestEnabled=true; S.weekFocus=f; buildTodayWorkout(); const g=S.sessions[k].gym;
         const specs=[]; g.exList.forEach((e,i)=>(g.exercises[i].sets||[]).forEach(s=>{ if(s.spec) specs.push({n:e.n,t:s.type,i}); }));
         check(specs.length>0&&specs.every(x=>SPECIALTY_BY_FOCUS[f].some(r=>r.type===x.t)),f+': incorrect extras '+JSON.stringify(specs));
         for(const x of specs){ const work=g.exercises[x.i].sets.filter(s=>!s.spec&&(s.type||'wk')==='wk').length; check(work>=g.exList[x.i].sets,f+': specialty replaced a work set on '+x.n); }
@@ -592,7 +594,7 @@ let server, browser;
       cMode='gym';
     });
     test('specialty techniques rotate by focus and date, with bounded extras and supported movements', () => {
-      for(const f of Object.keys(SPECIALTY_BY_FOCUS)){
+      for(const f of Object.keys(SPECIALTY_BY_FOCUS).filter(f=>f!=='chestcore')){
         const k=liveReset('push'); _advSuggestEnabled=true; S.weekFocus=f; buildTodayWorkout();
         const g=GS(k), quick=new Set(), standard=new Set(), start=new Date(vDate);
         for(let day=0;day<6;day++){
@@ -1159,7 +1161,7 @@ let server, browser;
         const types=Object.values(g.exercises).flatMap(d=>(d.sets||[]).filter(x=>x.spec).map(x=>x.type));
         const want=(SPECIALTY_BY_FOCUS[f]||[]).map(r=>r.type);
         const hasSupported=g.exList.some(e=>['cable','machine','plate_machine'].includes(getExType(e.n))&&!isAssistanceExercise(e.n));
-        if((!types.length&&hasSupported&&want.length)||!types.every(t=>want.includes(t))) bad.push(ctx+': specialty '+types.join(',')+' (want '+want.join('/')+')');
+        if((f!=='chestcore'&&!types.length&&hasSupported&&want.length&&!g._cardioPlan.skipSpecialty)||!types.every(t=>want.includes(t))) bad.push(ctx+': specialty '+types.join(',')+' (want '+want.join('/')+')');
       }
       _advSuggestEnabled=false; check(!bad.length,bad.slice(0,12).join('; '));
     });
@@ -1411,8 +1413,8 @@ let server, browser;
       S.history.push(history(dKey(older),[set(15,12)],'Dumbbell Front Raise'));
       check(_buildSplitPool('push',gym).some(e=>e._src==='tpl'&&e.n===lift),'front-delt raise displaced the side-delt slot');
       S.history.push(history(dKey(older),[set(15,12)],other));
-      const pool=_buildSplitPool('push',gym);
-      check(pool.some(e=>e._src==='tpl'&&e.n===other),'familiar shoulder variation did not rotate');
+      const pool=selectWorkoutForDuration(WTPL.push.exercises,'full',FOCUS_META.general,{},'push',gym).exercises;
+      check(pool.some(e=>e.n===other),'familiar shoulder variation did not rotate');
       check(_buildSplitPool('quads',gym).some(e=>e.n==='Low Foot Placement Press'),'quad emphasis absent from quad workout');
       check(_buildSplitPool('glutes',gym).some(e=>e.n==='High Foot Placement Press'),'glute emphasis absent from glute workout');
       check(_buildSplitPool('calves',gym).some(e=>e.n==='Leg Press Calf Raise'),'calf emphasis absent from calf workout');
@@ -1544,6 +1546,117 @@ let server, browser;
       const earned=_exLiftSecondsRaw(movement,'quick',FOCUS_META.chestcore,'chestcore',false,true);
       S.history=[];
       check(_exLiftSecondsRaw(movement,'quick',FOCUS_META.chestcore,'chestcore',false,true)<earned,'extra reps omitted from duration model');
+      switchMode('gym');
+    });
+    test('all Gym splits keep an available first lift across focuses and times with recent history', () => {
+      const splits=['upper','lower','fullbody','glutes','arms','push','pull','core',...Object.keys(SPECIALIZED_GYM_SPLITS)];
+      liveReset('upper');const gym=getActiveGym(), prev=new Date(vDate);prev.setDate(prev.getDate()-1);
+      for(const f of Object.keys(FOCUS_META)) for(const intensity of ['quick','standard','full']) for(const split of splits){
+        const anchor=WTPL[split].exercises[0].n;
+        S.history=[history(dKey(prev),[set(100,10)],anchor)];
+        const plan=selectWorkoutForDuration(WTPL[split].exercises,intensity,FOCUS_META[f],{[getMG(anchor)]:1},split,gym);
+        check(plan.exercises[0]?.n===anchor,f+'/'+intensity+'/'+split+' changed anchor to '+plan.exercises[0]?.n);
+        check(plan.exercises.every(e=>e.sets>=3),f+'/'+intensity+'/'+split+' dropped a work set');
+      }
+    });
+    test('renderable supporting slots rotate without swapping the anchor or a different target', () => {
+      liveReset('lower');const gym=getActiveGym(), prev=new Date(vDate);
+      prev.setDate(prev.getDate()-1);
+      const earlier=new Date(prev);earlier.setDate(earlier.getDate()-8);
+      const fixtures=[
+        ['pull','Cable Low Row','Seated Row Machine'],
+        ['lower','Dumbbell Reverse Lunge','Smith Machine Reverse Lunge'],
+        ['push','Plate-Loaded Incline Press','Incline Chest Press Machine'],
+        ['fullbody','Cable Low Row','Seated Row Machine'],
+        ['chest','Plate-Loaded Incline Press','Incline Chest Press Machine'],
+        ['core','Rotary Torso Machine','Rotary Torso Twist (Standing)']
+      ];
+      for(const [split,base,alt] of fixtures){
+        const plan=()=>selectWorkoutForDuration(WTPL[split].exercises,'standard',FOCUS_META.general,{},split,gym).exercises.map(e=>e.n);
+        S.history=[history(dKey(prev),[set(80,12)],base)];
+        check(plan().includes(base),split+' without history lost '+base);
+        S.history.push(history(dKey(earlier),[set(80,12)],alt));
+        let moves=plan();
+        check(moves.includes(alt)&&!moves.includes(base),split+' did not rotate '+base+' to '+alt+' in '+moves);
+        check(moves[0]===WTPL[split].exercises[0].n,split+' changed anchor');
+        S.history=[history(dKey(earlier),[set(80,12)],base),history(dKey(prev),[set(80,12)],alt)];
+        check(plan().includes(base),split+' did not return to its repeatable choice');
+      }
+    });
+    test('work targets progress on barbell, plate, cable, pin stack and dumbbell loads', () => {
+      reset();S.weekFocus='chestcore';
+      const gym=getActiveGym();
+      gym.loading={
+        'Plate-Loaded Leg Press':{min:160,max:300,step:10},
+        'Lat Pull-Down Machine':{min:10,max:200,step:10},
+        'Cable Low Row':{min:5,max:155,step:2.5}
+      };
+      const loads=[
+        ['Bench Press (Barbell)',150,8,155],
+        ['Plate-Loaded Leg Press',270,7,280],
+        ['Plate-Loaded Leg Press',300,7,300],
+        ['Lat Pull-Down Machine',100,7,110],
+        ['Cable Low Row',150,8,155],
+        ['Chest Press Machine',85,8,90],
+        ['Dumbbell Bench Press',55,8,60],
+        ['Dumbbell Bench Press',75,7,75]
+      ];
+      for(const [name,weight,rpe,next] of loads){
+        S.history=[history('2026-09-28',Array.from({length:3},()=>({...set(weight,8),targetReps:8,rpe})),name)];
+        const plan=getProgression(name,8,3,1);
+        check(plan.weight===next&&isLoadableWeight(name,next),name+' '+weight+' yielded '+plan.weight+' expected '+next);
+      }
+      check(getBaseWeight('Leg Press Machine')===0&&!isExerciseAvailable('Plate-Loaded Leg Press',['Leg Press Machine']),'pin press treated as a plate-loaded sled');
+      for(const [plate,pin] of [['Plate-Loaded Shoulder Press','Shoulder Press Machine'],['Plate-Loaded Seated Row','Seated Row Machine'],['Plate-Loaded Seated Calf','Seated Calf Raise Machine']]){
+        check(!isExerciseAvailable(plate,[pin]),pin+' treated as '+plate);
+      }
+      check(getWarmupSets(280,'Plate-Loaded Leg Press','chestcore').every(w=>w.weight>=160&&w.weight<280&&isLoadableWeight('Plate-Loaded Leg Press',w.weight)),'plate warm-ups ignored the configured load');
+    });
+    test('next session refreshes working sets, warm-up ramp and controlled specialty set', () => {
+      let k=liveReset('chest'); S.weekFocus='chestcore'; _advSuggestEnabled=true;
+      buildTodayWorkout();
+      let g=GS(k);
+      const bench='Bench Press (Barbell)', fly='Pec Deck / Fly Machine';
+      for(const [n,load] of [[bench,150],[fly,100]]){
+        const i=g.exList.findIndex(e=>e.n===n);
+        check(i>=0,n+' missing from Chest & Core');
+        g.exercises[i].sets.filter(isStraightWorkSet).forEach(row=>Object.assign(row,{weight:String(load),done:true,rpe:'8',reps:String(row.targetReps)}));
+      }
+      doSaveWorkout(3,'');
+      const saved=S.history.find(h=>h.type==='gym'&&h.date===k);
+      check(saved.exercises.filter(e=>[bench,fly].includes(e.name)).every(e=>e.ceilingHit),'saved results did not qualify');
+      vDate.setDate(vDate.getDate()+7); k=dKey(vDate); S.dayConfig[k]={type:'gym',split:'chest'};
+      buildTodayWorkout();g=GS(k);
+      const bi=g.exList.findIndex(e=>e.n===bench), fi=g.exList.findIndex(e=>e.n===fly);
+      const benchData=g.exercises[bi], flyData=g.exercises[fi];
+      check(benchData.sets.filter(isStraightWorkSet).every(row=>Number(row.weight)===155),'progressed work not seeded');
+      check(benchData.warmupPlan.length>0&&benchData.warmupPlan.every(row=>row.weight===warmupWeightFor(bench,155,row.pct)),'old weight used for the next warm-up ramp');
+      const specialty=flyData.sets.find(row=>row.spec);
+      check(specialty?.type==='ds'&&Number(specialty.weight)===specialtySetTarget('ds',g.exList[fi],105,'chestcore').w,'drop set based on the wrong load');
+      check(Object.values(g.exercises).flatMap(e=>e.sets).filter(e=>e.spec).length===1,'more than one Chest & Core extra');
+      const quick=planSpecialtySets(g.exList,'chestcore','quick',g.exercises);
+      check(!Object.keys(quick).length,'Quick got a specialty extra');
+      toggleAdvSuggest();
+      check(!Object.values(GS(k).exercises).some(e=>e.sets.some(s=>s.spec)),'specialty switch did not remove the extra');
+    });
+    test('Home Chest & Core rotates board positions and schedules high-rep tool work', () => {
+      let k=liveReset('chest'); switchMode('home'); setHomeFocus('chestcore'); setHomeSplit('hchestcore');
+      const board=new Set(), tools=new Set();
+      for(let week=0;week<3;week++){
+        if(week){vDate.setDate(vDate.getDate()+7);k=dKey(vDate);setHomeSplit('hchestcore');}
+        setIntensity('standard'); const g=GS(k);
+        check(g.exList.some(e=>e.n==='Chest Expander Pull-Apart'&&e.reps>=15),'expander missing');
+        g.exList.filter(e=>e.reps>=15).forEach(e=>{if(/^Push-Up Board /.test(e.n))board.add(e.n);if(HOME_CHEST_TOOLS.includes(e.n))tools.add(e.n);});
+        check(g._cardioPlan.finisherMin>=10,'steady cardio was squeezed out');
+      }
+      check(board.size===3&&tools.has('Twister Chest Squeeze')&&tools.has('Power Twister Chest Bend'),'weekly rotation missed equipment '+[...board,...tools]);
+      const n='Twister Chest Squeeze';
+      const completed=Array.from({length:3},()=>({...set(0,20),level:'3',targetReps:15,rpe:7}));
+      S.history=[{...history(addDaysK(k,-1),completed,n),type:'home',trainingFocus:'chestcore'}];
+      const next=getProgression(n,15,3,1);
+      check(next.reps===24&&next.level==='3','reps or dial level did not carry: '+JSON.stringify(next));
+      completed[1].level='4';
+      check(getProgression(n,15,3,1).reps===20,'mixed levels advanced');
       switchMode('gym');
     });
     test('adaptive load steps obey saved targets, effort and equipment limits', () => {

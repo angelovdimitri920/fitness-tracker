@@ -58,8 +58,9 @@ The most-used screen and the app's centerpiece. Rather than a blank logger, it *
 appropriate session, then gives you a deep logging surface.
 - **Week strip** — the current week with per-day dots (gym/run/rest + completion); tap any day.
 - **Auto-generated workout** — focus and intensity set the workout dose. The planner keeps the
-  main lift when it fits and can rotate one supporting movement to a familiar alternative that
-  targets the same muscles and fits the session. The Today and Plan pickers nest specialized
+  main lift when it fits and can rotate one of the selected supporting movements to a familiar
+  alternative with the same target and comparable time. It can return to the original movement
+  when that movement is a better fit or has become the less recent choice. The Today and Plan pickers nest specialized
   workouts under their main workout. Home uses a separate equipment inventory.
 - **Intensity selector** — Quick / Standard / Full rescale exercise count and cardio to a target
   time band (30–45 / 60–90 / 90–120 min). The estimate is a **range**, and it models the session
@@ -84,7 +85,10 @@ appropriate session, then gives you a deep logging surface.
 - **Chest & Core** — select this Gym focus for progressive pressing, direct core work and
   moderate cardio within the session's time budget. Chest, Push, Upper and Full Body put extra
   emphasis on pressing and core work. Pull and Lower still train their usual movement patterns.
-  In Home, choose the **Chest & Core** workout and set **Home focus** independently. Research supports
+  Standard and Full can add one controlled drop set on a suitable chest or ab accessory.
+  In Home, choose the **Chest & Core** workout and set **Home focus** independently. The plan
+  uses different push-up board positions and schedules your chest expander and arm trainers.
+  Research supports
   resistance exercise for building muscle and aerobic activity for overall fat loss.
   [ACSM position stand](https://pmc.ncbi.nlm.nih.gov/articles/PMC12965823/) |
   [Localized fat loss review](https://doi.org/10.5114/hm.2022.110373) |
