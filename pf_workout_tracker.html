@@ -5966,12 +5966,14 @@ var TIME_MODEL={
 // follows the last work set almost straight away (the rest bar gives 10 s / 20 s); a
 // failure set or cluster gets the exercise's full rest first, and a cluster's reps are
 // split by ~20 s pauses.
-function specialtySetMinutes(type, rest){
-  var r=(Number(rest)||75)*TIME_MODEL.restSlopMult, rep=TIME_MODEL.secPerRep, ch=TIME_MODEL.setChangeoverSec;
-  if(type==='ds') return (REST_BEFORE_SPECIAL.ds+12*rep+ch+15)/60;          // +15 s to strip plates / move the pin
-  if(type==='rp') return (REST_BEFORE_SPECIAL.rp+10*rep+2*15+ch)/60;         // two short mini-rests inside the set
-  if(type==='cl') return (r+5*rep+3*20+ch)/60;
-  return (r+10*rep+ch)/60;                                                   // 'fl' failure set
+function specialtySetMinutes(type, rest, reps, name){
+  var r=(Number(rest)||75)*TIME_MODEL.restSlopMult, ch=TIME_MODEL.setChangeoverSec;
+  var rep=TIME_MODEL.secPerRep*(isUnilateralExercise(name)?2:1);
+  var count=Number(reps);
+  if(type==='ds') return (REST_BEFORE_SPECIAL.ds+(count||12)*rep+ch+15)/60; // change plates or move the pin
+  if(type==='rp') return (REST_BEFORE_SPECIAL.rp+(count||10)*rep+2*15+ch)/60;
+  if(type==='cl') return (r+(count||5)*rep+3*20+ch)/60;
+  return (r+(count||10)*rep+ch)/60;
 }
 // ── Personal pace ───────────────────────────────────────────────────────────
 // The model above is a typical gym-goer. Your own saved workouts say how long YOUR
@@ -5994,7 +5996,7 @@ function _historyLiftModelMin(h){
     var reps=Math.round(wk.reduce(function(a,x){return a+(Number(x.reps)||0);},0)/wk.length)||10;
     // Each logged set is costed like a work set (warm-ups cheaper, extras by their type).
     lift+=_exLiftSecondsRaw({n:e.name,sets:wk.length,reps:reps,rest:e.rest||pr.rest,historical:true,home:h.type==='home'},h.intensity||'standard',null,focus,false,true)/60;
-    done.forEach(function(x){ var t=x.type||'wk'; if(t==='wu') lift+=(TIME_MODEL.warmupSetSec+TIME_MODEL.warmupRestSec)/60; else if(t!=='wk') lift+=specialtySetMinutes(t,pr.rest); });
+    done.forEach(function(x){ var t=x.type||'wk'; if(t==='wu') lift+=(TIME_MODEL.warmupSetSec+TIME_MODEL.warmupRestSec)/60; else if(t!=='wk') lift+=specialtySetMinutes(t,e.rest||pr.rest,x.reps,e.name); });
     n++;
   });
   return n?lift:0;
@@ -6361,7 +6363,7 @@ function _selectWorkoutForDurationCore(tplExercises, intensity, fp, recent48, tp
     if(!specialtySetsOn()) return 0;
     var list=chosen.map(function(c){return c.ex;});
     var plan=planSpecialtySets(list,focus,intensity);
-    return Object.keys(plan).reduce(function(total,i){return total+specialtySetMinutes(plan[i],list[i].rest);},0);
+    return Object.keys(plan).reduce(function(total,i){return total+specialtySetMinutes(plan[i],list[i].rest,specialtySetTarget(plan[i],list[i],0,focus).r,list[i].n);},0);
   }
   (function(){
     // Full body has to keep its four movement patterns (knee, hinge, push, pull).
@@ -6495,7 +6497,7 @@ function _renderIntEstLine(k,sel,exs,intensity,pinned,fp,tplKey){
         actualLift+=(TIME_MODEL.warmupSetSec+TIME_MODEL.warmupRestSec)*pace/60;
       }else if(!isStraightWorkSet(row)){
         _spN++;
-        _spMin+=specialtySetMinutes(row.type,ex.rest)*pace;
+        _spMin+=specialtySetMinutes(row.type,ex.rest,row.reps,ex.n)*pace;
       }
     });
   });

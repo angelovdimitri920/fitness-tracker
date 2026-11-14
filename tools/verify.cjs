@@ -1679,8 +1679,13 @@ let server, browser;
       switchMode('gym');
     });
     test('the rendered estimate follows edited reps, extra sets, and skipped cardio', () => {
-      const k=liveReset('chest');S.weekFocus='chestcore';
+      const k=liveReset('chest');S.weekFocus='chestcore';_advSuggestEnabled=true;
       buildTodayWorkout();const estimate=()=>Number(el('intEstLine').getAttribute('data-est-mid'));
+      const gym=GS(k), extraIndex=gym.exList.findIndex((_,i)=>gym.exercises[i].sets.some(s=>s.spec));
+      check(extraIndex>=0,'no Chest & Core specialty set');
+      const extraRow=gym.exercises[extraIndex].sets.findIndex(s=>s.spec), originalEstimate=estimate();
+      updateSet(extraIndex,extraRow,'reps','60');
+      check(estimate()>=originalEstimate+2,'edited specialty reps did not change the time estimate');
       const base=estimate(), ex=GS(k).exercises[0], slot=ex.sets.findIndex(isStraightWorkSet);
       updateSet(0,slot,'reps','60');
       check(estimate()>=base+2,'edited reps did not change the time estimate');
