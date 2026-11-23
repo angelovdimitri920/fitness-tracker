@@ -142,3 +142,43 @@ Made at the user's request. Where it differs from the sections above, this secti
 - **Gym equipment first.** At the gym, machines, cables, free weights and stations are selected, ordered and substituted before sleds and bands, and those before calisthenics. Calisthenics appear only when no gym option fits. Accessories logged at that gym in the last 90 days are offered first within their tier. Home workouts are unchanged.
 
 Verification: the browser suite adds checks for each item above (rest bar on every page/day view and after the last set, drop-set rest, per-focus reps/sets/specialty for 144 combinations, the add-set maximum, 5-minute cardio, Standard/Full band fit, pace calibration, the clock format, gym-first order for 144 combinations, and the new equipment groups). Service-worker shell cache advanced to v21.
+
+## November 22, 2026 addendum: focus consolidation and weekly programs
+
+Supersedes the focus table and the Muscle + Strength / Chest & Core statements above. Driven by a review of the athlete's 16 logged gym sessions (Oct 17 – Nov 22).
+
+What the history showed:
+- **Muscle + Strength was redundant.** Main lifts 4–8 @ 180 s sat between Build Strength (3–5) and Build Muscle (6–12) and changed nothing about exercise choice. Folded into **Build Muscle**; `hybrid` is migrated to `muscle` and normalised wherever an old session is read.
+- **Chest & Core did not work at the gym.** It replaced each day's template with a fixed list, so Upper became Bench / Row / Rotary Torso / Pulldown (4 exercises, 18 sets) and Push became Bench / Incline / Rotary Torso / Shoulder Press, with accessories at an odd 13 reps (midpoint of 10–15). It is now **Home-only** (bodyweight + home gear, `hchestcore`), accessories 10–14. A gym plan left on it returns to the last gym focus actually trained (here: Lose & Tone) and the Home focus keeps Chest & Core.
+- **Every future day was pinned to a manual split.** Week shifts from the Today switcher had written a mixed 8-split cycle (arms, glutes, core, push, pull…) into `dayConfig`, so Auto-Rotate never ran. The Plan page now offers **Follow <program>**, which clears upcoming manual picks.
+- **Strength made every press/row/pulldown a 3–5-rep main lift** at 210 s, giving 3-exercise days with no vertical pull on Upper. Strength now has one or two **lead** lifts (first slot; plus the row on Upper and the press on Full Body) at 3–5 × 4 sets; supporting compounds are 6–8 × 3 @ 150 s; accessories 8–12 @ 90 s.
+
+| Focus | Compounds | Accessories | Program by scheduled gym days |
+|---|---|---|---|
+| Build Strength | lead 3–5 @ 210 s (4 sets); others 6–8 @ 150 s (3) | 8–12 @ 90 s | Full Body ≤3 · Upper/Lower 4+ |
+| Build Muscle | 6–10; lead 150 s, others 120 s (4 sets) | 10–14 @ 90 s | Full Body ≤3 · Upper/Lower 4 · PPL 5+ |
+| Lose & Tone | 10–14 @ 75 s | 10–14 @ 75 s | Full Body ≤3 · Upper/Lower 4+ |
+| General Fitness | 8–12 @ 75 s | 8–12 @ 75 s | Full Body ≤3 · Upper/Lower 4+ |
+| Endurance | 15–20 @ 35 s | 15–20 @ 35 s | Full Body ≤3 · Upper/Lower 4+ |
+
+Rationale: these thresholds are **planning defaults, not claims of an optimum**. Frequency mostly matters as a way to distribute weekly hard sets (Schoenfeld 2016 suggested twice-weekly exposure; the volume-equated 2019 analysis and ACSM 2026 do not establish a best frequency). Five-day PPL gives each day about 1.67 exposures a week on a continuous rotation, so only Build Muscle uses it and only at 5+ days. Heavier loading drives maximal strength; Upper / Lower simply spreads the heavy lifts. Endurance moves to Upper / Lower at 4+ days so the same muscles are not trained on consecutive days alongside running (NSCA frequency guidance counts other training load). Compounds sit at 6–10 for load progression and isolation at 10–14 for practical loading; the load meta-analyses were largely to momentary failure, so the RIR targets are a practical choice rather than a tested equivalence. Singer et al. 2024 found little extra hypertrophy beyond ~90 s rest, so 90 s is the accessory default and longer compound rests are for performance.
+
+Other changes:
+- **Splits are grouped by program** in every picker (Today switcher, Plan day, schedule editor), the focus's program first and open. Core, Arms and Glutes are "Add-on days". The single-muscle days (chest, back, shoulders, quads, hamstrings, calves) overlapped Push/Pull/Lower and are no longer listed; they still load for history and existing plans. Template headings: Upper Body, Lower Body, Full Body.
+- **Auto-Rotate follows the workouts actually saved.** A past gym day that was not trained no longer uses up a rotation slot. The Today switcher's recommendation is the program's next split (`programSplitFor`).
+- Upper template order is Bench, Row, Pulldown, Incline, so short sessions keep a vertical pull.
+- Filler exercises never make a third exercise of one movement pattern (no third overhead press on Push, no box squat after back squat and lunges); core days are exempt so ab machines come before calisthenics.
+- At an equipment cap (no heavier step) the reps already earned are held instead of being cut to the range ceiling.
+
+Verification: 226 browser checks pass, including new checks for program choice by focus × gym days, rotation from saved workouts, migration of both retired focuses, lead-lift tiers, the grouped pickers and the Follow button. All 75 gym focus × split × intensity combinations and the Home Chest & Core workout were also driven with the athlete's real backup.
+
+### Review fixes (November 23, 2026)
+
+An external review of this change found, and this pass fixed:
+- **Restores are atomic.** File import, Paste Backup and NAS restore all go through `validateBackupState` and `_commitRestore`, which rolls back to the previous state if loading or migration fails (NAS restore previously skipped validation).
+- **Reset All Data** works through both confirmations (`confirmYes` clears its callback before running it).
+- **Lead roles are recorded.** Saved exercises carry `lead`; history is judged against the role it was prescribed for (sessions saved before the flag count a Strength main lift as a lead). A lift that changes role on Strength gets its load re-derived for the new rep target instead of progressed. Rich templates keep `anchor`/`lead`; older templates infer them.
+- **Rotation.** The auto-split cache is per calendar day and the Plan rebuilds on midnight rollover; a saved workout counts even if its day was later re-typed; a day a Today switch shifted the skipped workout onto is the program's plan for that day.
+- **Follow** pins an in-progress workout's current split even when it came from the weekly default. A schedule with no gym days says so instead of claiming three.
+- **Swaps** between a main lift and an accessory take the replacement's own reps and rest.
+- `hybrid` history counts as Build Muscle in migration and in the progression focus comparison.

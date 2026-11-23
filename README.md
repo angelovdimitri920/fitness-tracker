@@ -60,8 +60,10 @@ appropriate session, then gives you a deep logging surface.
 - **Auto-generated workout** — focus and intensity set the workout dose. The planner keeps the
   main lift when it fits and can rotate one of the selected supporting movements to a familiar
   alternative with the same target and comparable time. It can return to the original movement
-  when that movement is a better fit or has become the less recent choice. The Today and Plan pickers nest specialized
-  workouts under their main workout. Home uses a separate equipment inventory.
+  when that movement is a better fit or has become the less recent choice. Workouts are grouped into three
+  **programs** — Push / Pull / Legs, Upper / Lower and Full Body — and each focus recommends one
+  for your number of gym days (see below). Core, Arms and Glutes are optional add-on days. Home
+  uses a separate equipment inventory.
 - **Intensity selector** — Quick / Standard / Full rescale exercise count and cardio to a target
   time band (30–45 / 60–90 / 90–120 min). The estimate is a **range**, and it models the session
   as actually lived: per-rep tempo, set changeover, the rest between sets (with realistic slop),
@@ -82,11 +84,22 @@ appropriate session, then gives you a deep logging surface.
   limits can reduce or prevent the increase. Bodyweight work adds 2–5 reps per set based on
   movement and logged effort, or five seconds for a timed hold. Enable **Track RPE** in Settings
   to record set effort. A set rated RPE 9.5 or higher holds the target.
-- **Chest & Core** — select this Gym focus for progressive pressing, direct core work and
-  moderate cardio within the session's time budget. Chest, Push, Upper and Full Body put extra
-  emphasis on pressing and core work. Pull and Lower still train their usual movement patterns.
-  Standard and Full can add one controlled drop set on a suitable chest or ab accessory.
-  In Home, choose the **Chest & Core** workout and set **Home focus** independently. The plan
+- **Focuses and programs** — five gym focuses, each with its own weekly program:
+
+  | Focus | Reps · rest | Program (by scheduled gym days) |
+  |---|---|---|
+  | Build Strength | lead lift 3–5 @ 3.5 min · other compounds 6–8 @ 2.5 min · accessories 8–12 | Full Body (≤3) · Upper / Lower (4+) |
+  | Build Muscle | compounds 6–10 @ 2–2.5 min · accessories 10–14 @ 90 s | Full Body (≤3) · Upper / Lower (4) · Push / Pull / Legs (5+) |
+  | Lose & Tone | 10–14 @ 75 s, most cardio | Full Body (≤3) · Upper / Lower (4+) |
+  | General Fitness | 8–12 @ 75 s | Full Body (≤3) · Upper / Lower (4+) |
+  | Endurance | 15–20 @ 35 s | Full Body (≤3) · Upper / Lower (4+) |
+
+  With **Auto-Rotate** on, the calendar follows that program from the last workout you actually
+  saved, so a missed day never skips a split. The Plan page shows the program and a
+  **Follow** button that clears old manual day picks. "Muscle + Strength" was folded into Build
+  Muscle in November 2026.
+- **Chest & Core (Home)** — a Home-only focus for pressing and direct core work with
+  bodyweight and your own equipment. Choose it as the **Home focus** on Today's Home tab. The plan
   uses different push-up board positions and schedules your chest expander and arm trainers.
   Research supports
   resistance exercise for building muscle and aerobic activity for overall fat loss.

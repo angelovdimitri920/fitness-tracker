@@ -33,7 +33,7 @@ let server, browser;
     const test = (name, fn) => { try { fn(); results.push({ name, pass: true }); } catch (e) { results.push({ name, pass: false, error: e.message }); } };
     const check = (ok, msg) => { if (!ok) throw new Error(msg); };
     const reset = () => {
-      S = initS(); migrateState(); S.prefs.autoRotateSplits = false; S.prefs.autoTimer = false; S.prefs.timerSound=false; S.prefs.haptics=false;
+      S = initS(); migrateState(); ROTATION_TODAY_OVERRIDE = '2000-01-01'; S.prefs.autoRotateSplits = false; S.prefs.autoTimer = false; S.prefs.timerSound=false; S.prefs.haptics=false;
       S.prefs.autoSuperset = false; _advSuggestEnabled = false;
       vDate = new Date('2026-10-01T12:00:00'); cMode = 'gym';
       S.dayConfig[dKey(vDate)] = { type: 'gym', split: 'upper' };
@@ -53,9 +53,9 @@ let server, browser;
       check(getLastExSession('Bench Press (Barbell)').weight===100, 'must use previous calendar date');
     });
     test('muscle progress preserves earned reps instead of resetting to floor', () => {
-      reset(); S.weekFocus='muscle'; S.history=[history('2026-09-29',[set(100,10),set(100,10),set(100,10)])];
-      const p=getProgression('Bench Press (Barbell)',9,3,0.95);
-      check(p.weight===100 && p.reps>=10,JSON.stringify(p));
+      reset(); S.weekFocus='muscle'; S.history=[history('2026-09-29',[set(100,9),set(100,9),set(100,9)])];
+      const p=getProgression('Bench Press (Barbell)',8,3,0.95);
+      check(p.weight===100 && p.reps>=9,JSON.stringify(p));
     });
     test('exhausted sets do not trigger automatic load increases', () => {
       reset(); S.weekFocus='muscle'; S.history=[history('2026-09-29',Array.from({length:3},()=>({...set(100,12),rpe:10})))];
@@ -164,18 +164,107 @@ let server, browser;
       S.weightEntry[name]='added';updateSet(0,0,'weight','20');const w=Number(S.sessions[k].gym.exercises[0].sets[0].weight);
       check(Math.abs(w-(fromDisplayWeight(20)+getBaseWeight(name)))<0.001,'unit/base double conversion');
     });
-    test('hybrid has heavier main lifts and moderate-rep accessories', () => {
-      reset();S.weekFocus='hybrid';
-      check(prescriptionForFocus({n:'Bench Press (Barbell)'},'hybrid').reps===6,'main range');
-      check(prescriptionForFocus({n:'Dumbbell Lateral Raises'},'hybrid').reps===10,'accessory range');
-      check(exerciseProgressionRule('Dumbbell Lateral Raises').ceil===12,'accessory progression');
-      check(prescriptionForFocus({n:'Bench Press (Barbell)'},'hybrid').rest===180,'main rest');
-      S.prefs.autoRotateSplits=true;S.dayConfig={};_autoSplitCache={};
-      check(['2026-09-28','2026-09-29','2026-10-01','2026-10-02','2026-10-03'].map(autoSplitFor).join(',')==='upper,lower,push,pull,lower','five-day split');
-      S.setup.gymDays=[1,3,5];_autoSplitCache={};check(autoSplitFor('2026-09-30')==='fullbody','three-day split');
+    test('each focus trains through its own weekly program, rotating from the workouts actually done', () => {
+      reset();
+      const want={power:'fullbody,fullbody,upperlower,upperlower,upperlower,upperlower',muscle:'fullbody,fullbody,upperlower,ppl,ppl,ppl',
+        tone:'fullbody,fullbody,upperlower,upperlower,upperlower,upperlower',general:'fullbody,fullbody,upperlower,upperlower,upperlower,upperlower',
+        endurance:'fullbody,fullbody,upperlower,upperlower,upperlower,upperlower'};
+      for(const [f,w] of Object.entries(want)) check([2,3,4,5,6,7].map(d=>recommendedProgramKey(f,d)).join(',')===w,f+' program: '+[2,3,4,5,6,7].map(d=>recommendedProgramKey(f,d)));
+      S.weekFocus='muscle';S.setup.gymDays=[1,2,3,4,5];S.setup.runDays=[];S.prefs.autoRotateSplits=true;S.dayConfig={};S.history=[];_autoSplitCache={};
+      const week=['2026-09-28','2026-09-29','2026-09-30','2026-10-01','2026-10-02'].map(autoSplitFor);
+      check(week.every(x=>['push','pull','lower'].includes(x)),'muscle at 5 days is not PPL: '+week);
+      for(let i=1;i<week.length;i++) check(week[i]===_nextAutoSplit(week[i-1]),'PPL out of order: '+week);
+      S.weekFocus='tone';_autoSplitCache={};
+      const ul=['2026-09-28','2026-09-29','2026-09-30'].map(autoSplitFor);check(ul.every(x=>['upper','lower'].includes(x))&&ul[0]!==ul[1],'tone at 5 days is not Upper/Lower: '+ul);
+      S.setup.gymDays=[1,3,5];_autoSplitCache={};check(autoSplitFor('2026-09-30')==='fullbody','three-day program');
+      // A missed past gym day doesn't use up its slot: the next workout follows the last one saved.
+      S.weekFocus='muscle';S.setup.gymDays=[1,2,3,4,5];ROTATION_TODAY_OVERRIDE='2026-10-05';_autoSplitCache={};
+      S.history=[{id:1,date:'2026-09-28',type:'gym',split:'push',exercises:[]}];
+      check(autoSplitFor('2026-10-05')==='pull'&&programSplitFor('2026-10-05')==='pull','skipped Pull was dropped: '+autoSplitFor('2026-10-05'));
+      check(autoSplitFor('2026-10-06')==='lower','rotation does not continue after today');
+      ROTATION_TODAY_OVERRIDE='2000-01-01';
+    });
+    test('retired and Home-only focuses migrate to a gym focus', () => {
+      reset();S.weekFocus='hybrid';S.homeFocus='hybrid';migrateState();check(S.weekFocus==='muscle'&&S.homeFocus==='muscle','Muscle + Strength not folded into Build Muscle');
+      reset();S.weekFocus='chestcore';delete S.homeFocus;
+      S.history=[{id:1,date:'2026-09-20',type:'gym',trainingFocus:'tone',exercises:[]},{id:2,date:'2026-09-25',type:'gym',trainingFocus:'chestcore',exercises:[]}];
+      migrateState();check(S.weekFocus==='tone'&&S.homeFocus==='chestcore','Chest & Core gym focus not moved to Home: '+S.weekFocus+'/'+S.homeFocus);
+      check(!buildWeekFocusRow()&&!el('weekFocusRow').querySelector('[onclick*="hybrid"]')&&!el('weekFocusRow').querySelector('[onclick*="chestcore"]'),'retired focus still offered on Plan');
+      check(normalizeFocus('hybrid')==='muscle'&&exerciseProgressionRule('Dumbbell Lateral Raises','hybrid').floor===10,'old history focus not normalized');
+    });
+    test('restores validate first and roll back when loading fails; reset passes both confirmations', () => {
+      reset(); S.history=[history('2026-09-29',[set(100,8)])]; saveS();
+      _nasApplyRestore({setup:{}});
+      check(S.history.length===1&&!el('confirmModal').classList.contains('show'),'incomplete NAS backup reached the confirm step');
+      const before=localStorage.getItem('pf_v4'), prevS=S, good=JSON.parse(before), orig=migrateState;
+      migrateState=function(){ throw new Error('boom'); };
+      let ok; try{ ok=_commitRestore(good); } finally { migrateState=orig; }
+      check(ok===false&&S===prevS&&localStorage.getItem('pf_v4')===before,'failed restore did not roll back');
+      resetAllData(); confirmYes(); check(el('confirmModal').classList.contains('show'),'second reset confirmation never opened');
+      confirmYes(); check(!S.history.length,'reset stopped at the second confirmation');
+    });
+    test('rotation follows the calendar day and the same saved sequence as the program', () => {
+      reset(); S.weekFocus='muscle'; S.setup.gymDays=[0,1,2,3,4,5,6]; S.setup.runDays=[]; S.prefs.autoRotateSplits=true; S.dayConfig={};
+      S.history=[{id:1,date:'2026-10-03',type:'gym',split:'push',exercises:[]}];
+      ROTATION_TODAY_OVERRIDE='2026-10-04'; _autoSplitCache={};
+      check(autoSplitFor('2026-10-06')==='push','setup: '+autoSplitFor('2026-10-06'));
+      ROTATION_TODAY_OVERRIDE='2026-10-05'; // midnight passes with Sunday's Pull unsaved, no cache clear
+      check(autoSplitFor('2026-10-05')==='pull'&&autoSplitFor('2026-10-06')==='lower','stale rotation after midnight: '+autoSplitFor('2026-10-06'));
+      S.dayConfig['2026-10-03']={type:'rest'}; ROTATION_TODAY_OVERRIDE='2026-10-04'; _autoSplitCache={};
+      check(autoSplitFor('2026-10-04')==='pull'&&programSplitFor('2026-10-04')==='pull','saved workout on a re-typed day ignored: '+autoSplitFor('2026-10-04'));
+      S.dayConfig={'2026-10-05':{split:'pull'},'2026-10-04':{split:'lower',todaySwitch:{changed:{'2026-10-05':{prev:null,set:'pull'}}}}};
+      check(programSplitFor('2026-10-05')==='pull','shifted day disagrees with the program');
+      ROTATION_TODAY_OVERRIDE='2000-01-01';
+    });
+    test('Follow keeps an in-progress workout on its weekly-default split; zero gym days stays zero', () => {
+      reset(); const today=dKey(new Date()), dow=new Date().getDay();
+      S.weekFocus='muscle'; S.setup.gymDays=[0,1,2,3,4,5,6]; S.prefs.autoRotateSplits=false; S.dayConfig={}; S.daySched[dow]='lower';
+      S.sessions[today]={gym:{intensity:'standard',exercises:{0:{sets:[{weight:'100',reps:'8',type:'wk',done:true}]}},cardio:{},cardioBlocks:{}}};
+      applyRecommendedProgram();
+      check(S.prefs.autoRotateSplits&&getEffTpl(today)==='lower','active workout changed split: '+getEffTpl(today));
+      delete S.sessions[today]; S.setup.gymDays=[]; renderPlanProgramCard();
+      check(gymDaysPerWeek()===0&&/No gym days/.test(el('planProgramCard').textContent),'empty schedule still claims gym days');
+    });
+    test('Strength judges history by the role it was prescribed for and re-derives load on a role change', () => {
+      reset(); S.weekFocus='power'; const k=dKey(vDate);
+      const row=(lead)=>({id:1,date:'2026-09-29',type:'gym',trainingFocus:'power',exercises:[{name:'Cable Low Row',lead:lead,targetReps:4,plannedWorkSets:3,sets:[set(100,4),set(100,4),set(100,4)]}]});
+      S.history=[row(true)];
+      S.sessions[k]={gym:{intensity:'standard',exercises:{},cardio:{},cardioBlocks:{},exList:[{n:'Bench Press (Barbell)',anchor:true,reps:4,sets:4},{n:'Cable Low Row',reps:7,sets:3}]}};
+      check(getLastExSession('Cable Low Row').ceilingHit,'lead history judged against today\'s support range');
+      const p=getProgression('Cable Low Row',7,3,1);
+      check(p.weight<100&&/rep range/.test(p.msg),'role change progressed the load: '+JSON.stringify(p));
+      S.sessions[k].gym.exList[1].lead=true;
+      const q=getProgression('Cable Low Row',4,4,1); check(q.weight>100,'same role did not progress: '+JSON.stringify(q));
+      S.weekFocus='muscle'; S.history=[{id:2,date:'2026-09-29',type:'gym',trainingFocus:'hybrid',exercises:[{name:'Bench Press (Barbell)',targetReps:8,plannedWorkSets:3,sets:[set(100,8),set(100,8),set(100,8)]}]}];
+      check(getProgression('Bench Press (Barbell)',8,4,1).msg!=='adjusted for the new focus','hybrid history treated as a different focus');
+    });
+    test('rich templates keep lead roles; swaps between main lift and accessory take the new dose', () => {
+      reset(); S.weekFocus='power'; const k=dKey(vDate);
+      S.sessions[k]={gym:{intensity:'standard',exercises:{},cardio:{},cardioBlocks:{},exList:[{n:'Bench Press (Barbell)',anchor:true,reps:4,sets:4,rest:210},{n:'Cable Low Row',lead:true,reps:4,sets:4,rest:210},{n:'Dumbbell Lateral Raises',reps:10,sets:3,rest:90}]}};
+      const cap=_captureRichTemplate(k);
+      S.workoutTemplates=[{id:'t1',name:'T',exercises:cap.exercises},{id:'t2',name:'Old',exercises:cap.exercises.map(e=>({n:e.n,t:e.t,sets:e.sets,reps:e.reps,rest:e.rest,p:e.p}))}];
+      applyWorkoutTemplate('t1'); let L=S.sessions[k].gym.exList;
+      check(L[0].anchor&&L[1].lead&&!L[2].lead,'template lost lead roles');
+      applyWorkoutTemplate('t2'); L=S.sessions[k].gym.exList;
+      check(L[0].anchor&&L[1].lead,'old template roles not inferred');
+      const sw=swapPrescription({n:'Bench Press (Barbell)',anchor:true,reps:4,sets:4,rest:210,p:1},{sets:[]},'Dumbbell Lateral Raises','Shoulders',k);
+      check(sw.exercise.reps>=8&&sw.exercise.reps<=12&&sw.exercise.rest===90,'accessory inherited the lead dose: '+sw.exercise.reps+'@'+sw.exercise.rest);
+    });
+    test('Strength puts 3–5 reps on the lead lift and lighter work on supporting compounds; Muscle splits compounds and accessories', () => {
+      reset();
+      check(prescriptionForFocus({n:'Bench Press (Barbell)',anchor:true},'power').reps===4&&prescriptionForFocus({n:'Bench Press (Barbell)',anchor:true},'power').rest===210,'strength lead');
+      check(prescriptionForFocus({n:'Plate-Loaded Incline Press'},'power').reps===7&&prescriptionForFocus({n:'Plate-Loaded Incline Press'},'power').rest===150,'strength support');
+      check(prescriptionForFocus({n:'Dumbbell Lateral Raises'},'power').reps===10,'strength accessory');
+      check(_focusSetCount({n:'Plate-Loaded Incline Press',p:1},'standard','power')===3&&_focusSetCount({n:'Bench Press (Barbell)',p:1,anchor:true},'standard','power')===4,'strength sets by tier');
+      check(prescriptionForFocus({n:'Bench Press (Barbell)',anchor:true},'muscle').reps===8&&prescriptionForFocus({n:'Bench Press (Barbell)',anchor:true},'muscle').rest===150,'muscle lead');
+      check(prescriptionForFocus({n:'Plate-Loaded Incline Press'},'muscle').rest===120,'muscle compound rest');
+      check(prescriptionForFocus({n:'Dumbbell Lateral Raises'},'muscle').reps===12&&prescriptionForFocus({n:'Dumbbell Lateral Raises'},'muscle').rest===90,'muscle accessory');
+      reset();const k=dKey(vDate);S.dayConfig[k]={type:'gym',split:'upper'};S.sessions={};S.history=[];S.weekFocus='power';buildTodayWorkout();const g=GS(k);
+      check(g.exList.filter(e=>e.reps<=5).every(e=>_isLeadSlot(e)),'a non-lead lift got 3–5 reps: '+g.exList.map(e=>e.n+' '+e.reps));
+      check(g.exList.some(e=>getMG(e.n)==='back'),'strength upper day has no pulling');
     });
     test('full-body quick includes knee, hinge, chest and back', () => {
-      reset();S.weekFocus='hybrid';const k=dKey(vDate);S.dayConfig[k].split='fullbody';S.sessions[k]={gym:{intensity:'quick',exercises:{},cardio:{}}};buildTodayWorkout();
+      reset();S.weekFocus='power';const k=dKey(vDate);S.dayConfig[k].split='fullbody';S.sessions[k]={gym:{intensity:'quick',exercises:{},cardio:{}}};buildTodayWorkout();
       const groups=S.sessions[k].gym.exList.map(e=>getMG(e.n));check(['quads','hamstrings','chest','back'].every(g=>groups.includes(g)),groups.join(','));
     });
     test('equipment limits and fractional increments are respected', () => {
@@ -204,14 +293,14 @@ let server, browser;
       _stopWorkoutClock(k);clearInterval(timerInt);timerInt=null;localStorage.removeItem('pf_restTimer');
     });
     test('every focus uses its rep, rest, progression and cardio contract', () => {
-      const specs={general:[10,75,12,25],power:[4,210,5,15],muscle:[9,150,12,20],tone:[12,75,14,45],endurance:[18,35,20,45],hybrid:[6,180,8,15]};
+      const specs={general:[10,75,12,25],power:[4,210,5,15],muscle:[8,150,10,20],tone:[12,75,14,45],endurance:[18,35,20,45]};
       for(const [focus,[reps,rest,ceiling,cap]] of Object.entries(specs)){
         reset();S.weekFocus=focus;S.prefs.autoSuperset=true;buildTodayWorkout();
         const g=S.sessions[dKey(vDate)].gym;
         const ex=g.exList.find(e=>e.n==='Bench Press (Barbell)');
         check(ex&&ex.reps===reps&&ex.rest===rest,`${focus}: rendered prescription`);
         check(g._cardioPlan.finisherMin<=cap,`${focus}: excessive cardio`);
-        if(['power','hybrid'].includes(focus))check(!Object.keys(g.supersets||{}).length,`${focus}: auto superset`);
+        if(focus==='power')check(!Object.keys(g.supersets||{}).length,`${focus}: auto superset`);
         S.history=[history('2026-09-29',[set(100,ceiling),set(100,ceiling),set(100,ceiling)])];
         check(getProgression('Bench Press (Barbell)',reps,3,1).weight>100,`${focus}: ceiling not progressed`);
         const card=buildCardioBlock('finisher',{n:'Treadmill (HIIT)',tgt:'Sprint maximally',dur:20},{},0,'upper');
@@ -349,9 +438,9 @@ let server, browser;
     });
     test('focus changes back and forth on a live workout match a fresh build every time', () => {
       const fresh={};
-      for(const f of ['tone','power','muscle','endurance','general','hybrid']){ const k=liveReset('upper'); S.weekFocus=f; buildTodayWorkout(); fresh[f]=JSON.stringify(S.sessions[k].gym.exList); }
+      for(const f of ['tone','power','muscle','endurance','general']){ const k=liveReset('upper'); S.weekFocus=f; buildTodayWorkout(); fresh[f]=JSON.stringify(S.sessions[k].gym.exList); }
       const k=liveReset('upper'); S.weekFocus='tone'; buildTodayWorkout();
-      for(const f of ['power','tone','muscle','power','endurance','tone','hybrid','general']){
+      for(const f of ['power','tone','muscle','power','endurance','tone','general']){
         setWeeklyFocus(f); const g=S.sessions[k].gym;
         check(JSON.stringify(g.exList)===fresh[f],f+': list differs from a fresh '+f+' build');
         g.exList.forEach((e,i)=>{ const work=(g.exercises[i].sets||[]).filter(s=>!s.spec&&(s.type||'wk')==='wk'); check(work.length>=e.sets&&e.sets>=3,f+': '+e.n+' has '+work.length+' work sets'); });
@@ -378,8 +467,8 @@ let server, browser;
       check(!Object.values(g.exercises||{}).some(e=>(e.sets||[]).some(s=>s.done)),'logged sets kept');
     });
     test('each focus gets its own specialty sets as extras; the switch is separate from supersets', () => {
-      for(const f of Object.keys(SPECIALTY_BY_FOCUS)){
-        const k=liveReset(f==='chestcore'?'chest':f==='general'?'upper':'push'); _advSuggestEnabled=true; S.weekFocus=f; buildTodayWorkout(); const g=S.sessions[k].gym;
+      for(const f of Object.keys(SPECIALTY_BY_FOCUS).filter(f=>!FOCUS_META[f].homeOnly)){
+        const k=liveReset(f==='general'?'upper':'push'); _advSuggestEnabled=true; S.weekFocus=f; buildTodayWorkout(); const g=S.sessions[k].gym;
         const specs=[]; g.exList.forEach((e,i)=>(g.exercises[i].sets||[]).forEach(s=>{ if(s.spec) specs.push({n:e.n,t:s.type,i}); }));
         check(specs.length>0&&specs.every(x=>SPECIALTY_BY_FOCUS[f].some(r=>r.type===x.t)),f+': incorrect extras '+JSON.stringify(specs));
         for(const x of specs){ const work=g.exercises[x.i].sets.filter(s=>!s.spec&&(s.type||'wk')==='wk').length; check(work>=g.exList[x.i].sets,f+': specialty replaced a work set on '+x.n); }
@@ -665,7 +754,7 @@ let server, browser;
     });
     test('Today gets the requested split after Auto-Rotate is toggled, in both directions', () => {
       for(const ar of [false,true]){
-        const k=monReset(ar), a=getEffTpl(k), b=['push','pull','core'].find(x=>x!==a);
+        const k=monReset(ar); S.daySched[1]='push'; _autoSplitCache={}; buildTodayWorkout(); const a=getEffTpl(k), b=['push','pull','core'].find(x=>x!==a);
         S.prefs.autoRotateSplits=!ar; _autoSplitCache={}; const other=getEffTpl(k); S.prefs.autoRotateSplits=ar; _autoSplitCache={};
         check(other!==a,'precondition: both settings give '+a+' for Monday');
         confirmSplitSwitch(b); reloadState(); toggleAR();
@@ -972,7 +1061,7 @@ let server, browser;
     // ── Gym Quick fits 30–45 min: short-end rests, then skip the finisher ────────
     test('every Gym Quick session is planned within 30–45 min with ≥3 work sets and in-range rests', () => {
       const bad=[];
-      for(const sp of ['push','pull','lower','upper','fullbody','glutes','arms','core']) for(const f of Object.keys(FOCUS_META)) for(const adv of [false,true]) for(const ss of [false,true]){
+      for(const sp of ['push','pull','lower','upper','fullbody','glutes','arms','core']) for(const f of Object.keys(FOCUS_META).filter(f=>!FOCUS_META[f].homeOnly)) for(const adv of [false,true]) for(const ss of [false,true]){
         const k=liveReset(sp); S.prefs.autoSuperset=ss; _advSuggestEnabled=adv; S.weekFocus=f; S.sessions[k]={gym:{exercises:{},cardio:{},cardioBlocks:{},intensity:'quick'}}; buildTodayWorkout();
         const g=S.sessions[k].gym, est=Number(el('intEstLine').getAttribute('data-est-mid')), ctx=sp+'/'+f+(adv?'/spec':'')+(ss?'/ss':'');
         // Full Body Strength keeps four heavy lifts at 3-min rests plus its cluster set:
@@ -985,11 +1074,11 @@ let server, browser;
       _advSuggestEnabled=false; check(!bad.length,bad.slice(0,12).join('; '));
     });
     test('Standard and Home keep their normal rests; the rest timer follows the exercise', () => {
-      let k=liveReset('push'); S.weekFocus='hybrid'; S.sessions[k]={gym:{exercises:{},cardio:{},cardioBlocks:{},intensity:'standard'}}; buildTodayWorkout();
-      let g=S.sessions[k].gym, mi=g.exList.findIndex(e=>isMainStrengthMovement(e.n)); check(mi>=0&&g.exList[mi].rest===180,'standard hybrid main lift rest changed: '+(mi>=0&&g.exList[mi].rest));
+      let k=liveReset('push'); S.weekFocus='muscle'; S.sessions[k]={gym:{exercises:{},cardio:{},cardioBlocks:{},intensity:'standard'}}; buildTodayWorkout();
+      let g=S.sessions[k].gym, mi=g.exList.findIndex(e=>isMainStrengthMovement(e.n)); check(mi>=0&&g.exList[mi].rest===150,'standard muscle lead lift rest changed: '+(mi>=0&&g.exList[mi].rest));
       const ai=g.exList.findIndex(e=>!isMainStrengthMovement(e.n)); if(ai>=0) check(getSupersetRestForExercise(ai,k,g.exList)===g.exList[ai].rest,'rest timer ignores the exercise rest');
-      k=homeReset('hpush'); S.weekFocus='hybrid'; S.sessions[k].home={exercises:{},cardio:{},cardioBlocks:{},intensity:'quick'}; buildTodayWorkout();
-      g=S.sessions[k].home; check(g.exList.some(e=>e.rest>QUICK_REST_BY_FOCUS.hybrid),'Home Quick got Gym Quick rests: '+g.exList.map(e=>e.rest));
+      k=homeReset('hpush'); S.weekFocus='muscle'; S.sessions[k].home={exercises:{},cardio:{},cardioBlocks:{},intensity:'quick'}; buildTodayWorkout();
+      g=S.sessions[k].home; check(g.exList.some(e=>e.rest>QUICK_REST_BY_FOCUS.muscle),'Home Quick got Gym Quick rests: '+g.exList.map(e=>e.rest));
       cMode='gym';
     });
     test('a skipped Quick finisher is not rendered, never blocks completion, and a started one stays', () => {
@@ -1047,7 +1136,7 @@ let server, browser;
       clearAllCardioTimers();
     });
     test('a superset done in the highlighted order rests after each round', () => {
-      const k=liveReset('push'); S.weekFocus='hybrid'; S.prefs.autoSuperset=false; S.prefs.autoTimer=true;
+      const k=liveReset('push'); S.weekFocus='muscle'; S.prefs.autoSuperset=false; S.prefs.autoTimer=true;
       const toasts=[]; showToast=m=>toasts.push(m);
       buildTodayWorkout(); const g=S.sessions[k].gym; g.supersets={1:2,2:1}; g.activeSuperset=undefined; saveS(); buildTodayWorkout();
       const rests=[];
@@ -1060,7 +1149,7 @@ let server, browser;
       S.prefs.autoTimer=false;
     });
     test('a pinned template is estimated from its own saved rests', () => {
-      const est=rest=>{ const k=liveReset('upper'); S.weekFocus='hybrid';
+      const est=rest=>{ const k=liveReset('upper'); S.weekFocus='muscle';
         S.workoutTemplates=[{id:1,name:'R'+rest,intensity:'quick',exercises:['Lat Pulldown','Seated Cable Row','Leg Extension'].map(n=>({n,t:'',sets:3,reps:'10',rest,p:3}))}];
         buildTodayWorkout(); applyWorkoutTemplate(1); buildTodayWorkout();
         check(S.sessions[k].gym.exListPinned&&S.sessions[k].gym.exList[0].rest===rest,'fixture: template not pinned with rest '+rest);
@@ -1079,7 +1168,7 @@ let server, browser;
       check(!!document.getElementById('cardio-block-finisher-0'),'stopped finisher card not rendered');
     });
     test('consecutive sets on one superset card still get the exercise rest', () => {
-      const k=liveReset('push'); S.weekFocus='hybrid'; S.prefs.autoSuperset=false; S.prefs.autoTimer=true; showToast=()=>{};
+      const k=liveReset('push'); S.weekFocus='muscle'; S.prefs.autoSuperset=false; S.prefs.autoTimer=true; showToast=()=>{};
       buildTodayWorkout(); const g=S.sessions[k].gym; g.supersets={1:2,2:1}; g.activeSuperset=undefined; saveS(); buildTodayWorkout();
       const rests=[];
       const doSet=ei=>{ const sets=S.sessions[k].gym.exercises[ei].sets, si=sets.findIndex(s=>!s.done&&(s.type||'wk')==='wk');
@@ -1153,7 +1242,7 @@ let server, browser;
     });
     test('every focus prescribes its own reps/rest, 3+ sets within its maximum, and its specialty set', () => {
       const bad=[];
-      for(const f of Object.keys(FOCUS_META)) for(const sp of ['push','pull','lower','upper','fullbody','glutes','arms','core']) for(const int of ['quick','standard','full']){
+      for(const f of Object.keys(FOCUS_META).filter(f=>!FOCUS_META[f].homeOnly)) for(const sp of ['push','pull','lower','upper','fullbody','glutes','arms','core']) for(const int of ['quick','standard','full']){
         const k=liveReset(sp); _advSuggestEnabled=true; S.weekFocus=f; S.sessions[k]={gym:{exercises:{},cardio:{},cardioBlocks:{},intensity:int}}; buildTodayWorkout();
         const g=GS(k), ctx=f+'/'+sp+'/'+int;
         g.exList.forEach((e,i)=>{ const r=workSetRange(e,f); if(e.sets<3||e.sets>r[1]) bad.push(ctx+': '+e.n+' '+e.sets+' sets (max '+r[1]+')');
@@ -1172,7 +1261,7 @@ let server, browser;
       check(workSetRange({n:'Bench Press (Barbell)',p:1},'power')[1]>workSetRange({n:'Dumbbell Lateral Raises',p:3},'endurance')[1],'max does not depend on focus/type');
     });
     test('Full sessions add a set to the main lifts on the strength and muscle focuses', () => {
-      for(const f of ['power','hybrid','muscle']) check(_focusSetCount({n:'Bench Press (Barbell)',p:1},'full',f)>_focusSetCount({n:'Bench Press (Barbell)',p:1},'standard',f),f);
+      for(const f of ['power','muscle']) check(_focusSetCount({n:'Bench Press (Barbell)',p:1,anchor:true},'full',f)>_focusSetCount({n:'Bench Press (Barbell)',p:1,anchor:true},'standard',f),f);
       check(_focusSetCount({n:'Bench Press (Barbell)',p:1,sets:4},'full','tone')===4,'tone primary lift');
       check(_focusSetCount({n:'Dumbbell Lateral Raises',p:2,sets:3},'full','tone')===3,'tone accessory');
     });
@@ -1320,10 +1409,9 @@ let server, browser;
     test('specialized workouts and gym stations are selectable, and gym variation uses past history only', () => {
       const k=liveReset('pull'),gym=getActiveGym();buildTodayWorkout();
       openSplitSwitcher();
-      check(el('splitSwitcherList').textContent.includes('Main workouts')&&el('splitSwitcherList').textContent.includes('Specialized workouts'),'Today group headings missing');
-      check(el('splitSwitcherList').textContent.includes('Back & Lats'),'specialized workout missing');
+      for(const t of ['Workouts by program','Push / Pull / Legs','Upper / Lower','Full Body','Add-on days']) check(el('splitSwitcherList').textContent.includes(t),'Today picker missing '+t);
       openDayModal(k);
-      check(el('splitGrid').textContent.includes('Main workouts')&&el('splitGrid').textContent.includes('Specialized workouts'),'Plan group headings missing');
+      check(el('splitGrid').textContent.includes('Workouts by program')&&el('splitGrid').textContent.includes('Add-on days'),'Plan group headings missing');
       for(const [name,gear] of [['Dips','Dip Station / Parallel Bars'],['Pull-Ups','Pull-Up Bar'],['Decline Bench Sit-Up','Decline Bench']]){
         check(gym.equipment.includes(gear)&&isExerciseAvailable(name,[gear])&&!isExerciseAvailable(name,[]),name+' does not require its station');
       }
@@ -1474,27 +1562,38 @@ let server, browser;
       doSaveWorkout(3,'');
       check(S.history.find(h=>h.date===k).exercises.some(e=>e.name===variant&&e.sets[0].done),'logged variation lost its identity');
     });
-    test('workout pickers nest specialized plans under their main workout', () => {
-      const k=liveReset('lower');buildTodayWorkout();openSplitSwitcher();
-      const today=Array.from(el('splitSwitcherList').querySelectorAll('details')).find(x=>x.querySelector('summary').textContent.includes('Lower Body Strength'));
-      check(today&&today.textContent.includes('Standard Lower')&&today.textContent.includes('Quads & Calves')&&today.textContent.includes('Hamstrings & Posterior Chain'),'Today lower workout missing children');
+    test('workout pickers group workouts by program, the focus\'s program first', () => {
+      const k=liveReset('lower');S.weekFocus='muscle';S.setup.gymDays=[1,2,3,4,5];buildTodayWorkout();openSplitSwitcher();
+      const fams=Array.from(el('splitSwitcherList').querySelectorAll('details.split-family'));
+      check(fams[0]&&fams[0].querySelector('summary').textContent.includes('Push / Pull / Legs')&&fams[0].open,'recommended program not first and open');
+      check(fams[0].textContent.includes('Legs'),'PPL lower day not labelled Legs');
+      check(fams.some(f=>f.querySelector('summary').textContent.includes('Add-on days')),'add-on days missing');
+      check(!el('splitSwitcherList').textContent.includes('Quads & Calves'),'retired single-muscle day still listed');
+      check(el('splitSwitcherList').textContent.includes('in your program'),'program recommendation missing');
       closeModal('splitSwitcherModal');
       openDayModal(k);
-      const plan=Array.from(el('splitGrid').querySelectorAll('details')).find(x=>x.querySelector('summary').textContent.includes('Lower Body Strength'));
-      plan.querySelector('summary').click();
-      plan.querySelector('button[onclick*="quads"]').click();
-      check(mDaySplit==='quads'&&el('splitGrid').querySelector('details[open] button.active'),'Plan did not preserve the selected child');
+      const add=Array.from(el('splitGrid').querySelectorAll('details')).find(x=>x.querySelector('summary').textContent.includes('Add-on days'));
+      add.querySelector('summary').click();
+      add.querySelector('button[onclick*="glutes"]').click();
+      check(mDaySplit==='glutes'&&el('splitGrid').querySelector('details[open] button.active'),'Plan did not keep the selected add-on open');
       saveDayConfig();
-      check(getEffTpl(k)==='quads','specialized workout did not save');
+      check(getEffTpl(k)==='glutes','add-on workout did not save');
+      S.dayConfig[k].split='quads';openDayModal(k);
+      check(el('splitGrid').querySelector('button.active[onclick*="quads"]'),'a legacy single-muscle day is hidden while selected');
+      closeModal('dayModal');
+      S.weekFocus='tone';S.dayConfig={};S.dayConfig[k]={type:'gym'};S.prefs.autoRotateSplits=false;
+      const fut=addDaysK(k,1);S.dayConfig[fut]={type:'gym',split:'arms'};buildWeekFocusRow();
+      check(el('planProgramCard').textContent.includes('Upper / Lower'),'Plan program card missing');
+      applyRecommendedProgram();
+      check(S.prefs.autoRotateSplits===true&&!S.dayConfig[fut].split&&S.dayConfig[fut].type==='gym','Follow program did not clear the upcoming manual split');
     });
     test('chest and core is selectable for Gym and Home with independent targets', () => {
       const k=liveReset('fullbody');
-      buildWeekFocusRow();el('weekFocusRow').querySelector('[onclick*="chestcore"]').click();confirmFocusChoice();
-      const gym=GS(k);
-      check(gym.trainingFocus==='chestcore','gym focus was not saved');
-      for(const group of ['chest','core','quads','hamstrings','back']) check(gym.exList.some(e=>getMG(e.n)===group),'full body missing '+group);
-      check(gym.exList.some(e=>e.n==='Bench Press (Barbell)'),'preferred full-body chest movement missing');
-      setWeeklyFocus('general');switchMode('home');
+      buildWeekFocusRow();check(!el('weekFocusRow').querySelector('[onclick*="chestcore"]'),'Chest & Core offered as a gym focus');
+      const gymFocus=S.weekFocus;setWeeklyFocus('chestcore');
+      check(S.weekFocus===gymFocus&&S.homeFocus==='chestcore','Home-only focus became the gym focus');
+      check(getWorkoutFocus(k)===gymFocus&&GS(k).trainingFocus!=='chestcore','gym day took the Home focus');
+      setWeeklyFocus('general');delete S.homeFocus;switchMode('home');
       el('swapWorkoutBanner').querySelector('button[onclick*="hchestcore"]').click();
       const select=el('swapWorkoutBanner').querySelector('[aria-label="Home focus"]');
       select.value='chestcore';select.dispatchEvent(new Event('change'));
@@ -1613,13 +1712,13 @@ let server, browser;
       check(getWarmupSets(280,'Plate-Loaded Leg Press','chestcore').every(w=>w.weight>=160&&w.weight<280&&isLoadableWeight('Plate-Loaded Leg Press',w.weight)),'plate warm-ups ignored the configured load');
     });
     test('next session refreshes working sets, warm-up ramp and controlled specialty set', () => {
-      let k=liveReset('chest'); S.weekFocus='chestcore'; _advSuggestEnabled=true;
+      let k=liveReset('chest'); S.weekFocus='muscle'; _advSuggestEnabled=true;
       buildTodayWorkout();
       let g=GS(k);
       const bench='Bench Press (Barbell)', fly='Pec Deck / Fly Machine';
       for(const [n,load] of [[bench,150],[fly,100]]){
         const i=g.exList.findIndex(e=>e.n===n);
-        check(i>=0,n+' missing from Chest & Core');
+        check(i>=0,n+' missing from the chest workout');
         g.exercises[i].sets.filter(isStraightWorkSet).forEach(row=>Object.assign(row,{weight:String(load),done:true,rpe:'8',reps:String(row.targetReps)}));
       }
       doSaveWorkout(3,'');
@@ -1631,11 +1730,13 @@ let server, browser;
       const benchData=g.exercises[bi], flyData=g.exercises[fi];
       check(benchData.sets.filter(isStraightWorkSet).every(row=>Number(row.weight)===155),'progressed work not seeded');
       check(benchData.warmupPlan.length>0&&benchData.warmupPlan.every(row=>row.weight===warmupWeightFor(bench,155,row.pct)),'old weight used for the next warm-up ramp');
-      const specialty=flyData.sets.find(row=>row.spec);
-      check(specialty?.type==='ds'&&Number(specialty.weight)===specialtySetTarget('ds',g.exList[fi],105,'chestcore').w,'drop set based on the wrong load');
-      check(Object.values(g.exercises).flatMap(e=>e.sets).filter(e=>e.spec).length===1,'more than one Chest & Core extra');
-      const quick=planSpecialtySets(g.exList,'chestcore','quick',g.exercises);
-      check(!Object.keys(quick).length,'Quick got a specialty extra');
+      check(flyData.sets.filter(isStraightWorkSet).every(row=>Number(row.weight)===105),'progressed accessory not seeded');
+      const specs=[];g.exList.forEach((e,i)=>(g.exercises[i].sets||[]).forEach(row=>{ if(row.spec) specs.push({e,i,row}); }));
+      check(specs.length>=1&&specs.length<=2,'expected one or two extras, got '+specs.length);
+      for(const {e,i,row} of specs){ const w=Number(g.exercises[i].sets.find(isStraightWorkSet).weight), want=specialtySetTarget(row.type,e,w,'muscle');
+        if(want&&want.w!=null) check(Number(row.weight)===want.w,row.type+' on '+e.n+' based on the wrong load'); }
+      const quick=planSpecialtySets(g.exList,'muscle','quick',g.exercises);
+      check(Object.keys(quick).length<=1,'Quick got more than one specialty extra');
       toggleAdvSuggest();
       check(!Object.values(GS(k).exercises).some(e=>e.sets.some(s=>s.spec)),'specialty switch did not remove the extra');
     });

@@ -716,6 +716,7 @@ button.sopt{display:block;width:100%;text-align:left;color:inherit}
   <div class="slbl" id="planFocusTitle">🎯 Default Focus</div>
   <div style="font-size:11px;color:var(--mu);margin-bottom:10px">Changes rep targets, rest times, and cardio for all upcoming gym days. Past completed sessions are not affected.</div>
   <div class="wfrow" id="weekFocusRow"></div>
+  <div id="planProgramCard" style="margin-top:12px"></div>
 </div>
 <div id="planDeloadBanner" style="display:none"></div>
 <div id="planWeekSummary" style="background:var(--s2);border:1px solid var(--b1);border-radius:10px;padding:10px 14px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between"><div><div style="font-family:DM Mono,monospace;font-size:9px;color:var(--mu);letter-spacing:1px;margin-bottom:4px" id="planWeekSummaryLbl">THIS WEEK</div><div id="planWeekDone" style="font-family:'Bebas Neue',sans-serif;font-size:1.3rem;letter-spacing:2px;color:var(--ye)">0 / 0</div><div style="font-family:DM Mono,monospace;font-size:9px;color:var(--mu);margin-top:1px">sessions complete</div></div><div style="flex:1;margin:0 14px"><div style="height:6px;background:var(--b2);border-radius:3px;overflow:hidden"><div id="planWeekBar" style="height:100%;background:var(--ye);border-radius:3px;transition:width .4s;width:0%"></div></div></div><div id="planWeekPct" style="font-family:'Bebas Neue',sans-serif;font-size:1.1rem;color:var(--mu)">0%</div></div>
@@ -3868,7 +3869,8 @@ function loggedLiftEstimate(key){
 function isStraightWorkSet(set){
   return !set.spec&&(set.type||'wk')==='wk';
 }
-function summarizeWorkSets(sets,focus,exName,plannedSets,plannedReps){
+// lead: the role the sets were prescribed for (true / false); undefined = today's role.
+function summarizeWorkSets(sets,focus,exName,plannedSets,plannedReps,lead){
   var all=(sets||[]).filter(isStraightWorkSet);
   var done=all.filter(validCompletedSet); if(!done.length) return null;
   var editedWeight=done.slice().reverse().find(function(s){return s.weightEdited;});
@@ -3880,7 +3882,7 @@ function summarizeWorkSets(sets,focus,exName,plannedSets,plannedReps){
   var complete=done.length===all.length&&done.length>=Math.max(MIN_WORK_SETS,Number(plannedSets)||0);
   var highEffort=done.some(function(s){return Number(s.rpe)>=9.5;});
   var easy=done.every(function(s){return Number(s.rpe)>0&&Number(s.rpe)<=7;});
-  var rule=exerciseProgressionRule(exName,focus);
+  var rule=exerciseProgressionRule(exName,normalizeFocus(focus),lead===undefined?undefined:{n:exName,lead:!!lead});
   var bodyweight=!!exName&&getExType(exName)==='bodyweight';
   var repsHit=complete&&done.every(function(s){
     return Number(s.reps)>=(Number(s.targetReps)||plannedReps||(bodyweight?1:rule.ceil));
@@ -3893,7 +3895,7 @@ function summarizeWorkSets(sets,focus,exName,plannedSets,plannedReps){
     ceilingHit:repsHit&&levelMatch&&sameWeight&&!highEffort&&!isAssistanceExercise(exName)};
 }
 function nextProgressionWeight(name,weight,focus,easy){
-  var larger=easy&&weight>=100&&isMainStrengthMovement(name)&&['power','hybrid','muscle','chestcore'].includes(focus);
+  var larger=easy&&weight>=100&&isMainStrengthMovement(name)&&['power','muscle','chestcore'].includes(focus);
   // Bound the suggestion on light implements and respect the equipment's available steps.
   var maximum=weight===0&&getExType(name)==='plate_machine'?5:Math.min(larger?10:5,weight*0.10);
   var candidate=snapToLoadable(name,weight+maximum,'down');
@@ -3919,9 +3921,32 @@ function isUnilateralExercise(name){return isUnilateralPulldown(name)||/^(GMWD S
 function isMainStrengthMovement(name){
   return isCompound(name)||/leg press|hack squat|chest press|shoulder press|supine press|incline (?:dumbbell |barbell )?(?:bench )?press|pull-down|row|hip thrust/i.test(name||'');
 }
-function exerciseProgressionRule(name,focus){
+// The day's LEAD lift(s): the first exercise of the workout, plus the second heavy slot a
+// template marks (the row on Upper, the press on Full Body). Strength puts its 3–5-rep
+// work here; every other compound is lighter supporting work.
+function _isLeadSlot(ex){ return !!(ex&&(ex.lead||ex.anchor)); }
+function _isLeadName(name){
+  try{ var g=GS(dKey(vDate)), list=(g&&g.exList)||[];
+    return list.some(function(e){ return e&&e.n===name&&_isLeadSlot(e); });
+  }catch(e){ return false; }
+}
+// Today's role for an exercise on the viewed day: true / false, or null when it isn't on
+// today's list (a role change can only be judged against a known slot).
+function _leadRoleOf(name){
+  try{ var g=GS(dKey(vDate)), e=((g&&g.exList)||[]).find(function(x){return x&&x.n===name;});
+    return e?_isLeadSlot(e):null; }catch(err){ return null; }
+}
+function exerciseProgressionRule(name,focus,ex){
   focus=focus||getWorkoutFocus();
-  if((focus==='power'||focus==='hybrid')&&name&&!isMainStrengthMovement(name)) return {floor:8,ceil:12};
+  focus=normalizeFocus(focus);
+  if(focus==='power'&&name&&!isMainStrengthMovement(name)) return {floor:8,ceil:12};
+  // Strength: 3–5 on the lead lift(s), 6–8 on supporting compounds (heavy enough to build
+  // the same patterns without a second 3-minute-rest marathon).
+  if(focus==='power'&&name&&!(ex?_isLeadSlot(ex):_isLeadName(name))) return {floor:6,ceil:8};
+  // Build Muscle: compound lifts in 6–10 so the load keeps climbing; single-joint and
+  // accessory work in 10–14, where it is practical to load and easier on the joints.
+  // Both reach similar growth when sets finish 1–2 reps from failure (Schoenfeld 2017/2021).
+  if(focus==='muscle'&&name&&!isMainStrengthMovement(name)) return {floor:10,ceil:14};
   if(focus==='chestcore'&&isMainStrengthMovement(name)) return {floor:6,ceil:10};
   return FOCUS_PROGRESSION[focus]||FOCUS_PROGRESSION.general;
 }
@@ -3931,14 +3956,14 @@ function isTimedHold(n){ return /^(plank|side plank|dead hang|.*plank hold|.*sta
 // by the LEVEL (or setting) used, and never feed volume, 1RM or records.
 function isLevelExercise(n){ return /^(twister |power twister|push down bar|chest expander|hand gripper|finger extension|thigh trainer)/i.test(n||''); }
 function prescriptionForFocus(ex,focus,quickGym){
-  var fp=FOCUS_META[focus]||FOCUS_META.general, rule=exerciseProgressionRule(ex.n,focus);
-  var copy=Object.assign({},ex), main=isMainStrengthMovement(ex.n);
+  var fp=FOCUS_META[focus]||FOCUS_META.general, rule=exerciseProgressionRule(ex.n,focus,ex);
+  var copy=Object.assign({},ex), main=isMainStrengthMovement(ex.n), lead=main&&_isLeadSlot(ex);
   copy.reps=getExType(ex.n)==='bodyweight'?ex.reps:Math.round((rule.floor+rule.ceil)/2);
   if(getExType(ex.n)==='bodyweight'&&!isLevelExercise(ex.n)&&!isTimedHold(ex.n)){
     var baseline=getStrKey(ex.n), maxReps=baseline&&S.strength[baseline];
-    if(maxReps>0) copy.reps=Math.max(1,Math.round(maxReps*({power:.55,hybrid:.65,muscle:.75,general:.7,tone:.8,endurance:.9}[focus]||.7)));
+    if(maxReps>0) copy.reps=Math.max(1,Math.round(maxReps*({power:.55,muscle:.75,general:.7,tone:.8,endurance:.9}[focus]||.7)));
   }
-  copy.rest=focus==='hybrid'?(main?180:90):focus==='power'?(main?210:90):focus==='muscle'?(main?150:90):
+  copy.rest=focus==='power'?(lead?210:main?150:90):focus==='muscle'?(lead?150:main?120:90):
     focus==='chestcore'?(main?120:75):fp.rest;
   if(quickGym&&QUICK_REST_BY_FOCUS[focus]!=null) copy.rest=Math.min(copy.rest,QUICK_REST_BY_FOCUS[focus]);
   // Isometric holds are logged as seconds, never as a fictitious 1-rep max.
@@ -3967,7 +3992,7 @@ function buildTrainingGuidance(k,exs){
   var groups=['chest','back','quads','hamstrings','glutes','shoulders','biceps','triceps','calves','core'];
   var chips=groups.map(function(g){var c=counts[g]||{sets:0,days:[]};return '<span style="display:inline-block;margin:3px 8px 3px 0">'+g+': <b>'+c.sets+'</b> sets / '+c.days.length+' days</span>';}).join('');
   return '<details class="card" style="font-size:12px;line-height:1.6"><summary style="cursor:pointer;color:var(--ye)">Why this workout · weekly training coverage</summary>'+
-    '<p>'+(focus==='hybrid'?'Muscle + strength: main lifts use 4–8 reps and full rests; accessories use 8–12 reps.':focus==='power'?'Strength: practice the lifts you want to improve with longer rests; accessories use moderate reps.':focus==='muscle'?'Muscle growth: repeat useful movements, build controlled reps, then increase the load.':
+    '<p>'+(focus==='power'?'Strength: practice the lifts you want to improve with longer rests; accessories use moderate reps.':focus==='muscle'?'Muscle growth: main lifts use 6–10 reps with longer rests, accessories 10–14. Repeat useful movements, build the reps, then increase the load.':
       focus==='chestcore'?'Chest & Core: repeat a press you can progress, train the abs and obliques directly, and keep pulling and lower-body work in the week.':'Build consistent training with a manageable load and good technique.')+' Choose loads that leave roughly 1–3 clean reps in reserve. Adjust an estimate down if needed.</p>'+
     '<p>Machines and free weights can both build muscle. Choose available equipment you can set up comfortably and progress consistently. Machine stack numbers are not comparable across different machines or gyms.</p>'+
     '<div style="color:var(--mu)">Logged in the last 7 days (including this date):</div><div>'+chips+'</div>'+
@@ -4671,9 +4696,17 @@ if(type==='bodyweight'){
 }
 if(lastSession){
   var lastW=lastSession.weight, lastR=lastSession.reps;
-  if(lastW>0&&lastSession.focus&&lastSession.focus!==focus){
-    var adjusted=snapToLoadable(exName,Math.min(lastW,est1RM(lastW,lastR)/(1+(targetReps+FOCUS_RIR[focus])/30)),'down');
-    return {weight:adjusted,reps:targetReps,sets:targetSets,badge:'prev',msg:'adjusted for the new focus'};
+  var _focusChanged=!!lastSession.focus&&lastSession.focus!==normalizeFocus(focus);
+  // Strength: a lift that moves between the lead slot (3–5) and a supporting slot (6–8)
+  // changes rep range, so last time's load is re-derived for the new target rather than
+  // progressed — a ceiling hit at 4 reps is not a reason to add weight for 7.
+  var _roleChanged=!_focusChanged&&normalizeFocus(focus)==='power'&&isMainStrengthMovement(exName)&&
+    lastSession.lead!=null&&_leadRoleOf(exName)!=null&&!!lastSession.lead!==_leadRoleOf(exName);
+  if(lastW>0&&(_focusChanged||_roleChanged)){
+    var _tr=Array.isArray(targetReps)?targetReps[0]:Number(targetReps)||rule.floor;
+    var adjusted=snapToLoadable(exName,Math.min(lastW,est1RM(lastW,lastR)/(1+(_tr+FOCUS_RIR[normalizeFocus(focus)])/30)),'down');
+    if(_roleChanged&&_tr<lastR) adjusted=snapToLoadable(exName,est1RM(lastW,lastR)/(1+(_tr+FOCUS_RIR.power)/30),'down');
+    return {weight:adjusted,reps:targetReps,sets:targetSets,badge:'prev',msg:_focusChanged?'adjusted for the new focus':'adjusted for the new rep range'};
   }
   if((lastW>0||getExType(exName)==='plate_machine')&&lastSession.ceilingHit){
     var nextW=nextProgressionWeight(exName,lastW,focus,lastSession.easy);
@@ -4684,7 +4717,9 @@ if(lastSession){
       return {weight:lastW,reps:lastR+1,sets:targetSets,badge:'prog',msg:'+1 rep at the same load'};
   }
   // Keep the previous result as the starting point, including a manually lowered target.
-  var nextReps=lastSession.editedReps?lastR:Math.max(rule.floor,Math.min(rule.ceil,lastR));
+  // At an equipment cap (no heavier step exists) the reps already earned are held, even
+  // above the range ceiling — dropping them would be a step backwards.
+  var nextReps=lastSession.editedReps?lastR:lastSession.ceilingHit?Math.max(rule.floor,lastR):Math.max(rule.floor,Math.min(rule.ceil,lastR));
   return {weight:lastW,reps:nextReps,sets:targetSets,badge:'prev',msg:'previous work sets'};
 }
 
@@ -4824,10 +4859,14 @@ function getLastExSession(exName, overrideFocus){
   var history=priorGymHistory();
   for(var i=0;i<history.length;i++){
     var ex=(history[i].exercises||[]).find(function(e){return e.name===exName&&!e.skipped;});
-    var result=ex&&summarizeWorkSets(ex.sets,history[i].trainingFocus||overrideFocus,exName,ex.plannedWorkSets,ex.targetReps);
+    // Before lead lifts existed every Strength main lift was a 3–5-rep lift, so a session
+    // saved without the flag is judged as one.
+    var _wasLead=ex&&(ex.lead!=null?!!ex.lead:isMainStrengthMovement(exName));
+    var result=ex&&summarizeWorkSets(ex.sets,history[i].trainingFocus||overrideFocus,exName,ex.plannedWorkSets,ex.targetReps,_wasLead);
     if(result){
       result.date=history[i].date;
-      result.focus=history[i].trainingFocus;
+      result.focus=normalizeFocus(history[i].trainingFocus);
+      result.lead=_wasLead;
       result.targetReps=ex.targetReps||result.reps;
       result.setAdjustment=Number(ex.setAdjustment)||0;
       return result;
@@ -4836,7 +4875,7 @@ function getLastExSession(exName, overrideFocus){
   return null;
 }
 
-var WTPL={upper:{focus:'Upper Body Strength',exercises:[{n:'Bench Press (Barbell)',t:'Chest · Triceps',sets:4,reps:8,rest:90,p:1},{n:'Incline Dumbbell Press',t:'Upper Chest · Shoulders',sets:3,reps:10,rest:75,p:1},{n:'Cable Low Row',t:'Back · Biceps',sets:4,reps:10,rest:75,p:1},{n:'Lat Pull-Down Machine',t:'Lats · Biceps',sets:3,reps:12,rest:60,p:2},{n:'Pec Fly / Rear Delt (Rear)',t:'Rear Deltoids',sets:3,reps:15,rest:60,p:2},{n:'Cable Tricep Push-Down',t:'Triceps',sets:3,reps:12,rest:60,p:2},{n:'Dumbbell Bicep Curls',t:'Biceps',sets:3,reps:12,rest:60,p:3}],cardio:[{n:'Stair Stepper',dur:20,tgt:'Moderate pace, level 6-9  --  steady-state cardio finisher, elevates heart rate without upper body fatigue'}]},lower:{focus:'Lower Body Strength',exercises:[{n:'Barbell Back Squat',t:'Quads · Glutes',sets:4,reps:6,rest:120,p:1},{n:'Dumbbell Reverse Lunge',t:'Quads · Glutes',sets:3,reps:10,rest:90,p:1},{n:'Romanian Deadlift (Dumbbell)',t:'Hamstrings · Glutes',sets:3,reps:10,rest:90,p:1},{n:'Leg Extension Machine',t:'Quads',sets:3,reps:15,rest:60,p:2},{n:'Seated Leg Curl Machine',t:'Hamstrings',sets:3,reps:15,rest:60,p:2},{n:'Calf Extension Machine',t:'Calves',sets:4,reps:15,rest:45,p:2},{n:'Hip Abductor / Adductor Machine',t:'Inner/Outer Thigh',sets:3,reps:15,rest:45,p:3}],cardio:[{n:'Fan Bike (HIIT)',dur:15,tgt:'20s on / 40s off x15'}]},fullbody:{focus:'Full Body + Core',exercises:[
+var WTPL={upper:{focus:'Upper Body',exercises:[{n:'Bench Press (Barbell)',t:'Chest · Triceps',sets:4,reps:8,rest:90,p:1},{n:'Cable Low Row',t:'Back · Biceps',sets:4,reps:10,rest:75,p:1},{n:'Lat Pull-Down Machine',t:'Lats · Biceps',sets:3,reps:12,rest:60,p:1},{n:'Incline Dumbbell Press',t:'Upper Chest · Shoulders',sets:3,reps:10,rest:75,p:2},{n:'Pec Fly / Rear Delt (Rear)',t:'Rear Deltoids',sets:3,reps:15,rest:60,p:2},{n:'Cable Tricep Push-Down',t:'Triceps',sets:3,reps:12,rest:60,p:2},{n:'Dumbbell Bicep Curls',t:'Biceps',sets:3,reps:12,rest:60,p:3}],cardio:[{n:'Stair Stepper',dur:20,tgt:'Moderate pace, level 6-9  --  steady-state cardio finisher, elevates heart rate without upper body fatigue'}]},lower:{focus:'Lower Body',exercises:[{n:'Barbell Back Squat',t:'Quads · Glutes',sets:4,reps:6,rest:120,p:1},{n:'Dumbbell Reverse Lunge',t:'Quads · Glutes',sets:3,reps:10,rest:90,p:1},{n:'Romanian Deadlift (Dumbbell)',t:'Hamstrings · Glutes',sets:3,reps:10,rest:90,p:1},{n:'Leg Extension Machine',t:'Quads',sets:3,reps:15,rest:60,p:2},{n:'Seated Leg Curl Machine',t:'Hamstrings',sets:3,reps:15,rest:60,p:2},{n:'Calf Extension Machine',t:'Calves',sets:4,reps:15,rest:45,p:2},{n:'Hip Abductor / Adductor Machine',t:'Inner/Outer Thigh',sets:3,reps:15,rest:45,p:3}],cardio:[{n:'Fan Bike (HIIT)',dur:15,tgt:'20s on / 40s off x15'}]},fullbody:{focus:'Full Body',exercises:[
 {n:'Smith Machine Squat',t:'Quads · Glutes',sets:3,reps:10,rest:120,p:1},
 {n:'Chest Press Machine',t:'Chest · Triceps',sets:3,reps:10,rest:120,p:1},
 {n:'Romanian Deadlift (Dumbbell)',t:'Hamstrings · Glutes',sets:3,reps:10,rest:120,p:1},
@@ -4890,6 +4929,10 @@ Object.keys(SPECIALIZED_GYM_SPLITS).forEach(function(key){
     var entry=(ELIB[group]||[]).find(function(e){return e.n===name;});
     return {n:name,t:entry?entry.t:option.label,sets:i===0?4:3,reps:name==='Pull-Ups'?5:10,rest:75,p:i<2?1:2};
   })};
+});
+// Second heavy slot for days that train two main patterns.
+[['upper','Cable Low Row'],['fullbody','Chest Press Machine']].forEach(function(p){
+  (WTPL[p[0]].exercises||[]).forEach(function(ex){ if(ex.n===p[1]) ex.lead=true; });
 });
 var MPLAN={phases:[{name:'BASE BUILDING',weeks:[1,8],desc:'Build aerobic foundation. 80% easy running, increase mileage ~10%/week. Consistency over speed.'},{name:'BUILD',weeks:[9,16],desc:'Introduce tempo runs and intervals. Long runs grow to 14-16 miles. Maintain 80/20 easy/quality balance.'},{name:'PEAK',weeks:[17,21],desc:'Highest mileage weeks. Long runs reach 18-22 miles. Marathon-pace segments.'},{name:'TAPER',weeks:[22,24],desc:'Reduce volume 50-60%, maintain intensity. Rest, fuel, sleep. Trust your training.'}],templates:{base:{sched:[{type:'EASY',dist:3,desc:'Easy conversational pace.'},{type:'EASY',dist:4,desc:'Easy run with 4-6 strides at the end.'},{type:'EASY',dist:3,desc:'Easy recovery run.'},{type:'LONG',dist:6,desc:'Long run at easy pace.'}]},build:{sched:[{type:'EASY',dist:4,desc:'Easy run. Recovery from long run.'},{type:'TEMPO',dist:5,desc:'WU 1mi then 3mi at tempo then 1mi cooldown.'},{type:'EASY',dist:4,desc:'Easy with 6 strides at end.'},{type:'INTERVALS',dist:5,desc:'WU 1mi then 5x1000m at 5K pace then CD 1mi.'},{type:'LONG',dist:12,desc:'Long run at easy pace.'}]},peak:{sched:[{type:'EASY',dist:5,desc:'Easy recovery run.'},{type:'TEMPO',dist:7,desc:'WU 1mi then 5mi at tempo then 1mi cooldown.'},{type:'EASY',dist:5,desc:'Easy + 6-8 strides.'},{type:'MP',dist:8,desc:'Last 5 miles at goal marathon pace.'},{type:'LONG',dist:18,desc:'Long run, last 4 miles at marathon pace.'}]},taper:{sched:[{type:'EASY',dist:4,desc:'Easy short run. Stay loose.'},{type:'TEMPO',dist:4,desc:'WU 1mi then 2mi at MP then 1mi CD.'},{type:'EASY',dist:3,desc:'Very easy shake-out run.'},{type:'LONG',dist:8,desc:'Reduced long run. Focus on form.'}]}}};
 var RUN_PROGRAMS = {
@@ -5142,6 +5185,18 @@ if(!S.deloads)S.deloads={};
 if(!S.planView)S.planView='week';
 if(S.planOffset===undefined)S.planOffset=0;
 if(!S.weekFocus||S.weekFocus==='auto')S.weekFocus='general';
+// Nov 2026: "Muscle + Strength" sat between Build Strength and Build Muscle and is folded
+// into Build Muscle (main lifts 6–10). Chest & Core is a Home-only focus now; a gym plan
+// left on it returns to the last gym focus actually trained and Home keeps Chest & Core.
+if(S.weekFocus==='hybrid')S.weekFocus='muscle';
+if(S.homeFocus==='hybrid')S.homeFocus='muscle';
+if(S.weekFocus==='chestcore'){
+  var _gf=function(h){return h.trainingFocus==='hybrid'?'muscle':h.trainingFocus;};
+  var _lastGymFocus=(S.history||[]).filter(function(h){return h&&h.type==='gym'&&['power','muscle','tone','general','endurance'].indexOf(_gf(h))>=0;})
+    .sort(function(a,b){return a.date<b.date?1:a.date>b.date?-1:0;})[0];
+  S.weekFocus=_lastGymFocus?_gf(_lastGymFocus):'muscle';
+  if(!S.homeFocus)S.homeFocus='chestcore';
+}
 if(!S.gymProfiles||!S.gymProfiles.length){S.gymProfiles=[{id:'my-pf',name:'My Planet Fitness',equipment:MY_PF_EQUIPMENT.slice(),isDefault:true}];saveS();}
 if(!S.activeGymId)S.activeGymId=S.gymProfiles[0].id;
 // Add defaults for new strength keys if missing
@@ -5209,7 +5264,7 @@ Object.keys(S.nutLog||{}).forEach(function(dk){
 migrateState();
 try{applyTheme();}catch(e){}
 function rebuildSched(){
-  var t=GYM_SPLIT_FAMILIES.map(function(family){return family.main;});
+  var t=autoSplitPool();
   var d=S.setup.gymDays.slice().sort(function(a,b){return a-b;});
   // ADDITIVE: keep existing assignments, only add for new days
   var existing=S.daySched||{};
@@ -5242,9 +5297,63 @@ function rebuildSched(){
 // per-day overrides always win; the Plan calendar projects the rotation
 // forward by resolving each day from the (resolved) days before it.
 // ═══════════════════════════════════════════════════════════════════
-// Rotation order is deliberately sequenced so adjacent splits don't share muscle
-// groups where possible. Focused sessions are available from the split pickers.
-var AUTO_SPLIT_POOL=['push','pull','lower','upper','fullbody'];
+// A focus trains through ONE program, chosen by the focus and the number of gym days in
+// the weekly schedule. The rotation continues from the last workout actually saved, so a
+// missed day never skips a split. Add-on days (core, arms, glutes) are picked by hand.
+var TRAINING_PROGRAMS={
+  ppl:{label:'Push / Pull / Legs',rotation:['push','pull','lower'],names:{lower:'Legs'},
+    desc:'Push (chest, shoulders, triceps) → Pull (back, biceps) → Legs. Each session goes deep on a few muscles; at 5–6 days every muscle is trained about twice a week.'},
+  upperlower:{label:'Upper / Lower',rotation:['upper','lower'],names:{},
+    desc:'Upper body and lower body on alternate gym days. Every muscle and main lift is trained about twice a week in moderate-length sessions.'},
+  fullbody:{label:'Full Body',rotation:['fullbody'],names:{},
+    desc:'Every major muscle in each session. With 2–3 gym days it is the only way to train each muscle more than once a week.'}
+};
+var ADDON_GYM_SPLITS=['core','arms','glutes'];
+// focus → [[max gym days, program], …] — the first row whose day limit fits is used.
+var FOCUS_PROGRAM_RULES={
+  power:[[3,'fullbody'],[7,'upperlower']],
+  muscle:[[3,'fullbody'],[4,'upperlower'],[7,'ppl']],
+  tone:[[3,'fullbody'],[7,'upperlower']],
+  general:[[3,'fullbody'],[7,'upperlower']],
+  endurance:[[3,'fullbody'],[7,'upperlower']]
+};
+var FOCUS_PROGRAM_WHY={
+  power:'A planning default: heavy loading drives strength, and practising each main lift more than once a week gives more heavy exposures with recovery between. Upper / Lower trains squat, bench, row and press on separate days; with 3 days or fewer, Full Body.',
+  muscle:'A planning default: weekly hard sets matter more than how they are split, and spreading them over the week keeps each session manageable. At 5+ days Push / Pull / Legs (each day about 1.5–2× a week, depending on how the rotation falls); at 4 days Upper / Lower; at 3 or fewer, Full Body.',
+  tone:'In a calorie deficit the job of lifting is to keep strength on every muscle. Upper / Lower keeps sessions shorter and leaves energy for cardio; with 3 days or fewer, Full Body.',
+  general:'A planning default: Upper / Lower (Full Body with 3 days or fewer) covers every movement pattern across the week with simple, repeatable sessions.',
+  endurance:'A planning default: Full Body circuits on up to 3 non-consecutive days leave room for running; with 4 or more gym days, Upper / Lower so the same muscles are not trained on back-to-back days. Count hard runs as training load too.'
+};
+function gymDaysPerWeek(){ var d=S.setup&&S.setup.gymDays; return Array.isArray(d)?Math.min(7,d.length):3; }
+function recommendedProgramKey(focus,days){
+  focus=normalizeFocus(focus||S.weekFocus);
+  var rules=FOCUS_PROGRAM_RULES[focus]||FOCUS_PROGRAM_RULES.general;
+  if(days==null) days=gymDaysPerWeek();
+  for(var i=0;i<rules.length;i++) if(days<=rules[i][0]) return rules[i][1];
+  return rules[rules.length-1][1];
+}
+function autoSplitPool(){ return TRAINING_PROGRAMS[recommendedProgramKey()].rotation; }
+function programSplitLabel(programKey,split){
+  var p=TRAINING_PROGRAMS[programKey];
+  return (p&&p.names[split])||(SPLIT_META[split]||{}).nm||split;
+}
+// What the program says to train on day k: the split after the last saved gym workout.
+function _shiftedSplitFor(k){
+  var c=S.dayConfig&&S.dayConfig[k]; if(!c||!c.split) return null;
+  var hit=null;
+  Object.keys(S.dayConfig).some(function(dk){
+    var sw=S.dayConfig[dk]&&S.dayConfig[dk].todaySwitch, ch=sw&&sw.changed&&sw.changed[k];
+    if(ch&&ch.set===c.split){ hit=c.split; return true; } return false;
+  });
+  return hit;
+}
+function programSplitFor(k){
+  // A day a Today switch moved the skipped workout onto is the program's plan for that day.
+  var shifted=_shiftedSplitFor(k); if(shifted) return shifted;
+  var pool=autoSplitPool(), last=null, best='';
+  (S.history||[]).forEach(function(h){ if(h&&h.type==='gym'&&h.split&&h.date<k&&h.date>=best){ best=h.date; last=h.split; } });
+  return _nextAutoSplit(last,pool);
+}
 var _splitMusclesCache={};
 function splitMuscles(splitKey){
   if(_splitMusclesCache[splitKey]) return _splitMusclesCache[splitKey];
@@ -5252,12 +5361,16 @@ function splitMuscles(splitKey){
   if(tpl) tpl.exercises.forEach(function(ex){var g=getMG(ex.n); if(g) m[g]=1;});
   _splitMusclesCache[splitKey]=m; return m;
 }
-var _autoSplitCache={};
+var _autoSplitCache={}, _autoSplitCacheDay=null;
 // The rotation is walked forward from a fixed epoch, so a day's split never depends on
 // which day happened to be asked for first after the cache was cleared (saveS clears it).
 // It used to recurse back to a depth cap and anchor there, which put every day on the
 // same split whenever the cache was cold, and shifted the week between renders.
 var AUTO_SPLIT_EPOCH='2024-01-01';
+// The day the rotation treats as today (days before it only count if trained). A seam so
+// tests can pin it; null in the app.
+var ROTATION_TODAY_OVERRIDE=null;
+function rotationTodayKey(){ return ROTATION_TODAY_OVERRIDE||dKey(new Date()); }
 // date → split of the saved gym workout on that date. A saved workout is what was
 // actually trained, so getEffTpl and the rotation both read it ahead of any override.
 // Rebuilt whenever the history array is replaced or changes length (every save does both).
@@ -5280,28 +5393,23 @@ function _autoSplitPinned(k,logged){
   // then a manual per-day override
   var cfg=S.dayConfig[k];
   if(cfg&&cfg.split&&cfg.split!=='auto') return cfg.split;
-  if(S.weekFocus==='hybrid'){
-    var days=(S.setup.gymDays||[]).slice().sort(function(a,b){return ((a+6)%7)-((b+6)%7);});
-    var rotation=days.length<=3?['fullbody']:days.length===4?['upper','lower','upper','lower']:days.length===5?['upper','lower','push','pull','lower']:['push','pull','lower','push','pull','lower'];
-    var slot=days.indexOf(new Date(k+'T12:00:00').getDay());
-    return rotation[Math.max(0,slot)%rotation.length];
-  }
   return null;
 }
-function _nextAutoSplit(prevSplit){
-  if(prevSplit==null) return AUTO_SPLIT_POOL[0]; // first gym day
-  var idx=AUTO_SPLIT_POOL.indexOf(prevSplit);
+function _nextAutoSplit(prevSplit,pool){
+  pool=pool||autoSplitPool();
+  if(prevSplit==null) return pool[0]; // first gym day
+  var idx=pool.indexOf(prevSplit);
   // If the previous day's split isn't in the rotation pool (a manual odd split),
   // pick the pool split that overlaps it least so we still avoid back-to-back strain.
   if(idx<0){
-    var pm=splitMuscles(prevSplit), best=AUTO_SPLIT_POOL[0], bestOv=99;
-    AUTO_SPLIT_POOL.forEach(function(cand){
+    var pm=splitMuscles(prevSplit), best=pool[0], bestOv=99;
+    pool.forEach(function(cand){
       var cm=splitMuscles(cand), ov=Object.keys(cm).filter(function(g){return pm[g];}).length;
       if(ov<bestOv){bestOv=ov; best=cand;}
     });
     return best;
   }
-  return AUTO_SPLIT_POOL[(idx+1)%AUTO_SPLIT_POOL.length];
+  return pool[(idx+1)%pool.length];
 }
 // Before the epoch the rotation simply runs backwards from it: the last gym day before
 // the epoch is one slot behind the first one after it, and so on. Deterministic, and days
@@ -5318,23 +5426,32 @@ function _preEpochAutoSplit(k){
   // n gym days from k up to the epoch, k included: k sits n slots before slot 0. A rest
   // day counts only the gym days after it, so it shows the next gym day's split — the
   // same convention as after the epoch.
-  var L=AUTO_SPLIT_POOL.length;
-  return AUTO_SPLIT_POOL[((-n%L)+L)%L];
+  var pool=autoSplitPool(), L=pool.length;
+  return pool[((-n%L)+L)%L];
 }
 function autoSplitFor(k){
+  // Which past days count as "missed" depends on today's date, so the cache is per day.
+  var _today=rotationTodayKey();
+  if(_autoSplitCacheDay!==_today){ _autoSplitCache={}; _autoSplitCacheDay=_today; }
   if(_autoSplitCache[k]) return _autoSplitCache[k];
   var logged=loggedGymSplits();
   var pin=_autoSplitPinned(k,logged);
   if(pin) return (_autoSplitCache[k]=pin);
   if(k<AUTO_SPLIT_EPOCH) return (_autoSplitCache[k]=_preEpochAutoSplit(k));
   // Walk back to the nearest gym day whose split is already known, then resolve forward.
-  var chain=[k], prev=null, d0=new Date(k+'T12:00:00');
+  // A PAST gym day that was never trained doesn't use up a slot: the rotation follows the
+  // workouts actually saved, so skipping Tuesday's Pull makes Pull the next workout instead
+  // of silently dropping it.
+  var chain=[k], prev=null, d0=new Date(k+'T12:00:00'), todayK=rotationTodayKey();
   for(var back=1;;back++){
     var d=new Date(d0); d.setDate(d0.getDate()-back);
     var pk=dKey(d);
     if(pk<AUTO_SPLIT_EPOCH) break;
+    // A saved workout counts wherever it sits — even on a day later re-typed as Rest.
+    if(pk<todayK&&logged[pk]){ prev=logged[pk]; break; }
     var dt=getDayType(pk);
     if(dt!=='gym'&&dt!=='both') continue;
+    if(pk<todayK) continue;
     if(_autoSplitCache[pk]){ prev=_autoSplitCache[pk]; break; }
     var p=_autoSplitPinned(pk,logged);
     if(p){ prev=(_autoSplitCache[pk]=p); break; }
@@ -5480,7 +5597,8 @@ function textPromptSubmit(){
 function confirmYes(){
   closeModal('confirmModal');
   _confirmCancelCallback = null;
-  if(_confirmCallback){ _confirmCallback(); _confirmCallback=null; }
+  // Clear first: a callback that opens a second confirm (Reset All Data) installs its own.
+  if(_confirmCallback){ var _cb=_confirmCallback; _confirmCallback=null; _cb(); }
 }
 function confirmNo(){
   closeModal('confirmModal');
@@ -5505,7 +5623,8 @@ document.addEventListener('visibilitychange',function(){
   var _nk=dKey(new Date());
   if(_nk===_lastSeenDayKey) return;
   _lastSeenDayKey=_nk;
-  try{ vDate=new Date(); updateDateDisplay(); buildWeekStrip(); buildTodayWorkout(); }catch(e){}
+  try{ vDate=new Date(); _autoSplitCache={}; updateDateDisplay(); buildWeekStrip(); buildTodayWorkout(); }catch(e){}
+  try{ buildPlan(); }catch(e){}
   try{ if(el('page-home')&&el('page-home').classList.contains('active')) buildHomePage(); }catch(e){}
   try{ updateStreak(); }catch(e){}
 });
@@ -5861,7 +5980,7 @@ var INTENSITY_BANDS={quick:[30,45], standard:[60,90], full:[90,120]};
 // exercises × three work sets still fit 30–45 min (the user's choice over fewer
 // exercises or fewer sets). Every value is inside that focus's stated range, and Tone
 // stays ≥ 60 s. Home sessions keep their normal rests — they already fit.
-var QUICK_REST_BY_FOCUS={hybrid:90,muscle:90,power:180,general:60,tone:70,endurance:30,chestcore:75};
+var QUICK_REST_BY_FOCUS={muscle:90,power:180,general:60,tone:70,endurance:30,chestcore:75};
 
 // User house rule: never fewer than three work sets on any exercise, whatever the focus,
 // intensity, weight or rep count. This is the user's house rule, not a biological minimum; lower doses can also help.
@@ -5875,7 +5994,6 @@ var MIN_WORK_SETS=3;
 // main lifts (4 here), hypertrophy 3–6 (4 on compounds so weekly volume clears ~10
 // sets/muscle), general fitness and muscular endurance 2–3 (3 = the house floor).
 var SETS_BY_FOCUS={
-  hybrid:   {comp:4, acc:3},
   power:    {comp:4, acc:3},
   muscle:   {comp:4, acc:3},
   general:  {comp:3, acc:3},
@@ -5891,7 +6009,6 @@ var SETS_BY_FOCUS={
 // fullComp); the "+ set" button stops at the max.
 var MAX_SETS_BY_FOCUS={
   power:    {comp:6, acc:4, fullComp:5},
-  hybrid:   {comp:6, acc:4, fullComp:5},
   muscle:   {comp:6, acc:5, fullComp:5},
   general:  {comp:4, acc:4, fullComp:3},
   tone:     {comp:4, acc:4, fullComp:3},
@@ -5930,6 +6047,8 @@ function _focusSetCount(ex, intensity, focus){
   if(ex&&ex.n){ var _ap=getActiveProgramFor(ex.n); if(_ap) return Math.max(MIN_WORK_SETS,_ap.setCount); }
   var s=SETS_BY_FOCUS[focus]||SETS_BY_FOCUS.general;
   var isComp=_isCompSlot(ex);
+  // Strength: the lead lift(s) get the 4–5 heavy sets; supporting compounds get three.
+  if(focus==='power'&&isComp&&!_isLeadSlot(ex)) isComp=false;
   var nSets=isComp?s.comp:s.acc;
   if(intensity!=='quick'&&isComp&&ex.sets>MIN_WORK_SETS&&focus!=='endurance') nSets=Math.max(nSets,4);
   if(intensity==='full'&&!isComp&&focus==='muscle'&&ex.p<=2) nSets=4;
@@ -6089,12 +6208,6 @@ function workoutExerciseUsage(gym,home){
   });
   return names;
 }
-var CHEST_CORE_GYM_MOVES={
-  chest:['Bench Press (Barbell)','Plate-Loaded Incline Press','Cable Crunch','Pec Deck / Fly Machine','Cable Pallof Press','Cable Tricep Push-Down'],
-  push:['Bench Press (Barbell)','Plate-Loaded Incline Press','Cable Pallof Press','Plate-Loaded Shoulder Press','Cable Tricep Push-Down'],
-  upper:['Bench Press (Barbell)','Cable Low Row','Cable Crunch','Lat Pull-Down Machine','Plate-Loaded Incline Press'],
-  fullbody:['Smith Machine Squat','Bench Press (Barbell)','Romanian Deadlift (Dumbbell)','Cable Low Row','Cable Pallof Press','Plate-Loaded Incline Press']
-};
 function workoutTemplateMoves(tplKey,focus,intensity){
   var tpl=WTPL[tplKey]||WTPL.upper;
   if(tplKey==='hchestcore'){
@@ -6109,16 +6222,7 @@ function workoutTemplateMoves(tplKey,focus,intensity){
       return ex;
     });
   }
-  var emphasis=focus==='chestcore'&&CHEST_CORE_GYM_MOVES[tplKey];
-  if(!emphasis) return tpl.exercises;
-  var primaryCount=tplKey==='fullbody'?(intensity==='quick'?4:5):3;
-  var selected=emphasis.map(function(name,i){
-    var group=getMG(name), entry=(ELIB[group]||[]).find(function(ex){return ex.n===name;});
-    return {n:name,t:entry?entry.t:'',sets:i===0?4:3,reps:10,rest:75,p:i<primaryCount?1:2};
-  });
-  return selected.concat(tpl.exercises.filter(function(ex){
-    return !emphasis.includes(ex.n)&&!(tplKey==='fullbody'&&ex.n==='Chest Press Machine');
-  }).map(function(ex){return Object.assign({},ex,{p:Math.max(ex.p||2,2)});}));
+  return tpl.exercises;
 }
 function _buildSplitPool(tplKey,gym,focus,intensity){
   var tpl=WTPL[tplKey]||WTPL.upper, home=!!(tpl.home||gym.isHome);
@@ -6159,8 +6263,7 @@ function _buildSplitPool(tplKey,gym,focus,intensity){
       optionNames=homeOptions[base]||optionNames;
     }
     var choice=available(base)?base:null;
-    var mayRotate=choice&&i>0&&usage[base]&&!getActiveProgramFor(base)&&
-      !(focus==='chestcore'&&base==='Bench Press (Barbell)');
+    var mayRotate=choice&&i>0&&usage[base]&&!getActiveProgramFor(base);
     var alternate;
     var variants=[];
     if(mayRotate||!choice){
@@ -6183,7 +6286,7 @@ function _buildSplitPool(tplKey,gym,focus,intensity){
     if(mayRotate){
       var comparable=variants.filter(function(item){
         return equipmentTier(item.n)===equipmentTier(base)&&
-          (item.p||2)<=(ex.p||2)+(focus==='power'||focus==='hybrid'?0:1)&&
+          (item.p||2)<=(ex.p||2)+(focus==='power'?0:1)&&
           _exLiftMinutes(Object.assign({},ex,{n:item.n}),intensity,null,focus,intensity==='quick'&&!home)<=
             _exLiftMinutes(ex,intensity,null,focus,intensity==='quick'&&!home)+1;
       }).map(function(item){return item.n;});
@@ -6228,6 +6331,10 @@ function _buildSplitPool(tplKey,gym,focus,intensity){
       if(pool.length>=18||!list[round]) return;
       var ex=list[round];
       if(GYM_MOVEMENT_OPTIONS.some(function(names){return names.includes(ex.n)&&names.some(function(name){return used.has(name);});})) return;
+      // A filler never makes a third exercise of the same movement pattern (e.g. a third
+      // overhead press on Push, a box squat after back squat and lunges).
+      var pat=movementPattern(ex.n);
+      if(pat&&pat!=='Core'&&tplKey!=='core'&&pool.filter(function(slot){return movementPattern(slot.n)===pat;}).length>=2) return;
       add(Object.assign({},ex,{sets:3,reps:10,rest:defaultRest,p:(ex.p||3)+3,_src:'elib'}));
     });
   }
@@ -6289,7 +6396,7 @@ function _selectWorkoutForDurationCore(tplExercises, intensity, fp, recent48, tp
   // Count bounds scale with the SPLIT's own size (so different days differ) and intensity;
   // the time budget is still the real driver between min and max.
   var n = (typeof WTPL!=='undefined' && tplKey && WTPL[tplKey]) ? WTPL[tplKey].exercises.length : ((tplExercises&&tplExercises.length)||7);
-  var movementFloor=tplKey==='fullbody'?(focus==='chestcore'&&intensity!=='quick'?5:4):0;
+  var movementFloor=tplKey==='fullbody'?4:0;
   var minCount = (intensity==='quick'?3:intensity==='standard'?4:5);
   if(movementFloor)minCount=Math.max(movementFloor,minCount);
   var maxCount = (intensity==='quick' ? Math.max(3, Math.round(n*0.6)) : intensity==='standard' ? n : Math.min(12, n+3));
@@ -6336,7 +6443,7 @@ function _selectWorkoutForDurationCore(tplExercises, intensity, fp, recent48, tp
     if(chosen.length>=minCount && (lift+add) > exBudget) continue;
     chosen.push(sorted[x]); lift+=add;
   }
-  var cardioCap=_isHomeTpl&&focus==='chestcore'?20:({hybrid:15,power:15,muscle:20,general:25,tone:45,endurance:45,chestcore:30}[focus]||30);
+  var cardioCap=_isHomeTpl&&focus==='chestcore'?20:({power:15,muscle:20,general:25,tone:45,endurance:45,chestcore:30}[focus]||30);
   // Second pass: a focus whose cardio is capped (Power especially — see FINISHER_CAP
   // below) can't reach the bottom of its band on cardio alone. Rather than padding with
   // cardio that fights the goal, spend the gap on more LIFTING, which is what a longer
@@ -6773,7 +6880,7 @@ sess.planKey=_planKey;
 // quick-fill): the duration engine above can pick different exercises/counts than
 // the legacy template re-filter those consumers used to rebuild, which silently
 // dropped or misattributed logged sets.
-sess.exList=exs.map(function(e){var o={n:e.n,t:e.t,sets:e.sets,reps:e.reps,rest:e.rest,p:e.p};if(e.carried)o.carried=true;if(e.anchor)o.anchor=true;if(e.added)o.added=true;if(e.main)o.main=true;if(e.replaces)o.replaces=e.replaces;if(e.warmupRamp)o.warmupRamp=e.warmupRamp;return o;});
+sess.exList=exs.map(function(e){var o={n:e.n,t:e.t,sets:e.sets,reps:e.reps,rest:e.rest,p:e.p};if(e.carried)o.carried=true;if(e.anchor)o.anchor=true;if(e.lead)o.lead=true;if(e.added)o.added=true;if(e.main)o.main=true;if(e.replaces)o.replaces=e.replaces;if(e.warmupRamp)o.warmupRamp=e.warmupRamp;return o;});
 if(sess._noteCarry){ sess.exNotes={}; sess.exList.forEach(function(e,i){ if(sess._noteCarry[e.n]) sess.exNotes[i]=sess._noteCarry[e.n]; }); delete sess._noteCarry; }
 // Warm-up cardio — only when the duration plan allocates warm-up time
 // (e.g. Power often skips it to preserve CNS freshness).
@@ -6835,7 +6942,7 @@ var orderedExs = sess.exOrder.map(function(i){return {ex:exs[i], origIdx:i};});
   // Power requires maximal CNS recovery between heavy sets (210s rest)  --  supersets compromise output.
   // Muscle/Tone: primary use case  --  metabolic stress, time efficiency, neural drive boost.
   // General/Endurance: evidence shows equal gains in less time, elevated calorie burn, ideal for busy schedules.
-  var _ssEligible=(_focus!=='power'&&_focus!=='hybrid');
+  var _ssEligible=(_focus!=='power');
   var _ssIntensity=(intensity==='standard'||intensity==='full');
   if(!_ssEligible||!_ssIntensity) return;
   // Pinned templates carry their own superset pairings (or deliberately none).
@@ -8170,13 +8277,13 @@ var MOVEMENT_PATTERNS=[
   {re:/pull-?down|pull-?up|chin-?up/i,                              s:'Vertical pull'},
   {re:/lateral raise|front raise|rear delt|reverse fly|face pull|upright row/i, s:'Shoulder isolation'},
   {re:/\brow\b|rows\b/i,                                            s:'Horizontal pull'},
-  {re:/overhead press|shoulder press|push press|military|arnold/i,  s:'Vertical press'},
+  {re:/overhead press|shoulder press|push press|military|arnold|z-press/i,  s:'Vertical press'},
   {re:/bench press|chest press|floor press|incline press|decline press|supine press|push-?up/i, s:'Horizontal press'},
   {re:/\bfly\b|flye|pec deck|crossover/i,                           s:'Chest isolation'},
   {re:/deadlift|romanian|\brdl\b|good morning|hip thrust|glute bridge|hyperextension|back extension/i, s:'Hip hinge'},
   {re:/abduct|adduct|kickback|glute (machine|trainer)/i,            s:'Hip isolation'},
   {re:/squat|leg press|foot placement press|stance press|single-leg press|hack|lunge|step-?up|sissy|pistol/i,          s:'Knee-dominant leg'},
-  {re:/tricep|skull|push-?down|press-?down|\bdips?\b|kickback/i,    s:'Elbow extension'},
+  {re:/tricep|skull|jm press|push-?down|press-?down|\bdips?\b|kickback/i,    s:'Elbow extension'},
   {re:/\bcurl\b/i,                                                  s:'Elbow flexion'},
   {re:/crunch|sit-?up|\bplank\b|pallof|wood ?chop|rotary torso|leg raise|dead bug|russian twist|\bab\b|abdominal|oblique|hollow/i, s:'Core'},
   {re:/carry|farmer|sled|prowler|battle rope|slam|throw|jump|clean|snatch|thruster|burpee/i, s:'Power / conditioning'},
@@ -8651,7 +8758,7 @@ function groupExerciseChoices(entries,station){
 function movementFamilyHTML(name,content,count,open,extraClass){
   return '<details class="movement-family'+(extraClass?' '+extraClass:'')+'"'+(open?' open':'')+'><summary>'+
     '<span class="movement-family-title">'+escapeHtml(name)+'</span>'+
-    (count?'<span class="movement-family-count">'+count+' options</span>':'')+
+    (count?'<span class="movement-family-count">'+count+(count===1?' option':' options')+'</span>':'')+
     '</summary><div class="movement-family-options">'+content+'</div></details>';
 }
 function renderExerciseChoices(groups,renderItem,open){
@@ -8941,6 +9048,13 @@ function swapPrescription(current,data,name,target,k){
   while(reps.length<workCount) reps.push(current.reps);
   var timed=isTimedHold(name)!==isTimedHold(current.n);
   if(timed) reps=Array(workCount).fill(isTimedHold(name)?30:prescriptionForFocus({n:name,reps:10},focus).reps);
+  // Main lift ↔ accessory: the replacement takes its own class's dose (a pec deck for a
+  // lead bench gets 8–12 reps and accessory rest, not 4 reps at 210 s).
+  var restOverride=null;
+  if(!timed&&!work.some(function(s){return s.done;})&&isMainStrengthMovement(name)!==isMainStrengthMovement(current.n)){
+    var _g=GS(k), _p=prescriptionForFocus(Object.assign({},current,{n:name}),focus,!!(_g&&_g.intensity==='quick'&&!isHomeMode(k)));
+    reps=Array(workCount).fill(_p.reps); restOverride=_p.rest;
+  }
   var repsAvg=reps.reduce(function(sum,r){return sum+r;},0)/workCount;
   var inheritedRamp=(data.warmupPlan||[]).map(function(w){return {reps:w.reps,pct:w.pct};});
   (data.sets||[]).filter(function(set){return set.type==='wu';}).forEach(function(set,i){
@@ -8960,7 +9074,7 @@ function swapPrescription(current,data,name,target,k){
     return {weight:weight>0?String(weight):'',reps:String(r),targetReps:r,type:'wk',done:false};
   });
   return {
-    exercise:Object.assign({},current,{n:name,t:target,sets:workCount,reps:Math.round(repsAvg),
+    exercise:Object.assign({},current,restOverride!=null?{rest:restOverride}:{},{n:name,t:target,sets:workCount,reps:Math.round(repsAvg),
       main:!!(current.main||_isCompSlot(current)),replaces:current.replaces||current.n,warmupRamp:inheritedRamp.length?inheritedRamp:undefined}),
     data:{sets:sets}
   };
@@ -9237,8 +9351,9 @@ var _pbsSnapshot={};Object.keys(S.pbs).forEach(function(k2){_pbsSnapshot[k2]=S.p
 exs.forEach(function(ex,ei){var actual=ex,exD=gym.exercises[ei]||{sets:[]},setLogs=[];if(exD.skipped)return;var _nS=(exD.sets||[]).length;for(var s=0;s<_nS;s++){var set=exD.sets[s]||{};if(set.done&&(set.type||'wk')!=='wu'){sc++;vol+=(parseFloat(set.weight)||0)*(parseFloat(set.reps)||0);}setLogs.push({weight:set.weight||'',reps:set.reps||'',done:!!set.done,type:set.type||'wk',rpe:set.rpe||'',level:set.level||'',spec:!!set.spec,weightEdited:!!set.weightEdited,repsEdited:!!set.repsEdited,targetReps:set.targetReps||undefined});}// allDoneEx: all WORK sets done (warmup sets are informational, not required for progression)
 var plannedWorkSets=Math.max(ex.sets||0,setLogs.filter(isStraightWorkSet).length);
 var targetReps=(setLogs.find(isStraightWorkSet)||{}).targetReps||ex.reps;
-var workSummary=summarizeWorkSets(setLogs,gym.trainingFocus||S.weekFocus,actual.n,plannedWorkSets,targetReps)||{allCompleted:false,ceilingHit:false,weight:0};
-exLogs.push({name:actual.n,target:actual.t,sets:setLogs,plannedWorkSets:plannedWorkSets,targetReps:targetReps,rest:actual.rest,
+var _exLead=_isLeadSlot(actual);
+var workSummary=summarizeWorkSets(setLogs,gym.trainingFocus||S.weekFocus,actual.n,plannedWorkSets,targetReps,_exLead)||{allCompleted:false,ceilingHit:false,weight:0};
+exLogs.push({name:actual.n,target:actual.t,sets:setLogs,plannedWorkSets:plannedWorkSets,targetReps:targetReps,rest:actual.rest,lead:_exLead,
   setAdjustment:workSetAdjustment(actual,exD),main:!!(actual.main||_isCompSlot(actual)),replaces:actual.replaces,
   warmups:(exD.warmupPlan||[]).map(function(w){return {weight:w.weight,reps:w.reps,done:!!w.done};}),
   allCompleted:workSummary.allCompleted,ceilingHit:workSummary.ceilingHit,weight:workSummary.weight,easy:workSummary.easy});setLogs.forEach(function(s,si){if(isStrengthRecordSet(s,actual.n)){var pbKey=actual.n+'_'+si,nv=(parseFloat(s.weight)||0)*(parseFloat(s.reps)||0);if(!S.pbs[pbKey]||nv>S.pbs[pbKey].vol)S.pbs[pbKey]={exercise:actual.n,weight:s.weight,reps:s.reps,vol:nv,date:k};}});});var cLogs=completedCardioBlocks(gym);mins=cLogs.reduce(function(total,c){return total+c.duration;},0);var durMins=0;
@@ -9276,18 +9391,17 @@ if(saved){
 // Focus prescriptions: five original focuses plus optional muscle + strength
 // ═══════════════════════════════════════════════════════════════════
 var FOCUS_META={
-  chestcore:{em:'💪',lb:'Chest & Core',reps:[6,15],rest:75,cardurMult:1.2,restLabel:'75–120s',wuReps:[8,5],wuPct2:0.65,dsReps:[10,15],rpReps:12},
-  hybrid: {em:'🏋️',lb:'Muscle + Strength',reps:[4,8],rest:180,cardurMult:0.75,weightPct:1.0,restLabel:'90s–3 min',midCardio:false,midCardioCount:0,wuReps:[8,4],wuPct2:0.65,dsReps:[8,12],rpReps:12},
+  chestcore:{em:'🏠',lb:'Chest & Core',homeOnly:true,reps:[6,14],rest:75,cardurMult:1.2,restLabel:'60–120s',wuReps:[8,5],wuPct2:0.65,dsReps:[10,15],rpReps:12},
   general:   {em:'⚖️', lb:'General Fitness',   reps:[8,12],  rest:75,  cardurMult:1.0, weightPct:1.00, restLabel:'60-90s',  midCardio:false, midCardioCount:0, wuReps:[10,6],  wuPct2:0.65, dsReps:[8,12],  rpReps:12},
   power:     {em:'⚡', lb:'Build Strength',   reps:[3,5],   rest:210, cardurMult:0.5, weightPct:1.15, restLabel:'3-4 min', midCardio:false, midCardioCount:0, wuReps:[5,3],   wuPct2:0.70, dsReps:[6,8],   rpReps:7},
-  muscle:    {em:'💪', lb:'Build Muscle',        reps:[6,12],  rest:150,  cardurMult:0.75,weightPct:0.95, restLabel:'90s–3 min',  midCardio:false, midCardioCount:0, wuReps:[8,5],   wuPct2:0.65, dsReps:[8,12],  rpReps:15},
+  muscle:    {em:'💪', lb:'Build Muscle',        reps:[6,14],  rest:150,  cardurMult:0.75,weightPct:0.95, restLabel:'90–150s',  midCardio:false, midCardioCount:0, wuReps:[8,5],   wuPct2:0.65, dsReps:[8,12],  rpReps:15},
   tone:      {em:'🔥', lb:'Lose & Tone',         reps:[10,14], rest:75,  cardurMult:1.6, weightPct:0.85, restLabel:'70-90s',  midCardio:true,  midCardioCount:1, wuReps:[12,8],  wuPct2:0.60, dsReps:[10,15], rpReps:20},
   endurance: {em:'🏃', lb:'Endurance',           reps:[15,20], rest:35,  cardurMult:1.9, weightPct:0.60, restLabel:'30-45s',  midCardio:true,  midCardioCount:2, wuReps:[15,10], wuPct2:0.60, dsReps:[15,20], rpReps:22}
 };
 // Planned reps in reserve per focus. Strength work stays crisp (2 RIR), hypertrophy
 // sets go closer (1 RIR), and the short-rest metabolic focuses keep a bigger buffer
 // because fatigue accumulates across sets.
-var FOCUS_RIR={hybrid:2,power:2,muscle:1,general:3,tone:2,endurance:3,chestcore:2};
+var FOCUS_RIR={power:2,muscle:1,general:3,tone:2,endurance:3,chestcore:2};
 // A starting load for an exercise with no history, derived from the 7-rep working weight
 // in the strength profile via Epley: that weight ≈ an 8-rep max, and the target load is
 // the one that leaves the focus's RIR at the prescribed reps. With a 7RM ≈ 83 % 1RM this
@@ -9307,7 +9421,6 @@ function focusLoadFactor(focus,reps){
 // Focus-specific cardio intensity guidance
 var FOCUS_CARDIO_GUIDE={
   chestcore:{warmup:'Easy pace before lifting',finisher:'Moderate steady walk, bike or elliptical. Use a pace where you can still talk.'},
-  hybrid:{warmup:'Easy pace; prepare for lifting without fatigue',finisher:'Easy to moderate cardio; adjust to recovery and your run schedule'},
   general:{warmup:'Easy pace, gradually increasing until warm',finisher:'Moderate steady effort: you can talk, but singing would be difficult'},
   power:{warmup:'Easy pace; warm up without tiring your main lifts',finisher:'Easy walk or bike. Keep fatigue manageable; separate hard endurance sessions when recovery suffers'},
   muscle:{warmup:'Easy pace; avoid tiring the muscles before lifting',finisher:'Easy to moderate steady effort. Adjust hard cardio to your recovery and lifting performance'},
@@ -9389,13 +9502,12 @@ function getMidCardio(tplKey, focusKey, intensity){
 // floor: rep target when weight is first increased
 // ceil: upper end of the focus range and the fallback target for legacy history.
 var FOCUS_PROGRESSION={
-  hybrid:    {floor:4,  ceil:8},
   general:   {floor:8,  ceil:12},
   power:     {floor:3,  ceil:5},
-  muscle:    {floor:6,  ceil:12},
+  muscle:    {floor:6,  ceil:10},
   tone:      {floor:10, ceil:14},
   endurance: {floor:15, ceil:20},
-  chestcore: {floor:10, ceil:15}
+  chestcore: {floor:10, ceil:14}
 };
 
 
@@ -9433,9 +9545,13 @@ function sessionHasActivity(gym){
 function getWorkoutFocus(k){
   k=k||dKey(vDate);
   var gym=GS(k);
-  return gym&&gym.trainingFocus&&(sessionHasActivity(gym)||isSessionComplete(k))&&!isLiveSession(k)?
-    gym.trainingFocus:(isHomeMode(k)?getHomeFocus():S.weekFocus||'general');
+  if(gym&&gym.trainingFocus&&(sessionHasActivity(gym)||isSessionComplete(k))&&!isLiveSession(k)) return normalizeFocus(gym.trainingFocus);
+  if(isHomeMode(k)) return normalizeFocus(getHomeFocus());
+  var f=normalizeFocus(S.weekFocus||'general');
+  return FOCUS_META[f]&&FOCUS_META[f].homeOnly?'muscle':f;
 }
+// Retired focus keys still found in older history and backups.
+function normalizeFocus(f){ return f==='hybrid'?'muscle':f; }
 // A "live" session is one that still follows the plan: today or later, not yet saved
 // to history (or one whose workout clock is still running past midnight). Changing the
 // split, focus, intensity or gym re-plans a live session even mid-workout — logged sets
@@ -9466,22 +9582,35 @@ function isSessionComplete(k,key){
 }
 // restLabel: human-readable rest range shown in UI
 
-var GYM_SPLIT_FAMILIES=[
-  {main:'fullbody',options:['core']},
-  {main:'upper',options:['arms']},
-  {main:'lower',options:['quads','hamstrings','glutes','calves']},
-  {main:'push',options:['chest','shoulders']},
-  {main:'pull',options:['back']}
-];
-function renderGymSplitFamilies(renderChoice,current){
-  return GYM_SPLIT_FAMILIES.map(function(family){
-    var children='<div class="slbl" style="margin:8px 0 4px">Specialized workouts</div>'+
-      family.options.map(function(key){return renderChoice(key);}).join('');
-    return movementFamilyHTML(WTPL[family.main].focus,renderChoice(family.main,true)+children,
-      family.options.length+1,family.options.includes(current),'split-family');
-  }).join('');
+// Every split picker shows the same three programs — the one recommended for the current
+// focus first and open — then the optional add-on days. renderChoice(key, info) gets
+// info.label (the name inside that program, e.g. "Legs") and info.recommended.
+// Older single-muscle days (chest, back, quads…) stay loadable for history and existing
+// plans but are only listed while one is selected.
+function programSplitKeys(){
+  var keys=[];
+  Object.keys(TRAINING_PROGRAMS).forEach(function(p){ TRAINING_PROGRAMS[p].rotation.forEach(function(s){ if(keys.indexOf(s)<0) keys.push(s); }); });
+  return keys.concat(ADDON_GYM_SPLITS);
 }
-var SPLIT_META={auto:{nm:'Auto',sb:'Weekly default'},upper:{nm:'Upper',sb:'Chest/Back/Arms'},lower:{nm:'Lower',sb:'Quads/Hams/Calves'},fullbody:{nm:'Full Body',sb:'All groups'},glutes:{nm:'Glutes',sb:'Legs/Glutes'},arms:{nm:'Arms',sb:'Shoulders/Arms'},push:{nm:'Push',sb:'Chest/Shoulders/Tris'},pull:{nm:'Pull',sb:'Back/Biceps'},core:{nm:'Core',sb:'Abs/Core/Lower Back'}};
+function renderGymSplitFamilies(renderChoice,current){
+  var rec=recommendedProgramKey(), order=[rec].concat(Object.keys(TRAINING_PROGRAMS).filter(function(p){return p!==rec;}));
+  var focusLb=(FOCUS_META[normalizeFocus(S.weekFocus)]||FOCUS_META.general).lb;
+  var html=order.map(function(p){
+    var prog=TRAINING_PROGRAMS[p], isRec=p===rec;
+    var body=(isRec?'<div style="font-size:10px;color:var(--mu);margin:0 0 6px;line-height:1.4">'+escapeHtml(prog.desc)+'</div>':'')+
+      prog.rotation.map(function(s){return renderChoice(s,{label:programSplitLabel(p,s),program:p,recommended:isRec});}).join('');
+    var title=prog.label+(isRec?' · recommended for '+focusLb:'');
+    return movementFamilyHTML(title,body,prog.rotation.length,isRec||(current&&prog.rotation.indexOf(current)>=0&&!TRAINING_PROGRAMS[rec].rotation.includes(current)),'split-family'+(isRec?' split-family-rec':''));
+  }).join('');
+  var addons=ADDON_GYM_SPLITS.slice();
+  if(current&&WTPL[current]&&!WTPL[current].home&&programSplitKeys().indexOf(current)<0) addons.push(current);
+  html+=movementFamilyHTML('Add-on days',
+    '<div style="font-size:10px;color:var(--mu);margin:0 0 6px;line-height:1.4">Optional extra sessions — not part of the rotation.</div>'+
+    addons.map(function(s){return renderChoice(s,{label:(SPLIT_META[s]||{}).nm||s,program:null,recommended:false});}).join(''),
+    addons.length,addons.indexOf(current)>=0,'split-family');
+  return html;
+}
+var SPLIT_META={auto:{nm:'Auto',sb:'Follows your program'},upper:{nm:'Upper',sb:'Chest/Back/Arms'},lower:{nm:'Lower',sb:'Quads/Hams/Calves'},fullbody:{nm:'Full Body',sb:'All groups'},glutes:{nm:'Glutes',sb:'Legs/Glutes'},arms:{nm:'Arms',sb:'Shoulders/Arms'},push:{nm:'Push',sb:'Chest/Shoulders/Tris'},pull:{nm:'Pull',sb:'Back/Biceps'},core:{nm:'Core',sb:'Abs/Core/Lower Back'}};
 Object.keys(SPECIALIZED_GYM_SPLITS).forEach(function(key){
   var option=SPECIALIZED_GYM_SPLITS[key];
   SPLIT_META[key]={nm:option.label,sb:option.focus};
@@ -9582,10 +9711,9 @@ var FOCUS_DETAIL = {
       'Use flat and incline presses or push-ups to build the chest. At home, rotate the board grip and use the spring tools for controlled accessory reps.',
       'Chest fullness can involve gland tissue as well as fat. Talk with a clinician if you are concerned or notice a lump, persistent pain, skin changes or nipple discharge.'],
     sources:[['ACSM resistance training','https://pmc.ncbi.nlm.nih.gov/articles/PMC12965823/'],['Localized fat loss review','https://doi.org/10.5114/hm.2022.110373'],['Aerobic activity and body fat','https://pmc.ncbi.nlm.nih.gov/articles/PMC11672165/'],['Resistance training during fat loss','https://pubmed.ncbi.nlm.nih.gov/40909191/'],['Drop sets and muscle growth','https://pubmed.ncbi.nlm.nih.gov/41920484/'],['Rest intervals and muscle growth','https://pmc.ncbi.nlm.nih.gov/articles/PMC11349676/'],['Supersets and training time','https://pubmed.ncbi.nlm.nih.gov/39903375/'],['Push-ups and chest growth','https://pubmed.ncbi.nlm.nih.gov/29541130/'],['Horizontal and incline pressing','https://pubmed.ncbi.nlm.nih.gov/32922646/'],['NHS chest swelling guidance','https://www.nhs.uk/conditions/gynaecomastia/']]},
-  hybrid:{color:'#22c55e',tagline:'Build muscle and strength together.',goal:'Repeat main lifts for heavier practice, with moderate-rep accessories for muscle growth. The automatic split matches your weekly training frequency.',reps:'Main lifts 4–8; accessories 8–12',rest:'Main lifts 180s; accessories 90s',weight:'Leave 1–3 clean reps in reserve',science:'Strength and hypertrophy overlap. Heavier practice develops lift-specific strength; recoverable weekly work supports muscle growth. No single machine is best for every person.',cardio:'Short, manageable cardio after lifting, adapted to your running schedule.',tips:['Use the same main movements consistently and track both load and reps.','At 2–3 gym days, prefer full-body training with rest between sessions.','At 4 days, alternate upper and lower; at 5 days, use upper/lower/push/pull/lower.','Review weekly coverage and recovery before adding more work.']},
   general:{color:'#f5c400',tagline:'A repeatable foundation.',goal:'Train the major movement patterns consistently, combining resistance work with manageable cardio.',reps:'8–12',rest:'75 seconds; take longer if needed',weight:'Adjust to 1–3 reps in reserve',science:'Consistency and progressive training matter more than complex methods. Rep ranges are practical defaults, not exclusive adaptation zones.',cardio:'Moderate activity scaled to available time and recovery.',tips:['Keep useful exercises stable long enough to compare performance.','Progress gradually; do not chase a record every session.']},
   power:{color:'#a78bfa',tagline:'Improve strength in the lifts you practice.',goal:'Prioritize heavy, controlled main lifts. This is strength training. Explosive power training uses different loading and speed goals.',reps:'Main lifts 3–5; accessories 8–12',rest:'Main lifts 210s; accessories 90s',weight:'Use a challenging load with 1–3 reps in reserve',science:'Heavier loading is useful for maximal strength. Machines improve machine-specific strength; a barbell strength goal requires practicing that lift.',cardio:'Short, easy cardio; manage hard running and lifting fatigue together.',tips:['Use appropriate warm-ups, rack safeties and a spotter when needed.','Stop a set when technique deteriorates.','This mode does not prescribe explosive lifts.']},
-  muscle:{color:'#3b82f6',tagline:'Build muscle through repeatable, progressive work.',goal:'Use straight working sets so reps and load are easy to compare. Machines, cables and free weights are all useful options.',reps:'6–12 as a practical starting range',rest:'150s on main movements; 90s on accessories',weight:'Leave about 1–3 controlled reps in reserve',science:'Muscle growth is possible across a broad range of loads. Weekly challenging-set volume, sufficient effort and consistency matter; pyramids and failure are not prerequisites.',cardio:'Easy to moderate cardio adjusted to lifting performance and recovery.',tips:['Start with a recoverable weekly volume and increase gradually if needed.','Use the weekly coverage panel to spot neglected muscle groups.','Daily nutrition matters more than a narrow post-workout window.','Soreness is not a reliable score for muscle growth.']},
+  muscle:{color:'#3b82f6',tagline:'Build muscle and the strength that comes with it.',goal:'Heavier compound lifts for load progression plus higher-rep accessories for volume. Use straight working sets so reps and load are easy to compare. Machines, cables and free weights are all useful options.',reps:'Main lifts 6–10 · accessories 10–14',rest:'150s on main lifts; 90s on accessories',weight:'Leave about 1–3 controlled reps in reserve',science:'Muscle growth is possible across a broad range of loads. Weekly challenging-set volume, sufficient effort and consistency matter; pyramids and failure are not prerequisites.',cardio:'Easy to moderate cardio adjusted to lifting performance and recovery.',tips:['Start with a recoverable weekly volume and increase gradually if needed.','Use the weekly coverage panel to spot neglected muscle groups.','Daily nutrition matters more than a narrow post-workout window.','Soreness is not a reliable score for muscle growth.']},
   tone:{color:'#f97316',tagline:'Maintain strength while pursuing fat loss.',goal:'Preserve muscle with resistance training while managing overall energy balance. No rep range selectively tones a muscle or removes nearby fat.',reps:'10–14',rest:'75s; extend rest when performance drops',weight:'Challenging, controlled reps; reduce when recovery requires it',science:'Resistance training helps retain muscle. Cardio supports health and expenditure, but a fixed session cannot guarantee a calorie deficit.',cardio:'Additional cardio is optional; skip a block when recovery or time requires it.',tips:['Track bodyweight trends over several weeks rather than daily noise.','Keep protein intake and recovery consistent.','Exercise discomfort is not proof of effectiveness.']},
   endurance:{color:'#10b981',tagline:'Practice sustained muscular effort.',goal:'Use lighter loads and higher reps for local muscular endurance. This complements but does not replace running-specific training.',reps:'15–20',rest:'35s; increase if technique or breathing requires it',weight:'Select a manageable load; do not force failure',science:'Training adaptations are specific. High-rep lifting does not guarantee a faster marathon or replace aerobic training.',cardio:'More cardio blocks; adapt them to your running schedule.',tips:['Keep technique consistent as fatigue builds.','Reduce gym volume when hard running compromises recovery.']}
 };
@@ -9594,13 +9722,12 @@ var FOCUS_DETAIL = {
 var FOCUS_SPECIALTY_TEXT={
   chestcore:'Standard and Full can add one controlled <b>drop set</b> on a chest or ab machine or cable. At home, optional chest and back <b>supersets</b> save time when a suitable pair fits.',
   power:'<b>Clusters</b> on a loaded main lift, or a <b>Rest-Pause</b> set on a supported accessory.',
-  hybrid:'<b>Clusters</b> for main lifts, with <b>Rest-Pause</b> or a <b>Drop set</b> on accessories.',
   muscle:'<b>Drop sets</b>, <b>Rest-Pause</b>, and occasional <b>technical Failure</b> on single-joint machines or cables.',
   general:'<b>Drop sets</b> or <b>Rest-Pause</b> on equipment-supported movements.',
   tone:'<b>Drop sets</b> or <b>Rest-Pause</b> on supported accessories.',
   endurance:'<b>Rest-Pause</b> or a lighter <b>Drop set</b> with higher rep targets.'
 };
-var FOCUS_LOAD_TEXT={power:'≈ 85–90 % of 1RM · stop 2 reps short',hybrid:'≈ 80–85 % of 1RM · 2 reps in reserve',muscle:'≈ 75–80 % of 1RM · 1 rep in reserve',general:'≈ 70–75 % of 1RM · 2–3 reps in reserve',tone:'≈ 70–75 % of 1RM · 2 reps in reserve',endurance:'≈ 60–65 % of 1RM · 3 reps in reserve'};
+var FOCUS_LOAD_TEXT={power:'≈ 85–90 % of 1RM · stop 2 reps short',muscle:'≈ 75–85 % of 1RM · 1 rep in reserve',general:'≈ 70–75 % of 1RM · 2–3 reps in reserve',tone:'≈ 70–75 % of 1RM · 2 reps in reserve',endurance:'≈ 60–65 % of 1RM · 3 reps in reserve'};
 Object.keys(FOCUS_DETAIL).forEach(function(key){
   var d=FOCUS_DETAIL[key];
   var sb=SETS_BY_FOCUS[key]||SETS_BY_FOCUS.general;
@@ -9608,7 +9735,8 @@ Object.keys(FOCUS_DETAIL).forEach(function(key){
   if(FOCUS_LOAD_TEXT[key]) d.weight=FOCUS_LOAD_TEXT[key];
   d.advSets=(FOCUS_SPECIALTY_TEXT[key]||'')+' Specialty sets are always extras on top of the work sets, never count toward records or progression, and can be switched off (Settings → Specialty sets, or the ✨ chip on Today).';
   d.progression='Complete every planned straight work set at the target reps and same load. Expect about 5 lb, or up to 10 lb for an easy heavy main lift. Light or fixed loads can require a smaller step or holding the load. Bodyweight work adds 2–5 reps per set based on the movement and logged effort. RPE 9.5–10 holds the target.';
-  d.supersets=(key==='power'||key==='hybrid')?'Automatic supersets are disabled to preserve rest.':'Antagonist pairs (e.g. chest + back) are seeded automatically: they save time without reducing training volume (Zhang et al. 2025 meta-analysis). Separate switch from specialty sets.';
+  if(FOCUS_PROGRAM_RULES[key]) d.program=FOCUS_PROGRAM_WHY[key];
+  d.supersets=key==='power'?'Automatic supersets are disabled to preserve rest.':'Antagonist pairs (e.g. chest + back) are seeded automatically: they save time without reducing training volume (Zhang et al. 2025 meta-analysis). Separate switch from specialty sets.';
 });
 
 function openFocusModal(g,location) {
@@ -9639,6 +9767,8 @@ function openFocusModal(g,location) {
       _focusStat('Load', d.weight, d.color) +
       (d.uniqueStat ? _focusStat(d.uniqueStat.label, d.uniqueStat.val, d.color) : '') +
     '</div>' +
+    (d.program ? _focusSect('🗓 Weekly Program', '<b>'+TRAINING_PROGRAMS[recommendedProgramKey(g)].label+'</b> at '+gymDaysPerWeek()+' gym day'+(gymDaysPerWeek()===1?'':'s')+' a week. '+d.program) : '') +
+    (FOCUS_META[g]&&FOCUS_META[g].homeOnly ? _focusSect('🏠 Home only', 'Built for bodyweight and your home equipment. Choose it from the Home tab on Today; gym days follow your Plan focus.') : '') +
     // Cardio full-width
     _focusSect('🏃 Cardio', d.cardio) +
     // Science
@@ -9973,7 +10103,7 @@ function updateTDEEPreview(){
 
 function buildWeekFocusRow(){
   var row=el('weekFocusRow');if(!row)return;
-  var goals=Object.keys(FOCUS_META);
+  var goals=Object.keys(FOCUS_META).filter(function(g){return !FOCUS_META[g].homeOnly;});
   row.innerHTML=goals.map(function(g){
     var m=FOCUS_META[g],active=S.weekFocus===g;
     var desc=m.restLabel+' rest · '+m.reps[0]+'-'+m.reps[1]+' reps';
@@ -9985,8 +10115,55 @@ function buildWeekFocusRow(){
     focusTitle.textContent='Default Focus: '+cur.lb;
   }
   el('planSub').textContent='Tap any day to configure it';
+  renderPlanProgramCard();
+}
+// The weekly program for the current focus, and whether the calendar follows it.
+function renderPlanProgramCard(){
+  var box=el('planProgramCard'); if(!box) return;
+  var pk=recommendedProgramKey(), prog=TRAINING_PROGRAMS[pk], days=gymDaysPerWeek();
+  var todayK=dKey(new Date());
+  var _tg=S.sessions[todayK]&&S.sessions[todayK].gym, _todayLive=!!(_tg&&sessionHasActivity(_tg));
+  var pinned=Object.keys(S.dayConfig||{}).filter(function(dk){var c=S.dayConfig[dk];return dk>=todayK&&c&&c.split&&c.split!=='auto'&&!isSessionComplete(dk,'gym')&&!(dk===todayK&&_todayLive);}).length;
+  var following=!!(S.prefs&&S.prefs.autoRotateSplits)&&!pinned;
+  var nextDay=todayK; if(isSessionComplete(todayK,'gym')){ var _t=new Date(todayK+'T12:00:00'); _t.setDate(_t.getDate()+1); nextDay=dKey(_t); }
+  var next=programSplitFor(nextDay);
+  box.innerHTML='<div style="background:var(--s2);border:1px solid var(--b1);border-radius:10px;padding:10px 12px">'+
+    '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mu);letter-spacing:1px;margin-bottom:4px">🗓 WEEKLY PROGRAM</div>'+
+    '<div style="font-weight:600;font-size:13px;color:var(--ye)">'+escapeHtml(prog.label)+' <span style="font-size:10px;color:var(--mu);font-weight:400">· '+days+' gym day'+(days===1?'':'s')+'/week · next: '+escapeHtml(programSplitLabel(pk,next))+'</span></div>'+
+    '<div style="font-size:11px;color:var(--mu);margin-top:4px;line-height:1.5">'+escapeHtml(FOCUS_PROGRAM_WHY[normalizeFocus(S.weekFocus)]||prog.desc)+'</div>'+
+    (days===0?'<div style="font-size:11px;color:var(--mu);margin-top:6px">No gym days in your weekly schedule yet — add some in the schedule editor.</div>':
+     following?'<div style="font-size:11px;color:var(--ru);margin-top:6px">✓ Your calendar follows this program.</div>':
+      '<button class="btn bfw mt8" style="font-size:12px" onclick="applyRecommendedProgram()">Follow '+escapeHtml(prog.label)+(pinned?' (clears '+pinned+' upcoming manual split'+(pinned===1?'':'s')+')':'')+'</button>')+
+    '</div>';
+}
+function applyRecommendedProgram(){
+  var todayK=dKey(new Date());
+  // A workout already under way today stays on the split it is using, even when that split
+  // came from the fixed weekly schedule rather than a per-day override.
+  var _tg=S.sessions[todayK]&&S.sessions[todayK].gym;
+  if(_tg&&sessionHasActivity(_tg)&&!isSessionComplete(todayK,'gym')){
+    var _cur=getEffTpl(todayK);
+    if(!S.dayConfig[todayK]) S.dayConfig[todayK]={};
+    if(!S.dayConfig[todayK].split||S.dayConfig[todayK].split==='auto') S.dayConfig[todayK].split=_cur;
+  }
+  Object.keys(S.dayConfig||{}).forEach(function(dk){
+    var c=S.dayConfig[dk];
+    if(dk<todayK||!c||isSessionComplete(dk,'gym')) return;
+    var gs=S.sessions[dk]&&S.sessions[dk].gym;
+    if(dk===todayK&&gs&&sessionHasActivity(gs)) return; // a workout in progress keeps its split
+    delete c.split; delete c.todaySwitch;
+  });
+  if(!S.prefs) S.prefs={};
+  S.prefs.autoRotateSplits=true;
+  _autoSplitCache={};
+  saveS();
+  try{buildPlan();}catch(e){}
+  try{buildWeekStrip();}catch(e){}
+  try{buildTodayWorkout();}catch(e){}
+  showToast('🗓 Following '+TRAINING_PROGRAMS[recommendedProgramKey()].label);
 }
 function setWeeklyFocus(g){
+  if(FOCUS_META[g]&&FOCUS_META[g].homeOnly){ setHomeFocus(g); return; }
   S.weekFocus=g;
   _autoSplitCache={};
   // Use vDate consistently  --  all operations target the currently viewed day
@@ -10047,11 +10224,11 @@ function setDType(t){
 
 function refreshDTypeButtons(){['rest','gym','run','both'].forEach(function(t){var b=el('dtype-'+t);if(!b)return;b.className='dtype-btn'+(mDayType===t?' sel-'+t:'');});el('dayGymSect').style.display=(mDayType==='gym'||mDayType==='both')?'block':'none';}
 function buildSplitGrid(){
-  function button(s,main){
+  function button(s,info){
     var m=SPLIT_META[s];
-    return '<button class="split-btn'+(mDaySplit===s?' active':'')+'" onclick="setSplit(\''+s+'\')"><div class="split-nm">'+(main?'Standard '+m.nm:m.nm)+'</div><div class="split-sb">'+m.sb+'</div></button>';
+    return '<button class="split-btn'+(mDaySplit===s?' active':'')+'" onclick="setSplit(\''+s+'\')"><div class="split-nm">'+escapeHtml((info&&info.label)||m.nm)+'</div><div class="split-sb">'+m.sb+'</div></button>';
   }
-  el('splitGrid').innerHTML=button('auto')+'<div class="slbl" style="grid-column:1/-1;margin:8px 0 0">Main workouts</div>'+
+  el('splitGrid').innerHTML=button('auto')+'<div class="slbl" style="grid-column:1/-1;margin:8px 0 0">Workouts by program</div>'+
     renderGymSplitFamilies(button,mDaySplit);
 }
 function setSplit(s){mDaySplit=s;buildSplitGrid();buildDayPreview();}
@@ -10081,13 +10258,14 @@ function renderScheduleEditor(){
   var typeIcons={rest:'😴',gym:'🏋️',run:'🏃',both:'⚡'};
   // Preset section at top
   var presetHtml='<div style="background:var(--s2);border:1px solid var(--b1);border-radius:10px;padding:12px;margin-bottom:12px">'+
-    '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mu);letter-spacing:1px;margin-bottom:8px">🗂 SPLIT ROTATION PRESETS</div>'+
+    '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mu);letter-spacing:1px;margin-bottom:8px">🗂 PROGRAM PRESETS</div>'+
     '<div style="display:flex;flex-wrap:wrap;gap:6px">'+
-      '<button onclick="applySplitPreset(\'balanced\')" style="padding:5px 10px;border-radius:7px;border:1px solid var(--b2);background:var(--s3);color:var(--mu);font-size:10px;cursor:pointer">5-Day Balanced</button>'+
-      '<button onclick="applySplitPreset(\'ppl\')" style="padding:5px 10px;border-radius:7px;border:1px solid var(--b2);background:var(--s3);color:var(--mu);font-size:10px;cursor:pointer">5-Day PPL</button>'+
-      '<button onclick="applySplitPreset(\'complete\')" style="padding:5px 10px;border-radius:7px;border:1px solid var(--b2);background:var(--s3);color:var(--mu);font-size:10px;cursor:pointer">5-Day Complete (2-wk cycle)</button>'+
+      Object.keys(TRAINING_PROGRAMS).map(function(p){
+        var rec=p===recommendedProgramKey();
+        return '<button onclick="applySplitPreset(\''+p+'\')" style="padding:5px 10px;border-radius:7px;border:1px solid '+(rec?'var(--ye)':'var(--b2)')+';background:var(--s3);color:'+(rec?'var(--ye)':'var(--mu)')+';font-size:10px;cursor:pointer">'+TRAINING_PROGRAMS[p].label+(rec?' ✓':'')+'</button>';
+      }).join('')+
     '</div>'+
-    '<div style="font-size:10px;color:var(--mu);margin-top:6px;line-height:1.4">Presets apply to gym days only. Types (gym/run/rest/both) are set manually per day below.</div>'+
+    '<div style="font-size:10px;color:var(--mu);margin-top:6px;line-height:1.4">✓ = recommended for '+escapeHtml((FOCUS_META[normalizeFocus(S.weekFocus)]||FOCUS_META.general).lb)+'. A preset fills your gym days in order, Monday first. Types (gym/run/rest/both) are set per day below.</div>'+
   '</div>';
   // When Auto-Rotate is on, the per-day split picks below are bypassed (recovery drives them).
   var autoBanner=(S.prefs&&S.prefs.autoRotateSplits)?
@@ -10107,10 +10285,10 @@ function renderScheduleEditor(){
       '</div>'+
       (isGym?
         '<div><div style="font-size:9px;color:var(--mu);font-family:\'DM Mono\',monospace;letter-spacing:1px;margin-bottom:5px">DEFAULT SPLIT</div>'+
-        renderGymSplitFamilies(function(s,main){
+        renderGymSplitFamilies(function(s,info){
           var active=d.split===s;
           return '<button class="split-btn'+(active?' active':'')+'" onclick="_schedEditSetSplit('+i+',\''+s+'\')">'+
-            (main?'Standard ':'')+SPLIT_META[s].nm+'</button>';
+            escapeHtml((info&&info.label)||SPLIT_META[s].nm)+'</button>';
         },d.split)+'</div>'
       :'')+
     '</div>';
@@ -10120,18 +10298,11 @@ function renderScheduleEditor(){
 }
 
 function applySplitPreset(preset){
-  // Presets: apply suggested splits to gym days in order (Mon=1 through Fri=5)
-  var PRESETS={
-    balanced:{1:'upper',2:'lower',3:'fullbody',4:'glutes',5:'arms',0:'rest',6:'rest'},
-    ppl:{1:'push',2:'pull',3:'lower',4:'push',5:'pull',0:'rest',6:'rest'},
-    complete:{1:'upper',2:'lower',3:'push',4:'pull',5:'fullbody',0:'rest',6:'rest'}
-  };
-  var splits=PRESETS[preset]||PRESETS.balanced;
-  for(var d=0;d<7;d++){
-    if(_schedEdit[d].type==='gym'||_schedEdit[d].type==='both'){
-      if(splits[d]) _schedEdit[d].split=splits[d];
-    }
-  }
+  // A program preset walks its rotation across the staged gym days, Monday first.
+  var prog=TRAINING_PROGRAMS[preset]||TRAINING_PROGRAMS[recommendedProgramKey()], n=0;
+  [1,2,3,4,5,6,0].forEach(function(d){
+    if(_schedEdit[d].type==='gym'||_schedEdit[d].type==='both') _schedEdit[d].split=prog.rotation[(n++)%prog.rotation.length];
+  });
   renderScheduleEditor();
   showToast('Preset applied! Adjust as needed.');
 }
@@ -13319,10 +13490,7 @@ function importFromText(){
     try{ validateBackupState(data); }catch(e){ showToast(e.message); return; }
     var when=data._exportDate?data._exportDate.slice(0,10):'unknown date';
     showConfirm('Restore backup from '+when+'? This will replace all current data.',function(){
-      delete data._version; delete data._exportDate; delete data._appName;
-      try{localStorage.setItem(SK,JSON.stringify(data));}catch(se){showToast('Storage error  --  backup may be too large'); return;}
-      S=loadS()||initS();
-      try{migrateState();}catch(e){console.warn('post-restore migrateState:',e);}
+      if(!_commitRestore(data)) return;
       ['buildWeekStrip','updateDateDisplay','buildTodayWorkout','buildPlan','buildMarathon','updateProgress','renderHistory','buildBodyPage','buildNutritionPage','buildGoalsPage','buildHomePage','updateStreak']
         .forEach(function(fn){ try{ if(typeof window[fn]==='function') window[fn](); }catch(e){console.warn('post-restore '+fn+':',e);} });
       showToast('Backup restored');
@@ -13508,6 +13676,25 @@ function validateBackupState(data){
   if(data.gymProfiles!=null&&(!Array.isArray(data.gymProfiles)||data.gymProfiles.some(function(g){return !object(g)||!Array.isArray(g.equipment)||g.equipment.some(function(e){return typeof e!=='string';});})))fail('gym equipment');
   return data;
 }
+// Write a validated backup, load and migrate it; if anything fails, put the previous state
+// back exactly as it was. Returns true on success.
+function _commitRestore(data){
+  var prev=null; try{ prev=localStorage.getItem(SK); }catch(e){}
+  var prevS=S;
+  delete data._version; delete data._exportDate; delete data._appName;
+  try{ localStorage.setItem(SK,JSON.stringify(data)); }catch(se){ showToast('Storage error — backup may be too large'); return false; }
+  try{
+    var loaded=loadS(); if(!loaded) throw new Error('backup could not be loaded');
+    S=loaded; migrateState();
+    return true;
+  }catch(e){
+    console.warn('restore rolled back:',e);
+    try{ if(prev!=null) localStorage.setItem(SK,prev); else localStorage.removeItem(SK); }catch(e2){}
+    S=prevS;
+    showToast('Restore failed — your current data was kept ('+(e.message||'invalid backup')+')');
+    return false;
+  }
+}
 function importData(){
   try{
     var inp=document.createElement('input');
@@ -13521,10 +13708,7 @@ function importData(){
           var data=validateBackupState(JSON.parse(e.target.result));
           var exportDate=data._exportDate?data._exportDate.slice(0,10):'unknown date';
           showConfirm('Restore backup from '+exportDate+'? This will replace all current data.',function(){
-            delete data._version;delete data._exportDate;delete data._appName;
-            try{localStorage.setItem(SK,JSON.stringify(data));}catch(se){showToast('Storage error  --  file may be too large');return;}
-            S=loadS()||initS();
-            try{migrateState();}catch(e){console.warn('post-restore migrateState:',e);}
+            if(!_commitRestore(data)) return;
             try{buildWeekStrip();}catch(e){console.warn('post-restore buildWeekStrip:',e);}
             try{updateDateDisplay();}catch(e){console.warn('post-restore updateDateDisplay:',e);}
             try{buildTodayWorkout();}catch(e){console.warn('post-restore buildTodayWorkout:',e);}
@@ -13760,12 +13944,11 @@ function nasTest(){
 }
 function _nasApplyRestore(data){
   if(!data||typeof data!=='object'||(!data.sessions&&!data.weights&&!data.setup)){showToast('That does not look like a PF backup');return;}
+  // Same checks as a file import — an incomplete NAS file must never replace the saved data.
+  try{ validateBackupState(data); }catch(e){ showToast(e.message); return; }
   var when=data._exportDate?data._exportDate.slice(0,10):'unknown date';
   showConfirm('Restore backup from '+when+'? This replaces ALL current data on this device.',function(){
-    delete data._version;delete data._exportDate;delete data._appName;
-    try{localStorage.setItem(SK,JSON.stringify(data));}catch(se){showToast('Storage error — backup too large');return;}
-    S=loadS()||initS();
-    try{migrateState();}catch(e){console.warn('post-restore migrateState:',e);}
+    if(!_commitRestore(data)) return;
     ['buildHomePage','buildWeekStrip','updateDateDisplay','buildTodayWorkout','buildPlan','buildMarathon','updateProgress','renderHistory','buildBodyPage','buildNutritionPage','buildEquipmentPage'].forEach(function(fn){try{if(typeof window[fn]==='function')window[fn]();}catch(e){console.warn('post-restore '+fn+':',e);}});
     closeModal('setupModal');
     showToast('✅ Restored from NAS');
@@ -15620,7 +15803,7 @@ var SET_TYPE_INFO = {
     tips:['Keep working weight  --  do NOT reduce it.','10-15 seconds rest only.','Log total reps across ALL clusters.','Rest-Pause sets do NOT count toward progression.']},
   cl:{name:'Cluster Set',desc:'Your work-set load and reps, split into mini-sets with ~20 second pauses.',
     how:'Take the prescribed reps in pieces — e.g. 4 reps as 2 + 2, or 5 as 2 + 2 + 1 — racking or holding the weight for 15–30 seconds between pieces. Every rep stays fast and crisp. Log the TOTAL reps as one set.',
-    focusNote:{general:'Not prescribed automatically.',power:'Auto-added on your main lift: one extra high-quality heavy set. Clusters keep bar speed and force up within the set (Latella 2019); long-term strength gains match straight sets.',hybrid:'Auto-added on the main lift for one more crisp heavy set.',muscle:'Not prescribed automatically; rest-pause and drop sets suit hypertrophy better.',tone:'Not prescribed automatically.',endurance:'Not prescribed automatically.'},
+    focusNote:{general:'Not prescribed automatically.',power:'Auto-added on your main lift: one extra high-quality heavy set. Clusters keep bar speed and force up within the set (Latella 2019); long-term strength gains match straight sets.',muscle:'Not prescribed automatically; rest-pause and drop sets suit hypertrophy better.',tone:'Not prescribed automatically.',endurance:'Not prescribed automatically.'},
     tips:['Same load as your work sets.','Rack or hold the bar for 15–30 s between mini-sets.','Stop a piece early if speed drops sharply.','Cluster sets do NOT count toward progression or records.']}
 };
 
@@ -27307,7 +27490,6 @@ function applySmartSetTypes(k){
 var SPECIALTY_BY_FOCUS={
   chestcore:[{type:'ds',pick:'chestAccessory'}],
   power:    [{type:'cl',pick:'main'},{type:'rp',pick:'supported'}],
-  hybrid:   [{type:'cl',pick:'main'},{type:'rp',pick:'supported'},{type:'ds',pick:'supported'}],
   muscle:   [{type:'ds',pick:'supported'},{type:'fl',pick:'isolation'},{type:'rp',pick:'supported'}],
   tone:     [{type:'ds',pick:'supported'},{type:'rp',pick:'supported'}],
   endurance:[{type:'rp',pick:'supported'},{type:'ds',pick:'supported'}],
@@ -29993,14 +30175,14 @@ function onExDrop(e, targetRenderPos){
 // ═══════════════════════════════════════════════════════════════
 // ── Split (workout-day) info modals ────────────────────────────────
 var SPLIT_INFO={
-  upper:{short:'Chest, back, shoulders and arms in one session.',bestFor:'Upper/lower & 4-day splits',freq:'1–2×/week',desc:'Trains every pushing and pulling muscle of the upper body in one session — chest, back, shoulders, and arms. Pairs with a Lower day for a balanced 4-day week.'},
-  lower:{short:'Quads, hamstrings, glutes and calves, heavy work first.',bestFor:'Upper/lower & 4-day splits',freq:'1–2×/week',desc:'Hits the entire lower body — quads, hamstrings, glutes, and calves — with heavy compound work up front. The counterpart to Upper day.'},
-  fullbody:{short:'Every major muscle group plus core in one go.',bestFor:'2–3 day/week training',freq:'2–3×/week',desc:'One session that touches every major muscle group plus core. Ideal when you train only 2–3 days a week or want high weekly frequency per muscle.'},
-  glutes:{short:'Posterior chain: deadlifts, hip thrusts and direct glute work.',bestFor:'Glute/leg specialization',freq:'1×/week',desc:'A posterior-chain and glute hypertrophy focus — deadlifts, hip thrusts, hack squats and direct glute work. Great as a dedicated lower-body specialization day.'},
-  arms:{short:'Shoulders, biceps and triceps — the accessory / pump day.',bestFor:'Shoulders & arm focus',freq:'1×/week',desc:'Shoulders plus biceps and triceps with a cardio finisher. A good accessory/“pump” day or a 5th day in a body-part split.'},
-  push:{short:'All the pressing muscles: chest, shoulders, triceps.',bestFor:'Push/Pull/Legs (PPL)',freq:'1–2×/week',desc:'The “push” of a PPL split — all the pressing muscles: chest, shoulders, and triceps. Run it 1–2× per week opposite Pull and Legs.'},
-  pull:{short:'All the pulling muscles: back and biceps.',bestFor:'Push/Pull/Legs (PPL)',freq:'1–2×/week',desc:'The “pull” of a PPL split — back and biceps. Vertical and horizontal pulling plus direct arm work. Pairs with Push and Legs.'},
-  core:{short:'Abs, obliques and lower back — short standalone or bolt-on.',bestFor:'Add-on / dedicated core',freq:'1–2×/week',desc:'Direct abdominal, oblique, and lower-back/stability work. Use as a short standalone day or bolt onto the end of another session.'}
+  upper:{short:'Chest, back, shoulders and arms in one session.',bestFor:'the Upper / Lower program',freq:'1–2×/week',desc:'Trains every pushing and pulling muscle of the upper body in one session — chest, back, shoulders, and arms. Pairs with a Lower day for a balanced 4-day week.'},
+  lower:{short:'Quads, hamstrings, glutes and calves, heavy work first.',bestFor:'Upper / Lower and Push / Pull / Legs',freq:'1–2×/week',desc:'Hits the entire lower body — quads, hamstrings, glutes, and calves — with heavy compound work up front. It is the Lower day of Upper / Lower and the Legs day of Push / Pull / Legs.'},
+  fullbody:{short:'Every major muscle group plus core in one go.',bestFor:'the Full Body program (2–3 days/week)',freq:'2–3×/week',desc:'One session that touches every major muscle group plus core. Ideal when you train only 2–3 days a week or want high weekly frequency per muscle.'},
+  glutes:{short:'Posterior chain: deadlifts, hip thrusts and direct glute work.',bestFor:'an optional add-on day',freq:'1×/week',desc:'A posterior-chain and glute hypertrophy focus — deadlifts, hip thrusts, hack squats and direct glute work. Great as a dedicated lower-body specialization day.'},
+  arms:{short:'Shoulders, biceps and triceps — the accessory / pump day.',bestFor:'an optional add-on day',freq:'1×/week',desc:'Shoulders plus biceps and triceps with a cardio finisher. A good accessory/“pump” day or a 5th day in a body-part split.'},
+  push:{short:'All the pressing muscles: chest, shoulders, triceps.',bestFor:'the Push / Pull / Legs program',freq:'1–2×/week',desc:'The “push” of a PPL split — all the pressing muscles: chest, shoulders, and triceps. Run it 1–2× per week opposite Pull and Legs.'},
+  pull:{short:'All the pulling muscles: back and biceps.',bestFor:'the Push / Pull / Legs program',freq:'1–2×/week',desc:'The “pull” of a PPL split — back and biceps. Vertical and horizontal pulling plus direct arm work. Pairs with Push and Legs.'},
+  core:{short:'Abs, obliques and lower back — short standalone or bolt-on.',bestFor:'an optional add-on day',freq:'1–2×/week',desc:'Direct abdominal, oblique, and lower-back/stability work. Use as a short standalone day or bolt onto the end of another session.'}
 };
 function openSplitInfo(key){
   var tpl=WTPL[key]; if(!tpl) return;
@@ -30118,7 +30300,7 @@ function openSplitSwitcher(){
   var k=dKey(vDate);
   var currentSplit=getEffTpl(k);
   var recentSplits=getRecentSplits(7);
-  var allSplits=GYM_SPLIT_FAMILIES.map(function(family){return family.main;});
+  var allSplits=programSplitKeys();
   // Score each split: lower = better recommendation (0 = not done recently)
   var scores={};
   allSplits.forEach(function(s){
@@ -30141,14 +30323,15 @@ function openSplitSwitcher(){
     var soft=Object.keys(muscles).filter(function(g){return recent72[g]>0;}).length;
     return hard*3+soft;
   }
-  var recommended=sorted.filter(function(s){return s!==currentSplit;}).sort(function(a,b){
-    return splitOverlapScore(a)-splitOverlapScore(b);
-  })[0];
+  // The recommendation is what the focus's program says comes next after the last saved
+  // workout — not whichever split happens to overlap least.
+  var recommended=programSplitFor(k);
 
-  var html='<div class="slbl" style="margin:10px 0 4px">Main workouts</div>'+renderGymSplitFamilies(function(s,main){
+  var html='<div style="font-size:11px;color:var(--mu);margin:8px 0 4px;line-height:1.5">'+(recommended===currentSplit?'✓ Today\'s workout is the next one in your program.':'Next in your program: <b>'+escapeHtml(programSplitLabel(recommendedProgramKey(),recommended))+'</b>.')+'</div>'+
+    '<div class="slbl" style="margin:10px 0 4px">Workouts by program</div>'+renderGymSplitFamilies(function(s,info){
     var tpl=WTPL[s]; if(!tpl) return '';
     var isCurrent=s===currentSplit;
-    var isRec=s===recommended&&!isCurrent;
+    var isRec=s===recommended&&!isCurrent&&!!(info&&info.recommended);
     var cls='split-opt'+(isRec?' recommended':'')+(isCurrent?' selected':'');
     var recentCount=recentSplits.filter(function(r){return r===s;}).length;
     var recNote=isRec?'<span class="split-rec-badge">✓ Recommended</span>':'';
@@ -30158,7 +30341,7 @@ function openSplitSwitcher(){
     var si=SPLIT_INFO[s]||{short:(SPLIT_META[s]||{}).sb};
     var blurb=si.short||tpl.exercises.slice(0,3).map(function(e){return e.n.split(' ').slice(0,2).join(' ');}).join(' · ');
     return '<div class="'+cls+'" onclick="confirmSplitSwitch(\''+s+'\')'+(isCurrent?';return':'')+'">'
-      +'<div class="split-opt-name" style="display:flex;align-items:center;justify-content:space-between;gap:8px"><span>'+(main?'Standard '+SPLIT_META[s].nm:tpl.focus)+recNote+(isCurrent?' <span style="font-size:9px;color:var(--mu)">(current)</span>':'')+'</span>'
+      +'<div class="split-opt-name" style="display:flex;align-items:center;justify-content:space-between;gap:8px"><span>'+escapeHtml((info&&info.label)||SPLIT_META[s].nm)+recNote+(isCurrent?' <span style="font-size:9px;color:var(--mu)">(current)</span>':'')+'</span>'
       +'<button onclick="event.stopPropagation();openSplitInfo(\''+s+'\')" title="What is this split?" style="flex-shrink:0;width:26px;height:26px;border-radius:7px;border:1px solid var(--b2);background:var(--s3);color:#94a3b8;font-size:12px;cursor:pointer">ℹ️</button></div>'
       +'<div class="split-opt-sub">'+escapeHtml(blurb)+'</div>'
       +'<div style="font-size:9px;color:var(--mu);margin-top:3px">'+(si.bestFor?'<span style="color:#64748b">Best for '+escapeHtml(si.bestFor)+'</span>':'')+doneNote+overlapNote+'</div>'
@@ -30673,15 +30856,6 @@ function getCardioObj(sessGym, type, idx, defaultObj, tplKey, excludeNames){
   var block=sessGym.cardioBlocks&&sessGym.cardioBlocks[slot];
   if(swapped) return swapped;
   if(block&&block.name&&(block.done||block.duration||_cardioIsActive(block.timer))) return {n:block.name,dur:block.defaultDur,tgt:block.target};
-  if(defaultObj&&type==='finisher'&&getWorkoutFocus()==='chestcore'&&tplKey!=='hchestcore'&&
-    /stair|stepmill|rowing|fan bike/i.test(defaultObj.n)){
-    var safer=['Treadmill (Incline Walk)','Elliptical Machine','Stationary Bike'];
-    var preferredName=safer.find(function(name){
-      var option=getEquipmentSafeCardio({n:name,dur:defaultObj.dur},tplKey,excludeNames);
-      return option&&option.n===name;
-    });
-    if(preferredName) defaultObj=Object.assign({},defaultObj,{n:preferredName});
-  }
   var preferred=getEquipmentSafeCardio(defaultObj,tplKey,excludeNames);
   if(preferred||tplKey!=='hchestcore'||!defaultObj) return preferred;
   return {n:'Walking',dur:defaultObj.dur,tgt:getCardioGuide(type)};
@@ -31122,7 +31296,10 @@ function _captureRichTemplate(k){
     var setData=[];
     for(var s=0;s<nS;s++){var st=exD.sets[s]||{};setData.push({type:st.type||'wk',weight:st.weight||'',reps:st.reps||''});}
     mapIdx[oi]=exercises.length;
-    exercises.push({n:ex.n,t:ex.t,sets:ex.sets,reps:ex.reps,rest:ex.rest,p:(ex.p!=null?ex.p:1),setData:setData});
+    var _te={n:ex.n,t:ex.t,sets:ex.sets,reps:ex.reps,rest:ex.rest,p:(ex.p!=null?ex.p:1),setData:setData};
+    // Slot roles travel with the template so a lead lift is still a lead lift on reuse.
+    if(ex.anchor) _te.anchor=true; if(ex.lead) _te.lead=true; if(ex.main) _te.main=true;
+    exercises.push(_te);
   });
   if(!exercises.length) return null;
   // Remap superset pairs from render indices to saved positions; drop broken pairs
@@ -31235,7 +31412,17 @@ function applyWorkoutTemplate(id){
   gym.supersets={};
   gym.activeSuperset=undefined;
   gym.userUnlinkedSupersets=false;
-  gym.exList=tmpl.exercises.map(function(e){return {n:e.n,t:e.t,sets:e.sets,reps:e.reps,rest:e.rest,p:(e.p!=null?e.p:1)};});
+  // Templates saved before slot roles were recorded: the first exercise is the anchor and
+  // a template's own second lead (the row on Upper, the press on Full Body) keeps its role.
+  var _hasRoles=tmpl.exercises.some(function(e){return e.anchor||e.lead;});
+  var _tplLeads={}; Object.keys(WTPL).forEach(function(tk){(WTPL[tk].exercises||[]).forEach(function(x){if(x.lead)_tplLeads[x.n]=1;});});
+  gym.exList=tmpl.exercises.map(function(e,i){
+    var o={n:e.n,t:e.t,sets:e.sets,reps:e.reps,rest:e.rest,p:(e.p!=null?e.p:1)};
+    if(_hasRoles){ if(e.anchor)o.anchor=true; if(e.lead)o.lead=true; }
+    else{ if(i===0)o.anchor=true; else if(_tplLeads[e.n]&&isMainStrengthMovement(e.n))o.lead=true; }
+    if(e.main) o.main=true;
+    return o;
+  });
   gym.exListPinned=true;
   gym.fromTemplateName=tmpl.name;
   if(tmpl.intensity) gym.intensity=tmpl.intensity;
