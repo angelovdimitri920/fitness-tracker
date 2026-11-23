@@ -384,7 +384,8 @@ let server, browser;
       check(/saved workout/.test(bad(d=>{d.workoutTemplates=[{name:'x'}];})),'template without exercises accepted');
       check(/distance/.test(bad(d=>{d.history.push({id:7,date:'2026-09-21',type:'run',distance:[3]});})),'array distance accepted');
       check(/food cal/.test(bad(d=>{d.nutLog[k]={lunch:[{n:'x',cal:[100]}]};})),'array calories accepted');
-      check(/history id/.test(bad(d=>{d.history.push({id:'1);alert(1',date:'2026-09-21',type:'run',distance:1});})),'script-like history id accepted');
+      { const d=JSON.parse(base); d.history.push({id:'1);alert(1',date:'2026-09-21',type:'run',distance:1});
+        check(_commitRestore(validateBackupState(d))&&S.history.every(h=>Number.isSafeInteger(h.id)),'script-like history id kept'); }
       // numeric text in food rows is summed, not concatenated
       const good=JSON.parse(base); good.nutLog[k]={lunch:[{n:'A',cal:'100',pro:'10'},{n:'B',cal:'100',pro:'5'}],water:'8'};
       good.history.push({id:92,date:'2026-09-21',type:'gym',day:'Upper',focus:'<b id="mk">x</b>',exercises:[]});
@@ -402,6 +403,56 @@ let server, browser;
       check(el('page-history').innerHTML===listHtml&&localStorage.getItem('pf_v4')===live,'failed write left the candidate on screen');
       check(el('histMT').textContent===title&&el('histModal').classList.contains('show')&&_ifInterval===ifBefore&&selHistId===selBefore,'failed restore changed the open sheet, timers or selection');
       closeModal('histModal'); switchPage('today',null);
+    });
+    test('imported names render as text; history ids are unique; templates and fasts are checked', () => {
+      reset(); buildTodayWorkout(); saveS(); const k=dKey(vDate), base=localStorage.getItem('pf_v4');
+      const bad=(mut)=>{ const d=JSON.parse(base); mut(d); try{ validateBackupState(d); return ''; }catch(e){ return e.message; } };
+      check(/saved workout sets/.test(bad(d=>{d.workoutTemplates=[{name:'T',exercises:[{n:'Bench Press (Barbell)',setData:{length:2}}]}];})),'object setData accepted');
+      check(/saved workout set weight/.test(bad(d=>{d.workoutTemplates=[{name:'T',exercises:[{n:'Bench Press (Barbell)',setData:[{weight:[1]}]}]}];})),'array set weight accepted');
+      check(/fast/.test(bad(d=>{d.fastLog=[{start:''}];})),'blank fast start accepted');
+      const mk=(id)=>'<i id="'+id+'">x</i>';
+      const good=JSON.parse(base);
+      good.history=[{id:5,date:'2026-09-20',type:'gym',day:'Upper',focus:'f',exercises:[{name:mk('hx'),sets:[{weight:'100',reps:'5',done:true,type:'wk'}]}]},
+        {id:5,date:'2026-09-21',type:'gym',day:'Lower',focus:'g',exercises:[]},{id:'',date:'2026-09-22',type:'run',day:'Wed',distance:2}];
+      good.workoutTemplates=[{name:mk('tx'),v:2,exercises:[{n:mk('tex'),sets:3,reps:8,setData:[{type:'wk',weight:'100',reps:'8'}]}]}];
+      good.nutLog[k]={lunch:[{n:mk('fx'),cal:100}]};
+      good.fastLog=[{start:'2026-09-22T08:00:00.000Z',end:null,protocol:'16:8'}];
+      check(_commitRestore(validateBackupState(good))===true,'restore rejected: '+window._lastRestoreError);
+      const ids=S.history.map(h=>h.id); check(new Set(ids).size===3&&ids.every(Number.isFinite),'history ids not unique numbers: '+JSON.stringify(ids));
+      check(typeof S.fastLog[0].start==='number'&&S.fastLog[0].start===Date.parse('2026-09-22T08:00:00.000Z'),'ISO fast start not converted');
+      renderHistory(); buildPlan(); buildSavedTemplates(); buildNutritionPage();
+      check(!['hx','tx','tex','fx'].some(id=>document.getElementById(id)),'imported names became HTML: '+['hx','tx','tex','fx'].filter(id=>document.getElementById(id)));
+      openHistDetail(ids[1]); check(/lower/i.test(el('histMT').textContent)&&!/upper/i.test(el('histMT').textContent),'second duplicate opened the first workout'); closeModal('histModal');
+      selHistId=ids[1]; const n=S.history.length; deleteHist(); check(S.history.length===n-1,'one delete removed '+(n-S.history.length)+' workouts');
+      closeModal('confirmModal');
+    });
+    test('imported fields stay text, handlers survive quotes, and every record list gets safe unique ids', () => {
+      reset(); buildTodayWorkout(); saveS(); const k=dKey(vDate), base=localStorage.getItem('pf_v4');
+      const mk=(id)=>'<i id="'+id+'">x</i>';
+      const good=JSON.parse(base);
+      good.history=[{id:1e20,date:'2026-09-20',type:'gym',day:'Upper',focus:'f',exercises:[{name:'Row',sets:[{weight:'100',reps:'5',done:true,type:mk('st')}]}]},
+        {id:1e20,date:'2026-09-21',type:'gym',day:'Lower',focus:'g',exercises:[]},{id:'',date:'2026-09-22',type:'run',day:'Wed',distance:2,injuryTag:mk('inj')},{id:0,date:'2026-09-23',type:'run',day:'Thu',distance:1}];
+      good.workoutTemplates=[{id:'abc',name:'T',v:2,exercises:[{n:'Bench Press (Barbell)',t:mk('tt'),sets:'3',reps:mk('rp'),rest:'90 seconds'}]}];
+      good.nutLog[k]={lunch:[{n:'Oats',srv:mk('srv'),cal:100}]};
+      check(_commitRestore(validateBackupState(good))===true,'restore rejected: '+window._lastRestoreError);
+      const ids=S.history.map(h=>h.id); check(new Set(ids).size===4&&ids.every(i=>Number.isSafeInteger(i)&&i>0),'history ids not unique safe integers: '+JSON.stringify(ids));
+      const t=S.workoutTemplates[0]; check(Number.isSafeInteger(t.id)&&t.id>0&&t.exercises[0].rest===90&&t.exercises[0].sets===3,'template id/rest not normalised: '+JSON.stringify(t));
+      renderHistory(); S.history.forEach(h=>{ openHistDetail(h.id); closeModal('histModal'); }); buildSavedTemplates(); buildNutritionPage();
+      check(!['st','inj','rp','srv'].some(id=>document.getElementById(id)),'imported field became HTML: '+['st','inj','rp','srv'].filter(id=>document.getElementById(id)));
+      openLoadTemplate(t.id); check(el('loadTemplateModal')?el('loadTemplateModal').classList.contains('show'):true,'Load did not open'); document.querySelectorAll('.mo.show').forEach(m=>m.classList.remove('show'));
+      selHistId=ids[1]; const n=S.history.length; deleteHist(); check(S.history.length===n-1,'one delete removed '+(n-S.history.length));
+      // a quote in an exercise name survives the Info, Chart and Swap handlers
+      check(jsArg('a"b\'c\\d')==='a&quot;b\\&#39;c\\\\d','jsArg encoding');
+      reset(); S.workoutTemplates=[{id:7,name:'Q',v:2,exercises:[{n:'Curl "Pro" 12\' Bar',t:'Biceps',sets:3,reps:10,rest:60,p:1}]}];
+      // an unknown name would be swapped for an available exercise; keep it as written
+      const _safe=window.getEquipmentSafeExercise; window.getEquipmentSafeExercise=function(e){ return e; };
+      try{ applyWorkoutTemplate(7); switchPage('today',null); buildTodayWorkout(); } finally { window.getEquipmentSafeExercise=_safe; }
+      let threw=null;
+      const btn=[...document.querySelectorAll('#page-today [onclick^="openExInfo"]')].find(b=>/Pro/.test(b.getAttribute('onclick')));
+      const onErr=(e)=>{ threw=e.message||String(e); }; window.addEventListener('error',onErr);
+      try{ btn&&btn.click(); }catch(e){ threw=e.message; } finally{ window.removeEventListener('error',onErr); }
+      check(btn&&!threw,'quoted name broke the Info handler: '+(btn?threw:'no Info button for the added exercise: '+getRenderedExList(dKey(vDate)).map(e=>e.n).join('|')));
+      document.querySelectorAll('.mo.show').forEach(m=>m.classList.remove('show'));
     });
     test('an untagged unfinished set withholds the increase; a picked date cancels a deferred rollover', () => {
       reset(); const k=dKey(vDate);
