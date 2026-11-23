@@ -5202,6 +5202,7 @@ try{ var _as=localStorage.getItem('pf_advSuggest'); if(_as!==null)_advSuggestEna
 // migrateState run); the startup load handler calls it again once they exist. Idempotent.
 function rehydrateCustomCatalogues(){
   if(_restoreDryRun) return;
+  try{ _repairTextKeys(); }catch(e){ console.warn('repairTextKeys failed:',e); }
   try{
     if(typeof EQUIPMENT_CATALOGUE!=='undefined' && S.customCatItems){
       Object.keys(S.customCatItems).forEach(function(catId){
@@ -5218,36 +5219,44 @@ function rehydrateCustomCatalogues(){
   }catch(e){ console.warn('rehydrateCustomCatalogues failed:',e); }
 }
 
-function migrateState(){
-if(!S.profile)S.profile={name:'',heightIn:72,goalWeight:185,age:null};
-// Record ids are unique positive safe integers: sheets, Load and Delete find a record by id
-// (and pass it unquoted in click handlers), so a shared, missing, text, 0 or 1e20 id opened
-// the wrong record or deleted several. The first holder of a good id keeps it; the rest get
-// the smallest unused integers (new records use Date.now(), so they never meet these).
 // Records keyed by text — gym profiles and custom rest activities by id; My Foods, custom
-// exercises and custom equipment by name within their category — must have unique keys, or
-// one delete removes several. Every original key is reserved first, so a distinct record
-// already called "Oats (2)" or "my-pf-2" keeps its name; the first holder of a repeated key
-// keeps it (and every reference to it), later holders get the next free "-N" / " (N)", and an
-// exact copy of a record already kept under that key is dropped. Sets, not plain objects, so
-// a key such as "constructor" is not mistaken for an existing one.
-function _uniqueRecordKeys(list, getKey, setKey, suffix, dropExact, onRename){
+// accessories, custom exercises and custom equipment by name — must have unique keys, or one
+// delete removes several (or clears another record's settings). Every original key, and every
+// built-in name or id the key shares references with, is reserved first, so a distinct record
+// already called "Oats (2)" keeps its name and a generated name never lands on another record.
+// The first holder of a repeated key keeps it (and every reference to it); later holders —
+// including a custom record using a built-in's key (`held`) — get the next free "-N" / " (N)";
+// an exact copy within the same group is dropped. Sets, not plain objects, so a key such as
+// "constructor" is an ordinary key. Custom exercises and equipment are one namespace across
+// their categories, because gym equipment lists, guides and history refer to them by name.
+function _uniqueRecordKeys(list, getKey, setKey, suffix, dropExact, onRename, opts){
   if(!Array.isArray(list)) return list;
+  opts=opts||{};
+  var held=opts.held||new Set(), groupOf=opts.groupOf||function(){return '';};
   var taken=new Set(), kept=new Map(), out=[];
+  (opts.reserved||[]).forEach(function(k){ taken.add(k); });
+  held.forEach(function(k){ taken.add(k); });
   list.forEach(function(r){ var k=r&&typeof r==='object'?getKey(r):null; if(typeof k==='string'&&k) taken.add(k); });
   list.forEach(function(r){
     if(!r||typeof r!=='object'){ out.push(r); return; }
-    var k=getKey(r), j=JSON.stringify(r);
-    if(typeof k==='string'&&k&&!kept.has(k)){ kept.set(k,[j]); out.push(r); return; }
-    var base=(typeof k==='string'&&k)?k:null;
-    if(base&&dropExact&&kept.get(base).indexOf(j)>=0) return;
-    if(base) kept.get(base).push(j);
+    var k=getKey(r), valid=typeof k==='string'&&k, sig=groupOf(r)+'|'+JSON.stringify(r);
+    if(valid&&!held.has(k)&&!kept.has(k)){ kept.set(k,[sig]); out.push(r); return; }
+    var base=valid?k:null;
+    if(base&&dropExact&&kept.has(base)&&kept.get(base).indexOf(sig)>=0) return;
+    if(base&&kept.has(base)) kept.get(base).push(sig);
     var root=base||'item', n=2, nk; do{ nk=suffix(root,n++); }while(taken.has(nk));
-    taken.add(nk); setKey(r,nk); if(onRename) onRename(base,nk); kept.set(nk,[JSON.stringify(r)]); out.push(r);
+    taken.add(nk); setKey(r,nk); if(onRename) onRename(base,nk,r); kept.set(nk,[groupOf(r)+'|'+JSON.stringify(r)]); out.push(r);
   });
   return out;
 }
-(function(){
+function _builtinNames(cat){
+  var names=new Set();
+  (Array.isArray(cat)?cat:[]).forEach(function(c){ (c&&Array.isArray(c.items)?c.items:[]).forEach(function(i){ if(i&&!i.isCustom&&typeof i.n==='string') names.add(i.n); }); });
+  return names;
+}
+// Runs in migrateState and again once the catalogues exist (rehydrateCustomCatalogues), since
+// the built-in lists are defined later in the file than the first migration.
+function _repairTextKeys(){
   var dash=function(k,n){return k+'-'+n;}, paren=function(k,n){return k+' ('+n+')';};
   var byId=function(r){return r.id;}, setId=function(r,v){r.id=v;}, byName=function(r){return r.n;}, setName=function(r,v){r.n=v;};
   if(Array.isArray(S.gymProfiles)) S.gymProfiles=_uniqueRecordKeys(S.gymProfiles,byId,setId,function(k,n){return (k==='item'?'gym':k)+'-'+n;},false);
@@ -5255,15 +5264,29 @@ function _uniqueRecordKeys(list, getKey, setKey, suffix, dropExact, onRename){
   if(Array.isArray(S.customAccessories)) S.customAccessories=_uniqueRecordKeys(S.customAccessories,byName,setName,paren,true);
   // Restored custom activities get the lists the Recovery views walk.
   if(Array.isArray(S.customRestProtocols)) S.customRestProtocols.forEach(function(p){ if(p&&typeof p==='object'){ if(!Array.isArray(p.requiredAny)) p.requiredAny=[]; if(!Array.isArray(p.steps)) p.steps=[]; } });
-  if(Array.isArray(S.customRestProtocols)) S.customRestProtocols=_uniqueRecordKeys(S.customRestProtocols,byId,setId,dash,true,function(from,to){
-    // a renamed copy starts with the same on/off state as the record it was copied from
-    if(from&&S.enabledRestActivities&&Object.prototype.hasOwnProperty.call(S.enabledRestActivities,from)) S.enabledRestActivities[to]=S.enabledRestActivities[from];
+  if(Array.isArray(S.customRestProtocols)){
+    var builtinRest=new Set((typeof REST_PROTOCOLS!=='undefined'&&Array.isArray(REST_PROTOCOLS)?REST_PROTOCOLS:[]).map(function(p){return p&&p.id;}).filter(Boolean));
+    S.customRestProtocols=_uniqueRecordKeys(S.customRestProtocols,byId,setId,dash,true,function(from,to){
+      // A copy of another custom record starts with that record's on/off state; a custom record
+      // that used a built-in's id starts enabled and leaves the built-in's preference alone.
+      if(from&&!builtinRest.has(from)&&S.enabledRestActivities&&Object.prototype.hasOwnProperty.call(S.enabledRestActivities,from)) S.enabledRestActivities[to]=S.enabledRestActivities[from];
+    },{held:builtinRest});
+  }
+  [['customExCatItems',typeof EXERCISE_CATALOGUE!=='undefined'?EXERCISE_CATALOGUE:null],['customCatItems',typeof EQUIPMENT_CATALOGUE!=='undefined'?EQUIPMENT_CATALOGUE:null]].forEach(function(pair){
+    var cats=S[pair[0]]; if(!cats||typeof cats!=='object') return;
+    var flat=[], groupOf=new Map();
+    Object.keys(cats).forEach(function(cid){ if(Array.isArray(cats[cid])) cats[cid].forEach(function(it){ flat.push(it); if(it&&typeof it==='object') groupOf.set(it,cid); }); });
+    var keep=new Set(_uniqueRecordKeys(flat,byName,setName,paren,true,null,{reserved:_builtinNames(pair[1]),groupOf:function(r){return groupOf.get(r)||'';}}));
+    Object.keys(cats).forEach(function(cid){ if(Array.isArray(cats[cid])) cats[cid]=cats[cid].filter(function(it){ return keep.has(it); }); });
   });
-  ['customExCatItems','customCatItems'].forEach(function(key){
-    var cats=S[key]; if(!cats||typeof cats!=='object') return;
-    Object.keys(cats).forEach(function(cid){ if(Array.isArray(cats[cid])) cats[cid]=_uniqueRecordKeys(cats[cid],byName,setName,paren,true); });
-  });
-})();
+}
+function migrateState(){
+if(!S.profile)S.profile={name:'',heightIn:72,goalWeight:185,age:null};
+// Record ids are unique positive safe integers: sheets, Load and Delete find a record by id
+// (and pass it unquoted in click handlers), so a shared, missing, text, 0 or 1e20 id opened
+// the wrong record or deleted several. The first holder of a good id keeps it; the rest get
+// the smallest unused integers (new records use Date.now(), so they never meet these).
+_repairTextKeys();
 ['history','workoutTemplates','recipes','shoes','raceResults'].forEach(function(key){
   var list=S[key]; if(!Array.isArray(list)) return;
   var seen={}, next=1, fix=[];
@@ -9936,7 +9959,7 @@ function openFocusModal(g,location) {
     '<div style="background:rgba(255,255,255,.04);border:1px solid var(--b1);border-radius:9px;padding:12px;margin-bottom:10px">' +
       '<div style="font-family:\x27DM Mono\x27,monospace;font-size:9px;color:var(--mu);letter-spacing:1px;margin-bottom:8px">💡 TIPS</div>' +
       d.tips.map(function(t) {
-        return '<div style="font-size:12px;color:var(--fg);line-height:1.5;padding:4px 0;border-bottom:1px solid var(--b1)">• ' + t + '</div>';
+        return '<div style="font-size:12px;color:var(--fg);line-height:1.5;padding:4px 0;border-bottom:1px solid var(--b1)">• ' + escapeHtml(t) + '</div>';
       }).join('') +
     '</div>' +
     // YouTube learn-more link
@@ -11237,14 +11260,14 @@ function openRunModeInfoModal(id){
     d.tips.forEach(function(t){
       h+='<div style="display:flex;gap:8px;margin-bottom:6px;padding:7px 9px;background:rgba(255,255,255,.03);border-radius:6px">';
       h+='<span style="color:'+escapeHtml(d.color)+';flex-shrink:0">›</span>';
-      h+='<span style="font-size:11px;color:#ccc;line-height:1.5">'+t+'</span></div>';
+      h+='<span style="font-size:11px;color:#ccc;line-height:1.5">'+escapeHtml(t)+'</span></div>';
     });
     // Common mistakes
     h+='<div style="font-size:10px;font-weight:700;color:#f87171;font-family:\'DM Mono\',monospace;letter-spacing:.5px;margin:12px 0 8px">⚠️ COMMON MISTAKES</div>';
     d.mistakes.forEach(function(m){
       h+='<div style="display:flex;gap:8px;margin-bottom:6px;padding:7px 9px;background:rgba(239,68,68,.05);border-radius:6px">';
       h+='<span style="color:#f87171;flex-shrink:0">✕</span>';
-      h+='<span style="font-size:11px;color:#f87171cc;line-height:1.5">'+m+'</span></div>';
+      h+='<span style="font-size:11px;color:#f87171cc;line-height:1.5">'+escapeHtml(m)+'</span></div>';
     });
     // Gear
     h+='<div style="font-size:10px;font-weight:700;color:#60a5fa;font-family:\'DM Mono\',monospace;letter-spacing:.5px;margin:12px 0 6px">🎽 RECOMMENDED GEAR</div>';
@@ -11445,7 +11468,7 @@ if(pmEl2){
   }
   if(_prog.tips&&_prog.tips.length){
     pmHtml+='<div class="csm" style="margin-top:10px"><div style="font-weight:600;font-size:12px;margin-bottom:8px">💡 '+guideName+' Tips</div>';
-    pmHtml+=_prog.tips.map(function(t){return'<div style="font-size:11px;color:var(--mu);margin-bottom:5px;padding-left:8px;border-left:2px solid var(--ye)">'+t+'</div>';}).join('');
+    pmHtml+=_prog.tips.map(function(t){return'<div style="font-size:11px;color:var(--mu);margin-bottom:5px;padding-left:8px;border-left:2px solid var(--ye)">'+escapeHtml(t)+'</div>';}).join('');
     pmHtml+='</div>';
   }
   pmEl2.innerHTML=pmHtml;
@@ -11699,7 +11722,7 @@ function openDietModal(presetKey){
     bodyHTML+=_dietSect('Protein Target',d.proNote);
     bodyHTML+=_dietSect('Priority Foods','<ul style="margin:0;padding-left:16px">'+d.priorityFoods.map(function(f){return '<li>'+f+'</li>';}).join('')+'</ul>');
     bodyHTML+=_dietSect('Foods to Limit / Avoid','<ul style="margin:0;padding-left:16px;color:#f87171">'+d.avoidFoods.map(function(f){return '<li>'+f+'</li>';}).join('')+'</ul>');
-    bodyHTML+=_dietSect('Tips','<ul style="margin:0;padding-left:16px">'+d.tips.map(function(t){return '<li style="margin-bottom:4px">'+t+'</li>';}).join('')+'</ul>');
+    bodyHTML+=_dietSect('Tips','<ul style="margin:0;padding-left:16px">'+d.tips.map(function(t){return '<li style="margin-bottom:4px">'+escapeHtml(t)+'</li>';}).join('')+'</ul>');
     bodyHTML+=_dietSect('Science & Research','<span style="color:#9ca3af">'+escapeHtml(d.science)+'</span>');
     bodyEl.innerHTML=bodyHTML;
   }
@@ -13860,6 +13883,13 @@ function validateBackupState(data){
         ['weight','reps'].forEach(function(key){ var v=sd[key]; if(v!=null&&v!==''&&(typeof v==='object'||typeof v==='boolean'||!isFinite(Number(v))||Number(v)<0)) fail('saved workout set '+key); });
       });
     });
+  });
+  // Custom rest activities: the Recovery views upper-case the name and walk the lists.
+  if(data.customRestProtocols!=null) data.customRestProtocols.forEach(function(r){
+    if(!object(r)||typeof r.name!=='string'||!r.name.trim()) fail('rest activity name');
+    if(r.id!=null&&typeof r.id!=='string') fail('rest activity id');
+    ['dur','color','cat','icon','desc','em','tagline','focus'].forEach(function(key){ if(r[key]!=null&&typeof r[key]!=='string'&&typeof r[key]!=='number') fail('rest activity '+key); });
+    ['requiredAny','steps'].forEach(function(key){ if(r[key]!=null&&(!Array.isArray(r[key])||r[key].some(function(x){return typeof x!=='string';}))) fail('rest activity '+key); });
   });
   // Food rows: macros and micronutrients are numbers (two "100" kcal rows must total 200).
   var NUT_MACRO={cal:1,pro:1,carb:1,fat:1,fiber:1,sodium:1,sugar:1};
@@ -16142,7 +16172,7 @@ function openSetTypeInfo(typeCode){
     '<div class="slbl" style="margin-bottom:6px">HOW TO DO IT</div>'+
     '<div style="font-size:13px;color:#e2e8f0;line-height:1.6;margin-bottom:12px">'+escapeHtml(info.how)+'</div>'+
     '<div class="slbl" style="margin-bottom:6px">TIPS</div>'+
-    info.tips.map(function(t){return '<div style="display:flex;gap:8px;margin-bottom:6px"><div style="color:var(--ye);flex-shrink:0">&#9657;</div><div style="font-size:12px;color:#cbd5e1">'+t+'</div></div>';}).join('');
+    info.tips.map(function(t){return '<div style="display:flex;gap:8px;margin-bottom:6px"><div style="color:var(--ye);flex-shrink:0">&#9657;</div><div style="font-size:12px;color:#cbd5e1">'+escapeHtml(t)+'</div></div>';}).join('');
   openModal('setTypeInfoModal');
 }
 
@@ -28458,7 +28488,7 @@ function buildRestDayMgmtPage(){
         '<div data-restname="'+encodeURIComponent(p.name)+'" style="display:flex;align-items:center;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04)">'+
           '<div style="flex:1;min-width:0;margin-right:10px">'+
             '<div style="font-size:12px;color:'+(isEnabled&&isAccessible?'#fff':'var(--mu)')+';font-weight:500">'+escapeHtml(p.em)+' '+escapeHtml(p.name)+(p.isCustom?' <span style="font-size:8px;color:var(--ye);font-family:\'DM Mono\',monospace">CUSTOM</span>':'')+'</div>'+
-            '<div style="font-size:9px;color:var(--mu);font-family:\'DM Mono\',monospace">'+escapeHtml(p.dur)+(needsEquip?' · 🎯 '+p.requiredAny[0]:'')+(needsEquip&&!isAccessible?' <span style="color:#f87171">— not enabled</span>':'')+'</div>'+
+            '<div style="font-size:9px;color:var(--mu);font-family:\'DM Mono\',monospace">'+escapeHtml(p.dur)+(needsEquip?' · 🎯 '+escapeHtml(p.requiredAny[0]):'')+(needsEquip&&!isAccessible?' <span style="color:#f87171">— not enabled</span>':'')+'</div>'+
           '</div>'+
           '<button onclick="openRestProtocolInfo(\''+jsArg(p.id)+'\')" title="What to do" style="width:28px;height:28px;border-radius:8px;border:1px solid var(--b2);background:var(--s3);color:#94a3b8;font-size:13px;cursor:pointer;flex-shrink:0;margin-right:8px">ℹ️</button>'+
           (p.isCustom?'<button onclick="deleteCustomRestActivity(\''+jsArg(p.id)+'\')" style="width:28px;height:28px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.08);color:var(--re);font-size:11px;cursor:pointer;flex-shrink:0;margin-right:8px">🗑</button>':'')+
@@ -28561,7 +28591,10 @@ function deleteCustomRestActivity(id){
   var p=(S.customRestProtocols||[]).find(function(x){return x.id===id;}); if(!p) return;
   showConfirm('Remove "'+p.name+'" from your rest-day activities?',function(){
     S.customRestProtocols=_withoutFirst(S.customRestProtocols||[],function(x){return x.id===id;});
-    if(S.enabledRestActivities) delete S.enabledRestActivities[id];
+    // The on/off preference is keyed by id: keep it while a built-in or another custom
+    // activity still uses that id.
+    var _idInUse=REST_PROTOCOLS.some(function(x){return x.id===id;})||(S.customRestProtocols||[]).some(function(x){return x.id===id;});
+    if(S.enabledRestActivities&&!_idInUse) delete S.enabledRestActivities[id];
     saveS(); buildRestDayMgmtPage();
     showToast('Removed: '+p.name);
   });
@@ -28709,20 +28742,20 @@ function openExerciseInfoModal(exName,muscles){
       c+='<div style="margin-bottom:10px"><div style="font-size:9px;color:var(--gr);letter-spacing:1.5px;margin-bottom:5px;text-transform:uppercase">✅ STEP BY STEP</div>';
       info.steps.forEach(function(s,i){
         c+='<div style="display:flex;gap:10px;margin-bottom:6px"><span style="color:var(--ye);font-size:11px;font-weight:700;min-width:16px">'+(i+1)+'</span>';
-        c+='<span style="font-size:12px;color:#ccc;line-height:1.5">'+s+'</span></div>';
+        c+='<span style="font-size:12px;color:#ccc;line-height:1.5">'+escapeHtml(s)+'</span></div>';
       });
       c+='</div>';
     }
     if(info.mistakes&&info.mistakes.length){
       c+='<div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:8px;padding:10px;margin-bottom:10px">';
       c+='<div style="font-size:9px;color:var(--re);letter-spacing:1.5px;margin-bottom:5px;text-transform:uppercase">❌ COMMON MISTAKES</div>';
-      info.mistakes.forEach(function(m){c+='<div style="font-size:12px;color:#ccc;margin-bottom:4px;line-height:1.4">• '+m+'</div>';});
+      info.mistakes.forEach(function(m){c+='<div style="font-size:12px;color:#ccc;margin-bottom:4px;line-height:1.4">• '+escapeHtml(m)+'</div>';});
       c+='</div>';
     }
     if(info.tips&&info.tips.length){
       c+='<div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:10px;margin-bottom:10px">';
       c+='<div style="font-size:9px;color:#60a5fa;letter-spacing:1.5px;margin-bottom:5px;text-transform:uppercase">💡 TIPS</div>';
-      info.tips.forEach(function(tip){c+='<div style="font-size:12px;color:#ccc;margin-bottom:4px;line-height:1.4">• '+tip+'</div>';});
+      info.tips.forEach(function(tip){c+='<div style="font-size:12px;color:#ccc;margin-bottom:4px;line-height:1.4">• '+escapeHtml(tip)+'</div>';});
       c+='</div>';
     }
     if(info.cues){
@@ -28766,9 +28799,9 @@ function generateExerciseDescription(exName,muscles,targetId){
     var info=JSON.parse(text);
     var html='<div style="margin-bottom:10px"><div style="font-size:9px;color:var(--gr);letter-spacing:1.5px;margin-bottom:5px">🎯 STARTING POSITION</div><div style="font-size:12px;color:#ccc;line-height:1.6">'+escapeHtml(info.setup)+'</div></div>';
     html+='<div style="margin-bottom:10px"><div style="font-size:9px;color:var(--gr);letter-spacing:1.5px;margin-bottom:5px">✅ STEP BY STEP</div>';
-    (info.steps||[]).forEach(function(s,i){html+='<div style="display:flex;gap:10px;margin-bottom:6px"><span style="color:var(--ye);font-size:11px;font-weight:700;min-width:16px">'+(i+1)+'</span><span style="font-size:12px;color:#ccc;line-height:1.5">'+s+'</span></div>';});
+    (info.steps||[]).forEach(function(s,i){html+='<div style="display:flex;gap:10px;margin-bottom:6px"><span style="color:var(--ye);font-size:11px;font-weight:700;min-width:16px">'+(i+1)+'</span><span style="font-size:12px;color:#ccc;line-height:1.5">'+escapeHtml(s)+'</span></div>';});
     html+='</div><div style="background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:8px;padding:10px;margin-bottom:10px"><div style="font-size:9px;color:var(--re);letter-spacing:1.5px;margin-bottom:5px">❌ COMMON MISTAKES</div>';
-    (info.mistakes||[]).forEach(function(m){html+='<div style="font-size:12px;color:#ccc;margin-bottom:4px;line-height:1.4">• '+m+'</div>';});
+    (info.mistakes||[]).forEach(function(m){html+='<div style="font-size:12px;color:#ccc;margin-bottom:4px;line-height:1.4">• '+escapeHtml(m)+'</div>';});
     html+='</div><div style="background:rgba(139,92,246,.08);border:1px solid rgba(139,92,246,.2);border-radius:8px;padding:10px;margin-bottom:12px"><div style="font-size:9px;color:#a78bfa;letter-spacing:1.5px;margin-bottom:5px">🧠 COACHING CUE</div><div style="font-size:12px;color:#ccc;font-style:italic;line-height:1.5">'+escapeHtml(info.cues)+'</div></div>';
     S.exerciseDescCache[exName]=html;saveS();
     var el4=document.getElementById(targetId);if(el4)el4.innerHTML=html;
@@ -28890,7 +28923,7 @@ function openAccessoryInfoModal(accName,accSub){
     if(staticInfo.tips&&staticInfo.tips.length){
       c+='<div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:10px;margin-bottom:10px">';
       c+='<div style="font-size:9px;color:#60a5fa;letter-spacing:1.5px;margin-bottom:5px;text-transform:uppercase">💡 TIPS</div>';
-      staticInfo.tips.forEach(function(tip){c+='<div style="font-size:12px;color:#ccc;margin-bottom:4px;line-height:1.4">• '+tip+'</div>';});
+      staticInfo.tips.forEach(function(tip){c+='<div style="font-size:12px;color:#ccc;margin-bottom:4px;line-height:1.4">• '+escapeHtml(tip)+'</div>';});
       c+='</div>';
     }
     c+='<a href="'+ytUrl+'" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:8px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.25);border-radius:8px;padding:11px;text-decoration:none;color:var(--re);margin-bottom:8px"><span>▶️</span><span style="font-size:10px;letter-spacing:1px">WATCH HOW-TO ON YOUTUBE</span></a>';
@@ -28931,7 +28964,7 @@ function generateAccessoryDescription(accName,accSub,targetId){
     html+='<div style="margin-bottom:10px"><div style="font-size:9px;color:var(--gr);letter-spacing:1.5px;margin-bottom:5px">\u2705 COMMON USES</div>';
     (info.uses||[]).forEach(function(u){html+='<div style="font-size:12px;color:#ccc;margin-bottom:4px">\u2022 '+u+'</div>';});
     html+='</div><div style="background:rgba(59,130,246,.08);border:1px solid rgba(59,130,246,.2);border-radius:8px;padding:10px;margin-bottom:12px"><div style="font-size:9px;color:#60a5fa;letter-spacing:1.5px;margin-bottom:5px">💡 TIPS</div>';
-    (info.tips||[]).forEach(function(tip){html+='<div style="font-size:12px;color:#ccc;margin-bottom:4px">\u2022 '+tip+'</div>';});
+    (info.tips||[]).forEach(function(tip){html+='<div style="font-size:12px;color:#ccc;margin-bottom:4px">\u2022 '+escapeHtml(tip)+'</div>';});
     html+='</div>';
     S.exerciseDescCache[cacheKey]=html;saveS();
     var el7=document.getElementById(targetId);if(el7)el7.innerHTML=html;
@@ -29481,14 +29514,19 @@ function deleteCustomEquipment(itemName, catId){
   if(S.customCatItems&&S.customCatItems[catId]){
     S.customCatItems[catId] = _withoutFirst(S.customCatItems[catId],function(i){return i.n===itemName;});
   }
-  // Remove from all gym equipment lists
-  S.gymProfiles.forEach(function(g){
-    var idx = g.equipment.indexOf(itemName);
-    if(idx>=0) g.equipment.splice(idx,1);
-  });
-  // Remove AI-generated info card if it exists
-  if(S.customExInfo&&S.customExInfo[itemName]){
-    delete S.customExInfo[itemName];
+  // Gym lists and guides refer to equipment by name: clear them only when no other item
+  // (built-in or custom, in any category) still has this name.
+  var _stillNamed=EQUIPMENT_CATALOGUE.some(function(c){ return (c.items||[]).some(function(i){ return i.n===itemName; }); });
+  if(!_stillNamed){
+    // Remove from all gym equipment lists
+    S.gymProfiles.forEach(function(g){
+      var idx = (g.equipment||[]).indexOf(itemName);
+      if(idx>=0) g.equipment.splice(idx,1);
+    });
+    // Remove AI-generated info card if it exists
+    if(S.customExInfo&&S.customExInfo[itemName]){
+      delete S.customExInfo[itemName];
+    }
   }
   saveS();
   buildEquipmentPage();
@@ -29596,11 +29634,11 @@ function openExInfo(exName){
   var ytUrl='https://www.youtube.com/results?search_query='+encodeURIComponent(info.videoSearch||(exName+' proper form'));
 
   var steps=(info.steps||[]).map(function(s,i){
-    return '<div style="display:flex;gap:8px;margin-bottom:6px"><div style="font-size:1rem;color:var(--ye);flex-shrink:0;width:18px;font-weight:700">'+(i+1)+'</div><div style="font-size:12px;color:#ccc;line-height:1.5">'+s+'</div></div>';
+    return '<div style="display:flex;gap:8px;margin-bottom:6px"><div style="font-size:1rem;color:var(--ye);flex-shrink:0;width:18px;font-weight:700">'+(i+1)+'</div><div style="font-size:12px;color:#ccc;line-height:1.5">'+escapeHtml(s)+'</div></div>';
   }).join('');
 
   var mistakes=(info.mistakes||[]).map(function(m){
-    return '<div style="display:flex;gap:6px;margin-bottom:5px"><div style="color:var(--re);flex-shrink:0">•</div><div style="font-size:12px;color:#ccc;line-height:1.5">'+m+'</div></div>';
+    return '<div style="display:flex;gap:6px;margin-bottom:5px"><div style="color:var(--re);flex-shrink:0">•</div><div style="font-size:12px;color:#ccc;line-height:1.5">'+escapeHtml(m)+'</div></div>';
   }).join('');
 
   var content=
@@ -29635,7 +29673,7 @@ function openExInfo(exName){
     ((info.tips&&info.tips.length)
       ?'<div style="background:rgba(245,196,0,.05);border:1px solid rgba(245,196,0,.15);border-radius:8px;padding:11px;margin-bottom:10px">'+
         '<div style="font-size:9px;color:var(--ye);letter-spacing:1px;margin-bottom:6px;text-transform:uppercase">💡 Tips</div>'+
-        info.tips.map(function(t){return '<div style="display:flex;gap:6px;margin-bottom:5px"><div style="color:var(--ye);flex-shrink:0">▸</div><div style="font-size:12px;color:#ccc;line-height:1.5">'+t+'</div></div>';}).join('')+
+        info.tips.map(function(t){return '<div style="display:flex;gap:6px;margin-bottom:5px"><div style="color:var(--ye);flex-shrink:0">▸</div><div style="font-size:12px;color:#ccc;line-height:1.5">'+escapeHtml(t)+'</div></div>';}).join('')+
        '</div>'
       :'')+
     '<a href="'+ytUrl+'" target="_blank" style="display:flex;align-items:center;justify-content:center;gap:8px;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.25);border-radius:8px;padding:11px;text-decoration:none;color:var(--re)">'+
@@ -30909,7 +30947,7 @@ function openStretchInfo(encodedName){
   var ytUrl='https://www.youtube.com/results?search_query='+encodeURIComponent(s.videoSearch||(name+' stretch runner'));
   var gUrl='https://www.google.com/search?tbm=isch&q='+encodeURIComponent(name+' stretch runner form how to');
   var stepsHtml=(s.steps||[]).map(function(step,i){
-    return '<div style="display:flex;gap:8px;margin-bottom:6px"><div style="font-size:1rem;color:var(--ye);flex-shrink:0;width:18px;font-weight:700">'+(i+1)+'</div><div style="font-size:12px;color:#ccc;line-height:1.5">'+step+'</div></div>';
+    return '<div style="display:flex;gap:8px;margin-bottom:6px"><div style="font-size:1rem;color:var(--ye);flex-shrink:0;width:18px;font-weight:700">'+(i+1)+'</div><div style="font-size:12px;color:#ccc;line-height:1.5">'+escapeHtml(step)+'</div></div>';
   }).join('');
   var content=
     '<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">'+
@@ -31340,21 +31378,21 @@ function openCardioInfo(machineName){
   var steps=(info.steps||[]).map(function(s,i){
     return '<div style="display:flex;gap:8px;margin-bottom:6px">'+
       '<div style="font-size:1rem;color:var(--ye);flex-shrink:0;width:18px;font-weight:700">'+(i+1)+'</div>'+
-      '<div style="font-size:12px;color:#ccc;line-height:1.5">'+s+'</div>'+
+      '<div style="font-size:12px;color:#ccc;line-height:1.5">'+escapeHtml(s)+'</div>'+
     '</div>';
   }).join('');
 
   var mistakes=(info.mistakes||[]).map(function(m){
     return '<div style="display:flex;gap:6px;margin-bottom:5px">'+
       '<div style="color:var(--re);flex-shrink:0">•</div>'+
-      '<div style="font-size:12px;color:#ccc;line-height:1.5">'+m+'</div>'+
+      '<div style="font-size:12px;color:#ccc;line-height:1.5">'+escapeHtml(m)+'</div>'+
     '</div>';
   }).join('');
 
   var tips=(info.tips||[]).map(function(t){
     return '<div style="display:flex;gap:6px;margin-bottom:5px">'+
       '<div style="color:var(--gr);flex-shrink:0">→</div>'+
-      '<div style="font-size:12px;color:#ccc;line-height:1.5">'+t+'</div>'+
+      '<div style="font-size:12px;color:#ccc;line-height:1.5">'+escapeHtml(t)+'</div>'+
     '</div>';
   }).join('');
 
@@ -31933,7 +31971,7 @@ function updateDeloadPreview(){
   var focus = S.weekFocus||'general';
   var g = DELOAD_GUIDANCE[focus]||DELOAD_GUIDANCE.general;
   wrap.innerHTML = '<div style="font-weight:700;color:var(--bl);margin-bottom:6px">'+escapeHtml(g.title)+'</div>'+
-    g.steps.map(function(s){return '<div style="padding:2px 0">• '+s+'</div>';}).join('');
+    g.steps.map(function(s){return '<div style="padding:2px 0">• '+escapeHtml(s)+'</div>';}).join('');
 }
 
 function buildExistingDeloadList(){
@@ -31997,7 +32035,7 @@ function buildDeloadActiveBanner(){
   wrap.innerHTML='<div class="deload-week-banner"><div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">'+
     '<span style="font-size:1.2rem">💤</span><div><div style="font-weight:700;color:var(--bl)">DELOAD WEEK ACTIVE</div>'+
     '<div style="font-size:10px;color:var(--mu)">'+escapeHtml(g.title)+'</div></div></div>'+
-    g.steps.map(function(s){return '<div style="font-size:11px;color:var(--mu);padding:2px 0">• '+s+'</div>';}).join('')+
+    g.steps.map(function(s){return '<div style="font-size:11px;color:var(--mu);padding:2px 0">• '+escapeHtml(s)+'</div>';}).join('')+
   '</div>';
 }
 
@@ -32013,7 +32051,7 @@ function buildTodayDeloadBanner(){
   banner.className = 'deload-week-banner';
   banner.innerHTML = '<div style="font-size:10px;font-family:DM Mono,monospace;color:var(--bl);letter-spacing:1px;margin-bottom:6px">💤 DELOAD WEEK</div>'+
     '<div style="font-weight:700;color:#fff;margin-bottom:6px">'+escapeHtml(g.title)+'</div>'+
-    g.steps.map(function(s){return '<div style="font-size:11px;color:var(--mu);padding:2px 0">• '+s+'</div>';}).join('');
+    g.steps.map(function(s){return '<div style="font-size:11px;color:var(--mu);padding:2px 0">• '+escapeHtml(s)+'</div>';}).join('');
   var wc = el('wContent');
   if(wc) wc.insertAdjacentElement('beforebegin', banner);
 }

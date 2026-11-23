@@ -506,6 +506,34 @@ let server, browser;
       S.strengthNotes={}; const sk=getStrKey('Bench Press (Barbell)'); if(sk){ S.strengthNotes[sk]=mk('sn'); buildTodayWorkout(); check(!document.getElementById('sn'),'strength note became HTML'); S.strengthNotes={}; }
       document.querySelectorAll('.mo.show').forEach(m=>m.classList.remove('show'));
     });
+    test('generated names avoid every shared namespace; shared settings outlive a sibling delete; rest data is checked', () => {
+      reset(); buildTodayWorkout(); saveS(); const base=localStorage.getItem('pf_v4');
+      const mk=(id)=>'<i id="'+id+'">x</i>';
+      const good=JSON.parse(base);
+      good.customCatItems={free_weight_stations:[{n:'Synthetic Pad',sub:'a',isCustom:true},{n:'Synthetic Pad',sub:'b',isCustom:true}],functional_stations:[{n:'Synthetic Pad (2)',sub:'c',isCustom:true}]};
+      good.gymProfiles[0].equipment=(good.gymProfiles[0].equipment||[]).concat(['Synthetic Pad (2)']);
+      good.customExInfo=Object.assign({},good.customExInfo,{'Synthetic Pad (2)':{steps:[mk('gs')],mistakes:[mk('gm')],tips:[mk('gt')]}});
+      const bi=REST_PROTOCOLS[0].id;
+      good.enabledRestActivities=Object.assign({},good.enabledRestActivities,{[bi]:false});
+      good.customRestProtocols=[{id:bi,name:'Mine',dur:'5 min',requiredAny:[mk('rq')],steps:['a'],isCustom:true}];
+      check(_commitRestore(validateBackupState(good))===true,'restore rejected: '+window._lastRestoreError);
+      const names=[].concat(S.customCatItems.free_weight_stations,S.customCatItems.functional_stations).map(i=>i.n).sort();
+      check(names.join('|')==='Synthetic Pad|Synthetic Pad (2)|Synthetic Pad (3)','generated name collided: '+names);
+      const gen=S.customCatItems.free_weight_stations.find(i=>i.n!=='Synthetic Pad');
+      deleteCustomEquipment(gen.n,'free_weight_stations');
+      check(S.gymProfiles[0].equipment.includes('Synthetic Pad (2)')&&S.customExInfo['Synthetic Pad (2)'],'sibling delete cleared another item\'s gym setting or guide');
+      const cr=S.customRestProtocols[0]; check(cr.id!==bi&&S.enabledRestActivities[bi]===false,'custom rest kept a built-in id: '+cr.id);
+      buildRestDayMgmtPage(); check(!document.getElementById('rq'),'rest requirement became HTML');
+      openExerciseInfoModal('Synthetic Pad (2)',''); check(!['gs','gm','gt'].some(id=>document.getElementById(id)),'guide list became HTML');
+      document.querySelectorAll('.mo.show').forEach(m=>m.classList.remove('show'));
+      deleteCustomRestActivity(cr.id); confirmYes(); check(S.enabledRestActivities[bi]===false,'deleting the custom activity changed the built-in preference');
+      const bad=(mut)=>{ const d=JSON.parse(base); mut(d); try{ validateBackupState(d); return ''; }catch(e){ return e.message; } };
+      check(/rest activity name/.test(bad(d=>{d.customRestProtocols=[{id:'x',name:{a:1}}];})),'object rest name accepted');
+      check(/rest activity steps/.test(bad(d=>{d.customRestProtocols=[{id:'x',name:'X',steps:[{}]}];})),'object rest step accepted');
+      // the live catalogue keeps rehydrated custom items: take them out for the tests that follow
+      deleteCustomEquipment('Synthetic Pad','free_weight_stations'); deleteCustomEquipment('Synthetic Pad (2)','functional_stations');
+      check(!EQUIPMENT_CATALOGUE.some(c=>c.items.some(i=>/^Synthetic Pad/.test(i.n))),'custom equipment left in the catalogue');
+    });
     test('an untagged unfinished set withholds the increase; a picked date cancels a deferred rollover', () => {
       reset(); const k=dKey(vDate);
       S.weekFocus='power'; const sx=(w,r,lead,done=true)=>{ const s=Object.assign(set(w,r,'wk',done),{targetReps:lead?4:7}); if(lead!=null) s.lead=lead; return s; };
