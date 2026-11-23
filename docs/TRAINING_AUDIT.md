@@ -142,3 +142,122 @@ Made at the user's request. Where it differs from the sections above, this secti
 - **Gym equipment first.** At the gym, machines, cables, free weights and stations are selected, ordered and substituted before sleds and bands, and those before calisthenics. Calisthenics appear only when no gym option fits. Accessories logged at that gym in the last 90 days are offered first within their tier. Home workouts are unchanged.
 
 Verification: the browser suite adds checks for each item above (rest bar on every page/day view and after the last set, drop-set rest, per-focus reps/sets/specialty for 144 combinations, the add-set maximum, 5-minute cardio, Standard/Full band fit, pace calibration, the clock format, gym-first order for 144 combinations, and the new equipment groups). Service-worker shell cache advanced to v21.
+
+## November 22, 2026 addendum: focus consolidation and weekly programs
+
+Supersedes the focus table and the Muscle + Strength / Chest & Core statements above. Driven by a review of the athlete's 16 logged gym sessions (Oct 17 – Nov 22).
+
+What the history showed:
+- **Muscle + Strength was redundant.** Main lifts 4–8 @ 180 s sat between Build Strength (3–5) and Build Muscle (6–12) and changed nothing about exercise choice. Folded into **Build Muscle**; `hybrid` is migrated to `muscle` and normalised wherever an old session is read.
+- **Chest & Core did not work at the gym.** It replaced each day's template with a fixed list, so Upper became Bench / Row / Rotary Torso / Pulldown (4 exercises, 18 sets) and Push became Bench / Incline / Rotary Torso / Shoulder Press, with accessories at an odd 13 reps (midpoint of 10–15). It is now **Home-only** (bodyweight + home gear, `hchestcore`), accessories 10–14. A gym plan left on it returns to the last gym focus actually trained (here: Lose & Tone) and the Home focus keeps Chest & Core.
+- **Every future day was pinned to a manual split.** Week shifts from the Today switcher had written a mixed 8-split cycle (arms, glutes, core, push, pull…) into `dayConfig`, so Auto-Rotate never ran. The Plan page now offers **Follow <program>**, which clears upcoming manual picks.
+- **Strength made every press/row/pulldown a 3–5-rep main lift** at 210 s, giving 3-exercise days with no vertical pull on Upper. Strength now has one or two **lead** lifts (first slot; plus the row on Upper and the press on Full Body) at 3–5 × 4 sets; supporting compounds are 6–8 × 3 @ 150 s; accessories 8–12 @ 90 s.
+
+| Focus | Compounds | Accessories | Program by scheduled gym days |
+|---|---|---|---|
+| Build Strength | lead 3–5 @ 210 s (4 sets); others 6–8 @ 150 s (3) | 8–12 @ 90 s | Full Body ≤3 · Upper/Lower 4+ |
+| Build Muscle | 6–10; lead 150 s, others 120 s (4 sets) | 10–14 @ 90 s | Full Body ≤3 · Upper/Lower 4 · PPL 5+ |
+| Lose & Tone | 10–14 @ 75 s | 10–14 @ 75 s | Full Body ≤3 · Upper/Lower 4+ |
+| General Fitness | 8–12 @ 75 s | 8–12 @ 75 s | Full Body ≤3 · Upper/Lower 4+ |
+| Endurance | 15–20 @ 35 s | 15–20 @ 35 s | Full Body ≤3 · Upper/Lower 4+ |
+
+Rationale: these thresholds are **planning defaults, not claims of an optimum**. Frequency mostly matters as a way to distribute weekly hard sets (Schoenfeld 2016 suggested twice-weekly exposure; the volume-equated 2019 analysis and ACSM 2026 do not establish a best frequency). Five-day PPL gives each day about 1.67 exposures a week on a continuous rotation, so only Build Muscle uses it and only at 5+ days. Heavier loading drives maximal strength; Upper / Lower simply spreads the heavy lifts. Endurance moves to Upper / Lower at 4+ days so the same muscles are not trained on consecutive days alongside running (NSCA frequency guidance counts other training load). Compounds sit at 6–10 for load progression and isolation at 10–14 for practical loading; the load meta-analyses were largely to momentary failure, so the RIR targets are a practical choice rather than a tested equivalence. Singer et al. 2024 found little extra hypertrophy beyond ~90 s rest, so 90 s is the accessory default and longer compound rests are for performance.
+
+Other changes:
+- **Splits are grouped by program** in every picker (Today switcher, Plan day, schedule editor), the focus's program first and open. Core, Arms and Glutes are "Add-on days". The single-muscle days (chest, back, shoulders, quads, hamstrings, calves) overlapped Push/Pull/Lower and are no longer listed; they still load for history and existing plans. Template headings: Upper Body, Lower Body, Full Body.
+- **Auto-Rotate follows the workouts actually saved.** A past gym day that was not trained no longer uses up a rotation slot. The Today switcher's recommendation is the program's next split (`programSplitFor`).
+- Upper template order is Bench, Row, Pulldown, Incline, so short sessions keep a vertical pull.
+- Filler exercises never make a third exercise of one movement pattern (no third overhead press on Push, no box squat after back squat and lunges); core days are exempt so ab machines come before calisthenics.
+- At an equipment cap (no heavier step) the reps already earned are held instead of being cut to the range ceiling.
+
+Verification: 226 browser checks pass, including new checks for program choice by focus × gym days, rotation from saved workouts, migration of both retired focuses, lead-lift tiers, the grouped pickers and the Follow button. All 75 gym focus × split × intensity combinations and the Home Chest & Core workout were also driven with the athlete's real backup.
+
+### Review fixes (November 23, 2026)
+
+An external review of this change found, and this pass fixed:
+- **Restores are atomic.** File import, Paste Backup and NAS restore all go through `validateBackupState` and `_commitRestore`, which rolls back to the previous state if loading or migration fails (NAS restore previously skipped validation).
+- **Reset All Data** works through both confirmations (`confirmYes` clears its callback before running it).
+- **Lead roles are recorded.** Saved exercises carry `lead`; history is judged against the role it was prescribed for (sessions saved before the flag count a Strength main lift as a lead). A lift that changes role on Strength gets its load re-derived for the new rep target instead of progressed. Rich templates keep `anchor`/`lead`; older templates infer them.
+- **Rotation.** The auto-split cache is per calendar day and the Plan rebuilds on midnight rollover; a saved workout counts even if its day was later re-typed; a day a Today switch shifted the skipped workout onto is the program's plan for that day.
+- **Follow** pins an in-progress workout's current split even when it came from the weekly default. A schedule with no gym days says so instead of claiming three.
+- **Swaps** between a main lift and an accessory take the replacement's own reps and rest.
+- `hybrid` history counts as Build Muscle in migration and in the progression focus comparison.
+
+Second review round (same day):
+- **Restore is a single transaction.** The candidate is migrated and render-checked (`_restoreSmoke`) in memory with `saveS` and catalogue rehydration suppressed (`_restoreDryRun`); its final bytes are written once, then it becomes the live state. A storage failure at that write leaves everything as it was. `validateBackupState` also rejects any top-level field whose type differs from a fresh state (e.g. `daySched: null`, `shoes: {}`).
+- **Roles live on the sets.** Every unlogged work set is stamped `lead`, so work logged as a lead lift stays lead work through a live re-plan. History role = the sets' role, then the exercise flag, then the legacy assumption; work from both roles in one exercise never triggers a load increase. Swaps pass the destination slot's role into progression, and a role change derives its load from the best single completed set (`e1rm`), never from one set's load and another's reps.
+- **Swaps across classes** take the replacement's set count, priority and ceiling as well as its reps and rest.
+- **Templates** carry `roles:1`; older ones infer leads only from their own `baseSplit`.
+- **Day rollover** is checked on visibility, focus and pageshow, and once a minute while the app stays open.
+- **Copy.** Program descriptions describe the schedule the app actually produces (a fixed 5-day PPL preset gives Legs one slot; Full Body is best on non-consecutive days). With no gym days, no program is recommended anywhere.
+
+Third review round:
+- **Workout snapshots are validated on restore.** `exList` must be an array of named exercises; `exOrder`, `supersets`, cardio blocks, swap records, notes, added exercises and the workout timer must have their expected types; the smoke check also builds every saved session's exercise list.
+- **Rollover respects work in progress.** It waits while any sheet is open, and an unsaved workout with logged activity stays on screen. The save sheet is bound to the day and mode it opened for (`_pendingSaveTarget`).
+- **Mixed-role history.** Partly tagged work counts as mixed. On a Strength main lift, mixed work informs only the role being prescribed now (`getLastExSession(name, focus, curLead)`); if none was done in that role the other role's work re-derives the load, and untagged work alongside tagged work never adds load. The mixed guard applies only where the role changes the dose (Strength main lifts). A live re-plan backfills the old slot's role onto logged sets that predate the stamp.
+- A swap to a main lift takes priority 1; with no gym days the Today switcher recommends nothing either.
+
+Fourth review round:
+- **Restore checks.** `exOrder` may not hold negative or repeated indices, and a full-length order must be a permutation (shorter or longer orders are repaired by the renderer). Warm-up rows and run `splits` are validated. The smoke check walks every saved Gym and Home session under its own date and mode and resolves every ordered exercise.
+- **Each role keeps its planned sets.** Mixed-role filtering keeps that role's unfinished sets, so 3 of 4 lead sets is not a completed lead prescription.
+- **Legacy backfill on re-plan.** For a Strength main lift, a logged set's own target decides its role (3–5 reps = lead); other lifts take the old slot's role.
+- **Deferred Today advance.** The date change is recorded at once; Today moves to the new day only when the day on screen has no unsaved work under way, and a running cardio countdown counts as work.
+
+Fifth review round:
+- **Restore normalises and renders.** Numbers saved as text in history (distance, duration, volume, sets, cardio minutes, calories, elevation), body weights and measurements are converted to numbers; anything non-numeric fails. Measurement rows must be objects with a valid date. Inside the dry run the smoke check also renders Body, Marathon, History (and every history entry's detail), Progress, Goals and Home, so a shape the validator misses fails before the write; a rejected restore repaints the pages with the live state (`_repaintAfterRestore`). The history detail no longer assumes `day`, `phase`, `week` or an array `cardio`.
+- **Unknown-role work withholds load.** In mixed-role history any untagged straight work set, done or not, keeps the role's work from counting as complete.
+- **A picked date cancels a deferred advance.** `_rolloverPending` holds the date key of the workout it is waiting on; if the viewed date is no longer that day, the pending advance is dropped.
+
+Sixth review round:
+- **The restore check renders off screen.** `_restoreRenderCheck` renders Body, Marathon, History, Progress, Goals, Home, Nutrition, Plan (with saved workouts) and Equipment from the candidate inside `_inIsolatedDom`: page lookups go to an inert copy of the app, timers and storage writes are held, and the timer ids and history selection are put back. Nothing reaches the screen, so a rejected restore or a failed final write leaves the page, scroll, open sheet and fasting timer as they were, with no repaint. The stored bytes are fixed before the render, and the live state is parsed from them.
+- **History detail is built, not mounted.** `_histDetailParts(entry)` returns the title and markup; `openHistDetail` mounts it. Imported text in the history list and detail (day, focus, phase, pace, HR, splits, cardio names…) is escaped, and history ids must be numbers because they are placed in click handlers.
+- **More restore validation.** Numbers must be numbers or numeric text (`[3]` and `true` fail). No top-level list may contain empty rows or mix records with bare values. Fasts need a start (epoch or date text); saved workouts need an exercise list. Food rows' macros must be numeric and numeric text is converted, so two "100" kcal rows total 200; water and the water log are checked.
+
+Seventh review round:
+- **Imported names render as text.** User-entered names placed into page markup are escaped wherever they appear: exercise names (Today, History list, templates, swap and stall views), saved-workout names and previews, food, recipe, ingredient, meal-plan and beverage names, custom equipment and gym-profile names, shoes, supplements and goals. Text shown through `textContent` (toasts, confirms, prompts) is left as it is.
+- **History ids are unique numbers.** `migrateState` gives any history entry with a missing, non-numeric or repeated id the next free number (max + 1), so the detail sheet and Delete always act on one workout. Existing unique ids are unchanged.
+- **Saved workouts are checked down to their set rows.** Each exercise needs a name; `sets`, `reps`, `rest` and `p` are numbers or descriptive text; optional `setData` must be an array of set rows with numeric-or-blank weight and reps.
+- **Fast times are epoch milliseconds.** Date text is converted on restore, and a blank start is rejected.
+
+Eighth review round:
+- **Escaping by construction, not by finding.** Every record property concatenated into page markup now goes through `escapeHtml` (about 480 sites, applied mechanically): exercise targets, serving labels, custom-library muscle labels, equipment descriptions and notes, template rep text, set types, injury tags and the rest. Left raw on purpose: `body`/`html` fields that hold the app's own markup, `length`, and plain-text sinks (toasts, confirms, prompts, `textContent`, storage keys, the AI prompt). A sweep of all ten pages and every history detail, with a fresh profile and a real backup, shows no double-escaped text.
+- **Inline handlers are quote-safe.** All 101 handlers that pass a value inside a quoted JS string (`onclick="f('…')"`) now use `jsArg(v)`, which JS-escapes backslashes, quotes and line breaks and then HTML-escapes, so a name such as `Curl "Pro" 12' Bar` reaches Info, Chart, Swap and the rest intact. The Today rest button takes `parseInt(rest)`.
+- **Record ids are unique positive safe integers** in history, saved workouts, recipes, shoes and race results (`migrateState`). The first holder of a good id keeps it; missing, text, 0, unsafe (`1e20`) or repeated ids get the smallest unused integers, which new `Date.now()` ids never meet.
+- **Saved workouts:** `sets`, `rest` and priority are numbers (a label such as "90 seconds" keeps its number); `reps` may stay descriptive.
+
+Ninth review round:
+- **One delete, one record.** Deleting a gym profile or a My Foods entry removes only the first match. `migrateState` also gives a repeated gym-profile id a new one (`id-2`, …) and a repeated food name a suffix (` (2)`), dropping exact duplicate foods; references keep pointing at the first holder.
+- **Composed labels.** Equipment notes, extra-activity metadata (`meta.join`), activity chip data attributes and search-query echoes (beverages, the exercise library, rest items) are escaped.
+- **Plain text stays plain.** The sweep's escaping was removed where the text never becomes markup: share text (including PR exercise names, which were escaped before this PR), the deload confirmation, the barcode serving label (escaped again at display), stored beverage names, the rest-protocol search haystack, coaching tips and the home run glance.
+- **Plan tooltips** use attribute escaping, so a note keeps its quotes and literal `&quot;` exactly.
+
+Tenth review round:
+- **Text-keyed records, done properly.** `_uniqueRecordKeys` (in `migrateState`) reserves every original key first, keeps the first holder of a repeated key (and every reference to it), gives later holders the next free `-N` / ` (N)`, and drops exact copies of a record already kept under that key. It tracks keys in a `Set`, so ids such as `constructor` are ordinary keys. Applied to gym profiles (id; exact copies kept), My Foods, custom accessories, custom rest activities (id; a renamed copy inherits the on/off state), and custom exercises and equipment per category (name).
+- **Single-record deletes everywhere they were filter-based:** custom rest activities, custom exercises (store and live catalogue, custom item first), custom equipment (same) and custom accessories use `_withoutFirst`.
+- **More text kept as text:** the Today strength note and superset partner, the Progress plateau label, the progression-chart empty message, custom rest-activity duration, equipment and steps (management, Today card and Info), the History no-match message, custom-library muscles, stretch names and the recovery split name.
+- **Custom rest activities** missing `requiredAny` or `steps` no longer break the Recovery page: migration supplies empty lists, and the restore render check now includes the Recovery management page.
+
+Eleventh review round:
+- **One namespace per shared reference.** `_uniqueRecordKeys` (now top-level, run by `_repairTextKeys` in `migrateState` and again in `rehydrateCustomCatalogues` once the catalogues exist) takes `reserved` keys that generated names must avoid and `held` keys that belong to someone else. Custom exercises and custom equipment are each one namespace across all their categories, with the built-in catalogue names reserved, so a generated "Synthetic Pad (3)" never lands on another category's "Synthetic Pad (2)". Exact copies are dropped only within the same category. Custom rest activities treat built-in `REST_PROTOCOLS` ids as held: a custom activity using one gets a new id, and the built-in's on/off preference is untouched.
+- **Shared settings outlive a sibling.** Deleting custom equipment clears gym equipment lists and its guide only when no item of that name is left in any category; deleting a custom rest activity clears its on/off preference only when no built-in or custom activity still uses the id.
+- **Guide lists and requirements are text.** Every tips / mistakes / steps list item (exercise, cardio, rest, diet, program guides) and rest-activity requirements are escaped; none of the 872 built-in lists contains markup.
+- **Custom rest activities are validated on restore:** a non-blank string name, string id, string or number text fields, and string-only `requiredAny` / `steps`.
+
+Twelfth review round:
+- **Equipment and exercises are one namespace.** They share guides (`customExInfo`) and history by name, so every built-in and custom name in both catalogues is reserved before either is repaired, and exercise renames are reserved before equipment. Deleting custom equipment removes its guide only when no equipment *or exercise* of that name remains.
+- **Cold start and restore agree.** Stores whose keys are shared with built-in catalogues (rest activities, accessories, custom exercises and equipment) are repaired only once `REST_PROTOCOLS`, `ACCESSORY_CATALOGUE`, `EXERCISE_CATALOGUE` and `EQUIPMENT_CATALOGUE` exist — in a restore's migration, or in `rehydrateCustomCatalogues` on a cold start — and the repair is idempotent. Custom holders of a held (built-in) key are tracked, so an exact copy among them is dropped; renamed ones start enabled and the built-in's preference is untouched.
+- **Preferences follow renames.** A renamed custom exercise carries its `category::name` on/off setting to the new key.
+- **Built-ins survive custom deletes.** Deleting a custom exercise or equipment row removes only a custom catalogue row, never a built-in one of the same name; deleting a custom accessory keeps the on/off preference while a built-in or another custom accessory still has the name. Custom accessories' generated names avoid built-in accessory names.
+- **Rest durations:** a numeric `dur` becomes "N min" on migration, and Log Done treats a missing duration as unspecified.
+
+Thirteenth review round:
+- **Every renamed exercise keeps its setting.** The `category::name` on/off preferences are snapshotted before any rename; each renamed row takes its old key's original value, and the old key is removed only afterwards and only if no custom or built-in row in that category still has the old name (so a built-in's disabled setting stays).
+- **Catalogue stores are validated on restore:** `customExCatItems` / `customCatItems` must map categories to lists of named rows, and custom accessories need names. The custom-equipment delete's ownership checks skip a malformed category instead of throwing half-way.
+- **Rest durations:** a negative numeric `dur` is rejected; Log Done takes the first number including a fraction (12.5) and ignores a negative one.
+
+Fourteenth review round:
+- **Live catalogues are rebuilt from the saved state.** `rehydrateCustomCatalogues` first removes every custom row (flagged `isCustom`, or tracked in `_customCatalogueRows` when it came from a saved record) from the equipment and exercise catalogues, then adds the current saved custom records back. A second restore in the same tab therefore leaves no row from the first.
+- **Ownership never counts a live leftover.** `_builtinNames` and the custom-equipment delete count built-in rows plus the custom records saved now, so deleting the last owner clears its gym setting and guide even after several restores. Catalogue deletes recognise custom rows the same way (`_isCustomRow`).
+
+Fifteenth review round (approved at 0398975; minor follow-up):
+- **Delete buttons for unflagged custom records.** The Equipment row shows Delete when `_isCustomRow(item)` (saved custom records without `isCustom` included), and Recovery management shows Delete for any activity stored in `S.customRestProtocols`, flagged or not. Custom exercises and accessories already decided this from the saved store.

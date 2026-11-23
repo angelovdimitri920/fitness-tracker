@@ -1,6 +1,6 @@
 # PF Fitness Tracker — Project Context & Development Notes
 
-> **Current verification:** Read [TRAINING_AUDIT.md](docs/TRAINING_AUDIT.md) before changing training logic — including its **October 11** and **October 31 addenda**, which supersede earlier statements there (started-session snapshots, automatic advanced sets, set maximums, time estimates, equipment groups). Run `npm ci` and `npm test` (Playwright browser required; in a container with a preinstalled Chromium use `CHROMIUM_PATH=/opt/pw-browsers/chromium npm test`). A *live* session (today or later, unsaved) re-plans on split / focus / intensity / gym changes, carrying logged sets by exercise identity; saved and past sessions keep their snapshot. Records and progression must use comparable completed work sets — specialty extras (`spec:true`) never count.
+> **Current verification:** Read [TRAINING_AUDIT.md](docs/TRAINING_AUDIT.md) before changing training logic — including its **October 11**, **October 31** and **November 22 addenda**, which supersede earlier statements there (started-session snapshots, automatic advanced sets, set maximums, time estimates, equipment groups). Run `npm ci` and `npm test` (Playwright browser required; in a container with a preinstalled Chromium use `CHROMIUM_PATH=/opt/pw-browsers/chromium npm test`). A *live* session (today or later, unsaved) re-plans on split / focus / intensity / gym changes, carrying logged sets by exercise identity; saved and past sessions keep their snapshot. Records and progression must use comparable completed work sets — specialty extras (`spec:true`) never count.
 
 Context for the developer and for any future [Claude Code](https://claude.com/claude-code)
 session working on this repo. The user-facing overview lives in [`README.md`](README.md); this
@@ -38,11 +38,28 @@ persisted to `localStorage`. No backend, no accounts, no analytics.
     exercises `{n,t,sets,reps,rest,p}` and a cardio finisher.
   - `FOCUS_META` / `SETS_BY_FOCUS` / `FOCUS_PROGRESSION` / `INTENSITY_BANDS` — the focus
     (tone/muscle/power/endurance/general) × intensity (quick/standard/full) parameters.
+    `chestcore` is `homeOnly` (never a gym focus; `getWorkoutFocus` maps it away at the gym).
+    The retired `hybrid` (Muscle + Strength) is mapped to `muscle` by `normalizeFocus` and
+    `migrateState`. **Lead lifts:** `_isLeadSlot` (`ex.anchor` = first slot, or a template
+    `lead:true` — the row on Upper, the press on Full Body). Strength: lead 3–5 @ 210 s and 4
+    sets, other compounds 6–8 @ 150 s and 3 sets. Muscle: compounds 6–10 (lead 150 s, others
+    120 s), accessories 10–14 @ 90 s. Saved exercises record `lead`; history is judged by the
+    role it had (unflagged old Strength main lifts = lead), and a role change re-derives the load
+    (`_leadRoleOf`). Work sets carry `lead` too (survives re-plans; mixed roles never
+    progress). Templates keep `anchor`/`lead` (`roles:1`).
+  - **Programs.** `TRAINING_PROGRAMS` (ppl / upperlower / fullbody) + `FOCUS_PROGRAM_RULES`
+    (focus × scheduled gym days) → `recommendedProgramKey`; `autoSplitPool()` is that
+    program's rotation. Auto-rotate walks from the last SAVED gym workout — past untrained days
+    don't use a slot (`rotationTodayKey`, test seam `ROTATION_TODAY_OVERRIDE`).
+    `programSplitFor(k)` is the recommendation in the Today switcher. Pickers render programs
+    then `ADDON_GYM_SPLITS` (core/arms/glutes) via `renderGymSplitFamilies(renderChoice)` —
+    `renderChoice(key,{label,program,recommended})`. The old single-muscle splits (chest, back,
+    quads…) still exist in `WTPL` for history but are only listed while selected.
   - `MIN_WORK_SETS` (= 3) — **hard rule**: no exercise is ever prescribed, or allowed to be
     edited down to, fewer than three work sets. Enforced in `_focusSetCount`, in the
     `getRenderedExList` legacy fallback, and in `removeExtraSet`.
   - `MAX_SETS_BY_FOCUS` / `workSetRange(ex, focus)` — the ceiling, by focus and main-lift vs
-    accessory (Strength / Muscle + Strength / Muscle main lifts up to 6; Tone / General /
+    accessory (Strength / Muscle main lifts up to 6; Tone / General /
     Endurance up to 4). Full adds a set to the main lifts of the strength and muscle focuses
     (`fullComp`); `addExtraSet` stops at the max; the card shows the range ("3–4 sets").
   - `TIME_MODEL` — every constant behind the duration estimate in one place (per-rep tempo, set
@@ -68,7 +85,7 @@ persisted to `localStorage`. No backend, no accounts, no analytics.
   - `FINISHER_CAP` (inside `selectWorkoutForDuration`) — cardio is capped per focus rather than
     stretched to fill the band; when the cap bites, the builder adds another **lift** instead.
   - `QUICK_REST_BY_FOCUS` — **Gym** Quick sessions rest at the short end of each focus's own
-    range (Muscle / Muscle + Strength 90 s, Strength 3 min, General 60 s, Tone 70 s, Endurance 30 s)
+    range (Muscle 90 s, Strength 3 min, General 60 s, Tone 70 s, Endurance 30 s)
     so 3 exercises × 3 work sets fit 30–45 min; if the plan still runs over, the finisher is
     shortened or skipped (`_cardioPlan.finisherMin` 0, shown as a note) before any exercise is
     dropped. Passed as `prescriptionForFocus(ex, focus, quickGym)`. Home and Standard/Full rests are
@@ -349,7 +366,10 @@ test that they degrade without breaking anything.
      anchor download is unreliable in an iOS standalone PWA and **fails silently** — there is no
      error to catch, so it cannot be detected, only avoided by trying share first.
    - **`importFromText()` ("Paste Backup") is the escape hatch** when a file never made it off
-     the old device. Same restore path as `importData`, just parsed from pasted text.
+     the old device. Same restore path as `importData`, just parsed from pasted text. All three
+     restores (file, paste, NAS) validate with `validateBackupState` and write via
+     `_commitRestore`: the candidate is migrated and render-checked in memory with writes
+     suppressed (`_restoreDryRun`), then written once — a failure changes nothing.
    - **On iOS a home-screen PWA has its own storage container, separate from Safari at the same
      URL.** Opening the URL in Safari will NOT show an installed app's data. This is why
      migrating between installs has to go through an export, and why deleting a home-screen

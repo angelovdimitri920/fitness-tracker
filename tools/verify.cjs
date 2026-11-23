@@ -33,7 +33,7 @@ let server, browser;
     const test = (name, fn) => { try { fn(); results.push({ name, pass: true }); } catch (e) { results.push({ name, pass: false, error: e.message }); } };
     const check = (ok, msg) => { if (!ok) throw new Error(msg); };
     const reset = () => {
-      S = initS(); migrateState(); S.prefs.autoRotateSplits = false; S.prefs.autoTimer = false; S.prefs.timerSound=false; S.prefs.haptics=false;
+      S = initS(); migrateState(); ROTATION_TODAY_OVERRIDE = '2000-01-01'; S.prefs.autoRotateSplits = false; S.prefs.autoTimer = false; S.prefs.timerSound=false; S.prefs.haptics=false;
       S.prefs.autoSuperset = false; _advSuggestEnabled = false;
       vDate = new Date('2026-10-01T12:00:00'); cMode = 'gym';
       S.dayConfig[dKey(vDate)] = { type: 'gym', split: 'upper' };
@@ -53,9 +53,9 @@ let server, browser;
       check(getLastExSession('Bench Press (Barbell)').weight===100, 'must use previous calendar date');
     });
     test('muscle progress preserves earned reps instead of resetting to floor', () => {
-      reset(); S.weekFocus='muscle'; S.history=[history('2026-09-29',[set(100,10),set(100,10),set(100,10)])];
-      const p=getProgression('Bench Press (Barbell)',9,3,0.95);
-      check(p.weight===100 && p.reps>=10,JSON.stringify(p));
+      reset(); S.weekFocus='muscle'; S.history=[history('2026-09-29',[set(100,9),set(100,9),set(100,9)])];
+      const p=getProgression('Bench Press (Barbell)',8,3,0.95);
+      check(p.weight===100 && p.reps>=9,JSON.stringify(p));
     });
     test('exhausted sets do not trigger automatic load increases', () => {
       reset(); S.weekFocus='muscle'; S.history=[history('2026-09-29',Array.from({length:3},()=>({...set(100,12),rpe:10})))];
@@ -164,18 +164,480 @@ let server, browser;
       S.weightEntry[name]='added';updateSet(0,0,'weight','20');const w=Number(S.sessions[k].gym.exercises[0].sets[0].weight);
       check(Math.abs(w-(fromDisplayWeight(20)+getBaseWeight(name)))<0.001,'unit/base double conversion');
     });
-    test('hybrid has heavier main lifts and moderate-rep accessories', () => {
-      reset();S.weekFocus='hybrid';
-      check(prescriptionForFocus({n:'Bench Press (Barbell)'},'hybrid').reps===6,'main range');
-      check(prescriptionForFocus({n:'Dumbbell Lateral Raises'},'hybrid').reps===10,'accessory range');
-      check(exerciseProgressionRule('Dumbbell Lateral Raises').ceil===12,'accessory progression');
-      check(prescriptionForFocus({n:'Bench Press (Barbell)'},'hybrid').rest===180,'main rest');
-      S.prefs.autoRotateSplits=true;S.dayConfig={};_autoSplitCache={};
-      check(['2026-09-28','2026-09-29','2026-10-01','2026-10-02','2026-10-03'].map(autoSplitFor).join(',')==='upper,lower,push,pull,lower','five-day split');
-      S.setup.gymDays=[1,3,5];_autoSplitCache={};check(autoSplitFor('2026-09-30')==='fullbody','three-day split');
+    test('each focus trains through its own weekly program, rotating from the workouts actually done', () => {
+      reset();
+      const want={power:'fullbody,fullbody,upperlower,upperlower,upperlower,upperlower',muscle:'fullbody,fullbody,upperlower,ppl,ppl,ppl',
+        tone:'fullbody,fullbody,upperlower,upperlower,upperlower,upperlower',general:'fullbody,fullbody,upperlower,upperlower,upperlower,upperlower',
+        endurance:'fullbody,fullbody,upperlower,upperlower,upperlower,upperlower'};
+      for(const [f,w] of Object.entries(want)) check([2,3,4,5,6,7].map(d=>recommendedProgramKey(f,d)).join(',')===w,f+' program: '+[2,3,4,5,6,7].map(d=>recommendedProgramKey(f,d)));
+      S.weekFocus='muscle';S.setup.gymDays=[1,2,3,4,5];S.setup.runDays=[];S.prefs.autoRotateSplits=true;S.dayConfig={};S.history=[];_autoSplitCache={};
+      const week=['2026-09-28','2026-09-29','2026-09-30','2026-10-01','2026-10-02'].map(autoSplitFor);
+      check(week.every(x=>['push','pull','lower'].includes(x)),'muscle at 5 days is not PPL: '+week);
+      for(let i=1;i<week.length;i++) check(week[i]===_nextAutoSplit(week[i-1]),'PPL out of order: '+week);
+      S.weekFocus='tone';_autoSplitCache={};
+      const ul=['2026-09-28','2026-09-29','2026-09-30'].map(autoSplitFor);check(ul.every(x=>['upper','lower'].includes(x))&&ul[0]!==ul[1],'tone at 5 days is not Upper/Lower: '+ul);
+      S.setup.gymDays=[1,3,5];_autoSplitCache={};check(autoSplitFor('2026-09-30')==='fullbody','three-day program');
+      // A missed past gym day doesn't use up its slot: the next workout follows the last one saved.
+      S.weekFocus='muscle';S.setup.gymDays=[1,2,3,4,5];ROTATION_TODAY_OVERRIDE='2026-10-05';_autoSplitCache={};
+      S.history=[{id:1,date:'2026-09-28',type:'gym',split:'push',exercises:[]}];
+      check(autoSplitFor('2026-10-05')==='pull'&&programSplitFor('2026-10-05')==='pull','skipped Pull was dropped: '+autoSplitFor('2026-10-05'));
+      check(autoSplitFor('2026-10-06')==='lower','rotation does not continue after today');
+      ROTATION_TODAY_OVERRIDE='2000-01-01';
+    });
+    test('retired and Home-only focuses migrate to a gym focus', () => {
+      reset();S.weekFocus='hybrid';S.homeFocus='hybrid';migrateState();check(S.weekFocus==='muscle'&&S.homeFocus==='muscle','Muscle + Strength not folded into Build Muscle');
+      reset();S.weekFocus='chestcore';delete S.homeFocus;
+      S.history=[{id:1,date:'2026-09-20',type:'gym',trainingFocus:'tone',exercises:[]},{id:2,date:'2026-09-25',type:'gym',trainingFocus:'chestcore',exercises:[]}];
+      migrateState();check(S.weekFocus==='tone'&&S.homeFocus==='chestcore','Chest & Core gym focus not moved to Home: '+S.weekFocus+'/'+S.homeFocus);
+      check(!buildWeekFocusRow()&&!el('weekFocusRow').querySelector('[onclick*="hybrid"]')&&!el('weekFocusRow').querySelector('[onclick*="chestcore"]'),'retired focus still offered on Plan');
+      check(normalizeFocus('hybrid')==='muscle'&&exerciseProgressionRule('Dumbbell Lateral Raises','hybrid').floor===10,'old history focus not normalized');
+    });
+    test('restores validate first and roll back when loading fails; reset passes both confirmations', () => {
+      reset(); S.history=[history('2026-09-29',[set(100,8)])]; saveS();
+      _nasApplyRestore({setup:{}});
+      check(S.history.length===1&&!el('confirmModal').classList.contains('show'),'incomplete NAS backup reached the confirm step');
+      const before=localStorage.getItem('pf_v4'), prevS=S, good=JSON.parse(before), orig=migrateState;
+      migrateState=function(){ throw new Error('boom'); };
+      let ok; try{ ok=_commitRestore(good); } finally { migrateState=orig; }
+      check(ok===false&&S===prevS&&localStorage.getItem('pf_v4')===before,'failed restore did not roll back');
+      resetAllData(); confirmYes(); check(el('confirmModal').classList.contains('show'),'second reset confirmation never opened');
+      confirmYes(); check(!S.history.length,'reset stopped at the second confirmation');
+    });
+    test('rotation follows the calendar day and the same saved sequence as the program', () => {
+      reset(); S.weekFocus='muscle'; S.setup.gymDays=[0,1,2,3,4,5,6]; S.setup.runDays=[]; S.prefs.autoRotateSplits=true; S.dayConfig={};
+      S.history=[{id:1,date:'2026-10-03',type:'gym',split:'push',exercises:[]}];
+      ROTATION_TODAY_OVERRIDE='2026-10-04'; _autoSplitCache={};
+      check(autoSplitFor('2026-10-06')==='push','setup: '+autoSplitFor('2026-10-06'));
+      ROTATION_TODAY_OVERRIDE='2026-10-05'; // midnight passes with Sunday's Pull unsaved, no cache clear
+      check(autoSplitFor('2026-10-05')==='pull'&&autoSplitFor('2026-10-06')==='lower','stale rotation after midnight: '+autoSplitFor('2026-10-06'));
+      S.dayConfig['2026-10-03']={type:'rest'}; ROTATION_TODAY_OVERRIDE='2026-10-04'; _autoSplitCache={};
+      check(autoSplitFor('2026-10-04')==='pull'&&programSplitFor('2026-10-04')==='pull','saved workout on a re-typed day ignored: '+autoSplitFor('2026-10-04'));
+      S.dayConfig={'2026-10-05':{split:'pull'},'2026-10-04':{split:'lower',todaySwitch:{changed:{'2026-10-05':{prev:null,set:'pull'}}}}};
+      check(programSplitFor('2026-10-05')==='pull','shifted day disagrees with the program');
+      ROTATION_TODAY_OVERRIDE='2000-01-01';
+    });
+    test('Follow keeps an in-progress workout on its weekly-default split; zero gym days stays zero', () => {
+      reset(); const today=dKey(new Date()), dow=new Date().getDay();
+      S.weekFocus='muscle'; S.setup.gymDays=[0,1,2,3,4,5,6]; S.prefs.autoRotateSplits=false; S.dayConfig={}; S.daySched[dow]='lower';
+      S.sessions[today]={gym:{intensity:'standard',exercises:{0:{sets:[{weight:'100',reps:'8',type:'wk',done:true}]}},cardio:{},cardioBlocks:{}}};
+      applyRecommendedProgram();
+      check(S.prefs.autoRotateSplits&&getEffTpl(today)==='lower','active workout changed split: '+getEffTpl(today));
+      delete S.sessions[today]; S.setup.gymDays=[]; renderPlanProgramCard();
+      check(gymDaysPerWeek()===0&&/No gym days/.test(el('planProgramCard').textContent),'empty schedule still claims gym days');
+    });
+    test('Strength judges history by the role it was prescribed for and re-derives load on a role change', () => {
+      reset(); S.weekFocus='power'; const k=dKey(vDate);
+      const row=(lead)=>({id:1,date:'2026-09-29',type:'gym',trainingFocus:'power',exercises:[{name:'Cable Low Row',lead:lead,targetReps:4,plannedWorkSets:3,sets:[set(100,4),set(100,4),set(100,4)]}]});
+      S.history=[row(true)];
+      S.sessions[k]={gym:{intensity:'standard',exercises:{},cardio:{},cardioBlocks:{},exList:[{n:'Bench Press (Barbell)',anchor:true,reps:4,sets:4},{n:'Cable Low Row',reps:7,sets:3}]}};
+      check(getLastExSession('Cable Low Row').ceilingHit,'lead history judged against today\'s support range');
+      const p=getProgression('Cable Low Row',7,3,1);
+      check(p.weight<100&&/rep range/.test(p.msg),'role change progressed the load: '+JSON.stringify(p));
+      S.sessions[k].gym.exList[1].lead=true;
+      const q=getProgression('Cable Low Row',4,4,1); check(q.weight>100,'same role did not progress: '+JSON.stringify(q));
+      S.weekFocus='muscle'; S.history=[{id:2,date:'2026-09-29',type:'gym',trainingFocus:'hybrid',exercises:[{name:'Bench Press (Barbell)',targetReps:8,plannedWorkSets:3,sets:[set(100,8),set(100,8),set(100,8)]}]}];
+      check(getProgression('Bench Press (Barbell)',8,4,1).msg!=='adjusted for the new focus','hybrid history treated as a different focus');
+    });
+    test('rich templates keep lead roles; swaps between main lift and accessory take the new dose', () => {
+      reset(); S.weekFocus='power'; const k=dKey(vDate);
+      S.sessions[k]={gym:{intensity:'standard',exercises:{},cardio:{},cardioBlocks:{},exList:[{n:'Bench Press (Barbell)',anchor:true,reps:4,sets:4,rest:210},{n:'Cable Low Row',lead:true,reps:4,sets:4,rest:210},{n:'Dumbbell Lateral Raises',reps:10,sets:3,rest:90}]}};
+      const cap=_captureRichTemplate(k);
+      S.workoutTemplates=[{id:'t1',name:'T',exercises:cap.exercises},{id:'t2',name:'Old',baseSplit:'upper',exercises:cap.exercises.map(e=>({n:e.n,t:e.t,sets:e.sets,reps:e.reps,rest:e.rest,p:e.p}))}];
+      applyWorkoutTemplate('t1'); let L=S.sessions[k].gym.exList;
+      check(L[0].anchor&&L[1].lead&&!L[2].lead,'template lost lead roles');
+      applyWorkoutTemplate('t2'); L=S.sessions[k].gym.exList;
+      check(L[0].anchor&&L[1].lead,'old template roles not inferred');
+      const sw=swapPrescription({n:'Bench Press (Barbell)',anchor:true,reps:4,sets:4,rest:210,p:1},{sets:[]},'Dumbbell Lateral Raises','Shoulders',k);
+      check(sw.exercise.reps>=8&&sw.exercise.reps<=12&&sw.exercise.rest===90,'accessory inherited the lead dose: '+sw.exercise.reps+'@'+sw.exercise.rest);
+    });
+    test('restore is one transaction: unusable backups, quota failures and catalogue leaks are all rejected', () => {
+      reset(); S.history=[history('2026-09-29',[set(100,8)])]; saveS();
+      const before=localStorage.getItem('pf_v4'), prevS=S, good=JSON.parse(before);
+      for(const bad of [{daySched:null},{shoes:{}},{dayConfig:[]}]){
+        let msg=''; try{ validateBackupState(Object.assign(JSON.parse(before),bad)); }catch(e){ msg=e.message; }
+        check(/Invalid backup/.test(msg),'unusable field accepted: '+JSON.stringify(bad));
+      }
+      const cat=EQUIPMENT_CATALOGUE[0], orig=migrateState, poisoned=JSON.parse(before);
+      poisoned.customCatItems={[cat.id]:[{n:'Leaked Test Machine'}]};
+      migrateState=function(){ rehydrateCustomCatalogues(); throw new Error('boom'); };
+      try{ check(_commitRestore(poisoned)===false,'failed migration committed'); } finally { migrateState=orig; }
+      check(S===prevS&&localStorage.getItem('pf_v4')===before&&!cat.items.some(i=>i.n==='Leaked Test Machine'),'rejected backup leaked into state, storage or catalogue');
+      const setItem=Storage.prototype.setItem; Storage.prototype.setItem=function(k,v){ if(k==='pf_v4') throw new Error('QuotaExceededError'); return setItem.call(this,k,v); };
+      try{ check(_commitRestore(JSON.parse(before))===false,'quota failure reported success'); } finally { Storage.prototype.setItem=setItem; }
+      check(S===prevS&&localStorage.getItem('pf_v4')===before,'quota failure changed state');
+      good.weekFocus='hybrid'; check(_commitRestore(good)&&S.weekFocus==='muscle'&&JSON.parse(localStorage.getItem('pf_v4')).weekFocus==='muscle','migrated restore not written once: '+window._lastRestoreError);
+    });
+    test('Strength roles survive swaps and live re-plans; role changes use one real set', () => {
+      reset(); S.weekFocus='power'; const k=dKey(vDate);
+      const lead3=(name,extra)=>({id:1,date:'2026-09-29',type:'gym',trainingFocus:'power',exercises:[Object.assign({name,targetReps:4,plannedWorkSets:3,sets:[set(100,4),set(100,4),set(100,4)]},extra)]});
+      S.history=[lead3('Chest Press Machine',{lead:true})];
+      S.sessions[k]={gym:{intensity:'standard',exercises:{},cardio:{},cardioBlocks:{},exList:[{n:'Barbell Back Squat',anchor:true,reps:4,sets:4},{n:'Plate-Loaded Incline Press',reps:7,sets:3,p:1}]}};
+      const sw=swapPrescription(S.sessions[k].gym.exList[1],{sets:[]},'Chest Press Machine','Chest',k);
+      check(Number(sw.data.sets[0].weight)<100,'swap into a support slot progressed lead work: '+sw.data.sets[0].weight);
+      // Sets logged as lead work, saved after a re-plan put the row in a support slot
+      const hist=lead3('Cable Low Row',{lead:false}); hist.exercises[0].sets.forEach(x=>x.lead=true); S.history=[hist];
+      S.sessions[k].gym.exList=[{n:'Barbell Back Squat',anchor:true,reps:4,sets:4},{n:'Cable Low Row',reps:7,sets:3}];
+      check(getLastExSession('Cable Low Row').lead===true,'set-level role ignored');
+      const p=getProgression('Cable Low Row',7,3,1); check(p.weight<100,'re-planned lead work progressed as support: '+JSON.stringify(p));
+      hist.exercises[0].sets[2].lead=false; check(!getLastExSession('Cable Low Row').ceilingHit,'mixed-role work allowed an increase');
+      // Role change: the e1RM comes from one completed set, not the heaviest load with the most reps
+      const sup={id:3,date:'2026-09-29',type:'gym',trainingFocus:'power',exercises:[{name:'Bench Press (Barbell)',lead:false,targetReps:7,plannedWorkSets:3,sets:[set(100,7),set(100,7),Object.assign(set(40,15),{repsEdited:true})]}]};
+      S.history=[sup]; S.sessions[k].gym.exList=[{n:'Bench Press (Barbell)',anchor:true,reps:4,sets:4}];
+      const q=getProgression('Bench Press (Barbell)',4,4,1); check(q.weight<=105,'role change mixed load and reps: '+JSON.stringify(q));
+      check(nextProgressionWeight('Bench Press (Barbell)',100,'hybrid',true)===nextProgressionWeight('Bench Press (Barbell)',100,'muscle',true),'hybrid resave increment');
+    });
+    test('cross-class swaps take the destination set count; legacy templates infer from their own split', () => {
+      reset(); S.weekFocus='power'; const k=dKey(vDate);
+      S.sessions[k]={gym:{intensity:'standard',exercises:{},cardio:{},cardioBlocks:{},exList:[{n:'Bench Press (Barbell)',anchor:true,reps:4,sets:4,rest:210,p:1}]}};
+      const sw=swapPrescription(S.sessions[k].gym.exList[0],{sets:[]},'Dumbbell Lateral Raises','Shoulders',k);
+      check(sw.exercise.sets===3&&workSetRange(sw.exercise,'power')[1]<=4,'accessory kept lead volume: '+sw.exercise.sets+' / '+workSetRange(sw.exercise,'power')[1]);
+      S.workoutTemplates=[{id:'p',name:'Old Pull',baseSplit:'pull',exercises:[{n:'Lat Pull-Down Machine',sets:4,reps:8},{n:'Cable Low Row',sets:4,reps:10},{n:'Dumbbell Bicep Curls',sets:3,reps:10}]},
+        {id:'n',name:'New',roles:1,baseSplit:'upper',exercises:[{n:'Bench Press (Barbell)',sets:4,reps:8},{n:'Cable Low Row',sets:4,reps:10}]}];
+      applyWorkoutTemplate('p'); let L=S.sessions[k].gym.exList; check(L[0].anchor&&!L[1].lead,'Pull row marked as an Upper lead');
+      applyWorkoutTemplate('n'); L=S.sessions[k].gym.exList; check(!L[0].anchor&&!L[1].lead,'role-aware template re-inferred roles');
+      S.setup.gymDays=[]; renderPlanProgramCard(); check(!/next:/.test(el('planProgramCard').textContent),'zero gym days still shows a next split');
+      _lastSeenDayKey='2000-01-01'; window.dispatchEvent(new Event('focus')); check(_lastSeenDayKey===dKey(new Date()),'focus does not refresh a stale day');
+    });
+    test('restore rejects malformed workout snapshots; rollover never moves a pending save or a live workout', () => {
+      reset(); buildTodayWorkout(); saveS(); const k=dKey(vDate), snap=JSON.parse(localStorage.getItem('pf_v4'));
+      snap.sessions[k].gym.exList={0:{n:'Bench Press (Barbell)'}};
+      let msg=''; try{ validateBackupState(snap); }catch(e){ msg=e.message; } check(/exercise list/.test(msg),'object exList accepted: '+msg);
+      reset(); const g=GS(dKey(vDate))||(S.sessions[dKey(vDate)]={gym:{intensity:'standard',exercises:{},cardio:{},cardioBlocks:{}}}).gym;
+      buildTodayWorkout(); const kk=dKey(vDate); GS(kk).exercises[0]={sets:[{weight:'100',reps:'8',type:'wk',done:true}]};
+      openModal('saveModal'); _lastSeenDayKey='2000-01-01'; window.dispatchEvent(new Event('focus'));
+      check(_lastSeenDayKey==='2000-01-01'&&dKey(vDate)===kk,'rollover ran under an open sheet');
+      closeModal('saveModal'); window.dispatchEvent(new Event('focus'));
+      check(_lastSeenDayKey===dKey(new Date())&&dKey(vDate)===kk,'rollover moved an unsaved workout in progress');
+      _pendingSaveTarget={k:kk,mode:'gym'}; vDate=new Date('2026-10-02T12:00:00'); confirmSave();
+      check(S.history.some(h=>h.date===kk&&h.type==='gym'),'save sheet saved the wrong day');
+      document.querySelectorAll('.mo').forEach(m=>m.classList.remove('show'));
+    });
+    test('mixed-role history only informs the role being prescribed; role-only changes do not block progression', () => {
+      reset(); S.weekFocus='power'; const k=dKey(vDate);
+      const sx=(w,r,lead)=>Object.assign(set(w,r),lead==null?{}:{lead});
+      const h=(sets)=>[{id:1,date:'2026-09-29',type:'gym',trainingFocus:'power',exercises:[{name:'Cable Low Row',targetReps:7,plannedWorkSets:3,sets}]}];
+      S.sessions[k]={gym:{intensity:'standard',exercises:{},cardio:{},cardioBlocks:{},exList:[{n:'Barbell Back Squat',anchor:true,reps:4,sets:4},{n:'Cable Low Row',reps:7,sets:3}]}};
+      S.history=h([sx(100,4,true),sx(80,7,false),sx(80,7,false)]);
+      let p=getProgression('Cable Low Row',7,3,1); check(p.weight<=80,'support dose took the lead load: '+JSON.stringify(p));
+      S.history=h([sx(100,4),sx(100,7,false),sx(100,7,false),sx(100,7,false)]);
+      p=getProgression('Cable Low Row',7,3,1); check(p.weight<=100,'partly tagged history added load: '+JSON.stringify(p));
+      const g=summarizeWorkSets([sx(100,10,true),sx(100,10,true),sx(100,10,false)].map(x=>Object.assign(x,{targetReps:10})),'general','Cable Low Row',3,10);
+      check(g.ceilingHit,'role-only change blocked General progression');
+      S.sessions[k].gym.exList=[{n:'Dumbbell Lateral Raises',anchor:true,reps:10,sets:3,p:3}];
+      const sw=swapPrescription(S.sessions[k].gym.exList[0],{sets:[]},'Bench Press (Barbell)','Chest',k);
+      check(sw.exercise.p===1,'new main lift kept accessory priority: '+sw.exercise.p);
+      S.setup.gymDays=[]; const html=renderGymSplitFamilies((x,i)=>i.recommended?'[REC]':'',null);
+      check(!/\[REC\]|recommended for/.test(html),'zero gym days still recommends in the switcher');
+    });
+    test('restore rejects bad orders, warm-ups and run splits; history keeps each role\'s planned sets', () => {
+      reset(); buildTodayWorkout(); saveS(); const k=dKey(vDate), base=localStorage.getItem('pf_v4');
+      const bad=(mut)=>{ const d=JSON.parse(base); mut(d); try{ validateBackupState(d); return ''; }catch(e){ return e.message; } };
+      const n=JSON.parse(base).sessions[k].gym.exList.length;
+      check(/order/.test(bad(d=>{d.sessions[k].gym.exOrder=[...Array(n).keys()];d.sessions[k].gym.exOrder[0]=999;})),'out-of-range exOrder accepted');
+      check(bad(d=>{d.sessions[k].gym.exOrder=[0,1,2,3,4,5,6,7,8,9,10,11].slice(0,n+2);})==='','repairable longer order rejected');
+      check(/warm-up/.test(bad(d=>{d.sessions['2026-09-20']={home:{exercises:{0:{sets:[],warmupPlan:{}}}}};})),'object warm-up accepted');
+      check(/run splits/.test(bad(d=>{d.history.push({date:'2026-09-21',type:'run',splits:'1,2'});})),'string run splits accepted');
+      // 3 of 4 lead sets done plus one support set: not a completed lead prescription
+      S.weekFocus='power'; const sx=(w,r,lead,done=true)=>Object.assign(set(w,r,'wk',done),{lead,targetReps:lead?4:7});
+      S.history=[{id:1,date:'2026-09-29',type:'gym',trainingFocus:'power',exercises:[{name:'Cable Low Row',targetReps:4,plannedWorkSets:5,
+        sets:[sx(100,4,true),sx(100,4,true),sx(100,4,true),sx(100,'',true,false),sx(100,7,false)]}]}];
+      S.sessions[k]={gym:{intensity:'standard',exercises:{},cardio:{},cardioBlocks:{},exList:[{n:'Cable Low Row',anchor:true,reps:4,sets:4}]}};
+      const last=getLastExSession('Cable Low Row',undefined,true), p=getProgression('Cable Low Row',4,4,1);
+      check(!last.ceilingHit&&p.weight<=100,'unfinished lead work counted as complete: '+JSON.stringify(p));
+      // a pre-role snapshot: the set's own Strength target decides its role on re-plan
+      const g={trainingFocus:'power',exercises:{1:{sets:[Object.assign(set(100,4),{targetReps:4}),Object.assign(set(100,7),{targetReps:7})]}},exList:[{n:'Bench Press (Barbell)',anchor:true},{n:'Cable Low Row'}],cardioBlocks:{}};
+      _replanSession(k,g); check(g.exercises[1].sets[0].lead===true&&g.exercises[1].sets[1].lead===false,'legacy backfill ignored the set target');
+    });
+    test('rollover moves Today only once the shown workout is no longer under way', () => {
+      reset(); const kk=dKey(vDate);
+      S.sessions[kk]={gym:{intensity:'standard',exercises:{},cardio:{},cardioBlocks:{a:{timer:{running:true,startedAt:Date.now(),durMs:60000}}}}};
+      _lastSeenDayKey=kk; _rolloverPending=false; window.dispatchEvent(new Event('focus'));
+      check(_lastSeenDayKey===dKey(new Date())&&_rolloverPending&&dKey(vDate)===kk,'running cardio did not hold Today');
+      S.sessions[kk].gym.cardioBlocks={}; window.dispatchEvent(new Event('focus'));
+      check(!_rolloverPending&&dKey(vDate)===dKey(new Date()),'deferred advance never happened');
+    });
+    test('restore normalises numeric text, rejects bad measurements and render-checks every page', () => {
+      reset(); buildTodayWorkout(); saveS(); const base=localStorage.getItem('pf_v4');
+      const bad=(mut)=>{ const d=JSON.parse(base); mut(d); try{ validateBackupState(d); return ''; }catch(e){ return e.message; } };
+      check(/measurement/.test(bad(d=>{d.measurements=[null];})),'null measurement accepted');
+      check(/measurement waist/.test(bad(d=>{d.measurements=[{date:'2026-09-20',waist:'abc'}];})),'text measurement accepted');
+      check(/distance/.test(bad(d=>{d.history.push({id:9,date:'2026-09-21',type:'run',distance:'three'});})),'non-numeric distance accepted');
+      const good=JSON.parse(base);
+      good.history.push({id:91,date:'2026-09-21',type:'run',day:'tue',phase:'Base',week:1,distance:'3',duration:'30'});
+      good.measurements=[{date:'2026-09-20',waist:'34.5'}]; good.weights.push({date:'2026-09-20',w:'200',bf:null});
+      check(_commitRestore(validateBackupState(good))===true,'numeric-text backup rejected: '+window._lastRestoreError);
+      const r=S.history.find(h=>h.id===91);
+      check(r.distance===3&&r.duration===30&&S.measurements[0].waist===34.5&&S.weights.slice(-1)[0].w===200,'numeric text not normalised');
+      openHistDetail(91); check(/3\.0/.test(el('histMC').innerHTML),'run detail did not render'); closeModal('histModal');
+      // a shape the validator misses still fails before the write, and the pages repaint live data
+      const live=localStorage.getItem('pf_v4'), orig=window.buildBodyPage, poisoned=JSON.parse(live); poisoned.profile.name='POISON';
+      window.buildBodyPage=function(){ if(S.profile.name==='POISON') throw new Error('body broke'); return orig.apply(this,arguments); };
+      try{ check(_commitRestore(poisoned)===false&&localStorage.getItem('pf_v4')===live&&S.profile.name!=='POISON','page-breaking backup committed'); }
+      finally{ window.buildBodyPage=orig; }
+      check(!el('histModal').classList.contains('show'),'render check left the history sheet open');
+    });
+    test('restore validates nutrition, fasts and templates and renders the candidate off screen', () => {
+      reset(); buildTodayWorkout(); saveS(); const k=dKey(vDate), base=localStorage.getItem('pf_v4');
+      const bad=(mut)=>{ const d=JSON.parse(base); mut(d); try{ validateBackupState(d); return ''; }catch(e){ return e.message; } };
+      check(/fast/.test(bad(d=>{d.fastLog=[null];})),'null fast accepted');
+      check(/saved workout|workoutTemplates/.test(bad(d=>{d.workoutTemplates=[null];})),'null template accepted');
+      check(/saved workout/.test(bad(d=>{d.workoutTemplates=[{name:'x'}];})),'template without exercises accepted');
+      check(/distance/.test(bad(d=>{d.history.push({id:7,date:'2026-09-21',type:'run',distance:[3]});})),'array distance accepted');
+      check(/food cal/.test(bad(d=>{d.nutLog[k]={lunch:[{n:'x',cal:[100]}]};})),'array calories accepted');
+      { const d=JSON.parse(base); d.history.push({id:'1);alert(1',date:'2026-09-21',type:'run',distance:1});
+        check(_commitRestore(validateBackupState(d))&&S.history.every(h=>Number.isSafeInteger(h.id)),'script-like history id kept'); }
+      // numeric text in food rows is summed, not concatenated
+      const good=JSON.parse(base); good.nutLog[k]={lunch:[{n:'A',cal:'100',pro:'10'},{n:'B',cal:'100',pro:'5'}],water:'8'};
+      good.history.push({id:92,date:'2026-09-21',type:'gym',day:'Upper',focus:'<b id="mk">x</b>',exercises:[]});
+      check(_commitRestore(validateBackupState(good))===true,'nutrition backup rejected: '+window._lastRestoreError);
+      check(_dayNutTotals(S.nutLog[k]).cal===200&&S.nutLog[k].water===8,'food numbers not normalised: '+_dayNutTotals(S.nutLog[k]).cal);
+      check(!document.getElementById('mk'),'restore check mounted imported markup');
+      openHistDetail(92); check(!document.getElementById('mk')&&/&lt;b/.test(el('histMC').innerHTML),'history detail did not escape focus'); closeModal('histModal');
+      renderHistory(); check(!document.getElementById('mk'),'history list did not escape focus');
+      // a failed final write leaves the screen, the open sheet, timers and selection exactly as they were
+      switchPage('history',null); const live=localStorage.getItem('pf_v4'), listHtml=el('page-history').innerHTML;
+      openHistDetail(92); const title=el('histMT').textContent, ifBefore=_ifInterval, selBefore=selHistId;
+      const cand=JSON.parse(live); cand.history=[{id:93,date:'2026-09-22',type:'run',day:'Wed',distance:2}];
+      const setItem=Storage.prototype.setItem; Storage.prototype.setItem=function(){ throw new Error('quota'); };
+      try{ check(_commitRestore(validateBackupState(cand))===false,'quota failure reported success'); } finally { Storage.prototype.setItem=setItem; }
+      check(el('page-history').innerHTML===listHtml&&localStorage.getItem('pf_v4')===live,'failed write left the candidate on screen');
+      check(el('histMT').textContent===title&&el('histModal').classList.contains('show')&&_ifInterval===ifBefore&&selHistId===selBefore,'failed restore changed the open sheet, timers or selection');
+      closeModal('histModal'); switchPage('today',null);
+    });
+    test('imported names render as text; history ids are unique; templates and fasts are checked', () => {
+      reset(); buildTodayWorkout(); saveS(); const k=dKey(vDate), base=localStorage.getItem('pf_v4');
+      const bad=(mut)=>{ const d=JSON.parse(base); mut(d); try{ validateBackupState(d); return ''; }catch(e){ return e.message; } };
+      check(/saved workout sets/.test(bad(d=>{d.workoutTemplates=[{name:'T',exercises:[{n:'Bench Press (Barbell)',setData:{length:2}}]}];})),'object setData accepted');
+      check(/saved workout set weight/.test(bad(d=>{d.workoutTemplates=[{name:'T',exercises:[{n:'Bench Press (Barbell)',setData:[{weight:[1]}]}]}];})),'array set weight accepted');
+      check(/fast/.test(bad(d=>{d.fastLog=[{start:''}];})),'blank fast start accepted');
+      const mk=(id)=>'<i id="'+id+'">x</i>';
+      const good=JSON.parse(base);
+      good.history=[{id:5,date:'2026-09-20',type:'gym',day:'Upper',focus:'f',exercises:[{name:mk('hx'),sets:[{weight:'100',reps:'5',done:true,type:'wk'}]}]},
+        {id:5,date:'2026-09-21',type:'gym',day:'Lower',focus:'g',exercises:[]},{id:'',date:'2026-09-22',type:'run',day:'Wed',distance:2}];
+      good.workoutTemplates=[{name:mk('tx'),v:2,exercises:[{n:mk('tex'),sets:3,reps:8,setData:[{type:'wk',weight:'100',reps:'8'}]}]}];
+      good.nutLog[k]={lunch:[{n:mk('fx'),cal:100}]};
+      good.fastLog=[{start:'2026-09-22T08:00:00.000Z',end:null,protocol:'16:8'}];
+      check(_commitRestore(validateBackupState(good))===true,'restore rejected: '+window._lastRestoreError);
+      const ids=S.history.map(h=>h.id); check(new Set(ids).size===3&&ids.every(Number.isFinite),'history ids not unique numbers: '+JSON.stringify(ids));
+      check(typeof S.fastLog[0].start==='number'&&S.fastLog[0].start===Date.parse('2026-09-22T08:00:00.000Z'),'ISO fast start not converted');
+      renderHistory(); buildPlan(); buildSavedTemplates(); buildNutritionPage();
+      check(!['hx','tx','tex','fx'].some(id=>document.getElementById(id)),'imported names became HTML: '+['hx','tx','tex','fx'].filter(id=>document.getElementById(id)));
+      openHistDetail(ids[1]); check(/lower/i.test(el('histMT').textContent)&&!/upper/i.test(el('histMT').textContent),'second duplicate opened the first workout'); closeModal('histModal');
+      selHistId=ids[1]; const n=S.history.length; deleteHist(); check(S.history.length===n-1,'one delete removed '+(n-S.history.length)+' workouts');
+      closeModal('confirmModal');
+    });
+    test('imported fields stay text, handlers survive quotes, and every record list gets safe unique ids', () => {
+      reset(); buildTodayWorkout(); saveS(); const k=dKey(vDate), base=localStorage.getItem('pf_v4');
+      const mk=(id)=>'<i id="'+id+'">x</i>';
+      const good=JSON.parse(base);
+      good.history=[{id:1e20,date:'2026-09-20',type:'gym',day:'Upper',focus:'f',exercises:[{name:'Row',sets:[{weight:'100',reps:'5',done:true,type:mk('st')}]}]},
+        {id:1e20,date:'2026-09-21',type:'gym',day:'Lower',focus:'g',exercises:[]},{id:'',date:'2026-09-22',type:'run',day:'Wed',distance:2,injuryTag:mk('inj')},{id:0,date:'2026-09-23',type:'run',day:'Thu',distance:1}];
+      good.workoutTemplates=[{id:'abc',name:'T',v:2,exercises:[{n:'Bench Press (Barbell)',t:mk('tt'),sets:'3',reps:mk('rp'),rest:'90 seconds'}]}];
+      good.nutLog[k]={lunch:[{n:'Oats',srv:mk('srv'),cal:100}]};
+      check(_commitRestore(validateBackupState(good))===true,'restore rejected: '+window._lastRestoreError);
+      const ids=S.history.map(h=>h.id); check(new Set(ids).size===4&&ids.every(i=>Number.isSafeInteger(i)&&i>0),'history ids not unique safe integers: '+JSON.stringify(ids));
+      const t=S.workoutTemplates[0]; check(Number.isSafeInteger(t.id)&&t.id>0&&t.exercises[0].rest===90&&t.exercises[0].sets===3,'template id/rest not normalised: '+JSON.stringify(t));
+      renderHistory(); S.history.forEach(h=>{ openHistDetail(h.id); closeModal('histModal'); }); buildSavedTemplates(); buildNutritionPage();
+      check(!['st','inj','rp','srv'].some(id=>document.getElementById(id)),'imported field became HTML: '+['st','inj','rp','srv'].filter(id=>document.getElementById(id)));
+      openLoadTemplate(t.id); check(el('loadTemplateModal')?el('loadTemplateModal').classList.contains('show'):true,'Load did not open'); document.querySelectorAll('.mo.show').forEach(m=>m.classList.remove('show'));
+      selHistId=ids[1]; const n=S.history.length; deleteHist(); check(S.history.length===n-1,'one delete removed '+(n-S.history.length));
+      // a quote in an exercise name survives the Info, Chart and Swap handlers
+      check(jsArg('a"b\'c\\d')==='a&quot;b\\&#39;c\\\\d','jsArg encoding');
+      reset(); S.workoutTemplates=[{id:7,name:'Q',v:2,exercises:[{n:'Curl "Pro" 12\' Bar',t:'Biceps',sets:3,reps:10,rest:60,p:1}]}];
+      // an unknown name would be swapped for an available exercise; keep it as written
+      const _safe=window.getEquipmentSafeExercise; window.getEquipmentSafeExercise=function(e){ return e; };
+      try{ applyWorkoutTemplate(7); switchPage('today',null); buildTodayWorkout(); } finally { window.getEquipmentSafeExercise=_safe; }
+      let threw=null;
+      const btn=[...document.querySelectorAll('#page-today [onclick^="openExInfo"]')].find(b=>/Pro/.test(b.getAttribute('onclick')));
+      const onErr=(e)=>{ threw=e.message||String(e); }; window.addEventListener('error',onErr);
+      try{ btn&&btn.click(); }catch(e){ threw=e.message; } finally{ window.removeEventListener('error',onErr); }
+      check(btn&&!threw,'quoted name broke the Info handler: '+(btn?threw:'no Info button for the added exercise: '+getRenderedExList(dKey(vDate)).map(e=>e.n).join('|')));
+      document.querySelectorAll('.mo.show').forEach(m=>m.classList.remove('show'));
+    });
+    test('one delete removes one gym or food; composed labels stay text; plain text is not escaped', () => {
+      reset(); buildTodayWorkout(); saveS(); const k=dKey(vDate), base=localStorage.getItem('pf_v4');
+      const mk=(id)=>'<i id="'+id+'">x</i>';
+      const good=JSON.parse(base); const g0=good.gymProfiles[0];
+      good.gymProfiles=[g0,Object.assign({},g0,{name:'Second'}),Object.assign({},g0,{name:'Third'})];
+      good.customFoods=[{n:'Bar',cal:100,pro:5},{n:'Bar',cal:200,pro:9},{n:'Bar',cal:100,pro:5}];
+      check(_commitRestore(validateBackupState(good))===true,'restore rejected: '+window._lastRestoreError);
+      const gids=S.gymProfiles.map(g=>g.id); check(new Set(gids).size===3&&gids[0]===g0.id,'gym ids not unique: '+gids);
+      check(S.customFoods.map(f=>f.n).join('|')==='Bar|Bar (2)','duplicate foods not resolved: '+S.customFoods.map(f=>f.n));
+      S.activeGymId=gids[1]; deleteActiveGym(); confirmYes&&confirmYes();
+      check(S.gymProfiles.length===2,'one delete removed '+(3-S.gymProfiles.length)+' gym profiles');
+      deleteCustomFood(encodeURIComponent('Bar')); confirmYes&&confirmYes();
+      check(S.customFoods.length===1&&S.customFoods[0].n==='Bar (2)','one delete removed '+(2-S.customFoods.length)+' foods');
+      // composed labels
+      const parse=(h)=>{ const d=document.createElement('div'); d.innerHTML=h; return d; };
+      check(!parse(_eqItemRow({n:'Rack',sub:'s',note:mk('eqn')},{id:'c'},getActiveGym(),{},{})).querySelector('#eqn'),'equipment note became HTML');
+      S.sessions[k]=S.sessions[k]||{}; S.sessions[k].extraActivities=[{name:'Walk',duration:mk('xa'),notes:'n'}];
+      const xa=buildExtraActivitiesCard(k); check(!(typeof xa==='string'?parse(xa).querySelector('#xa'):document.getElementById('xa')),'activity metadata became HTML');
+      renderBevSearch(mk('bq')); check(!document.getElementById('bq'),'beverage search echoed HTML');
+      // plain-text outputs keep the characters as typed
+      const tk=dKey(new Date()); S.planOffset=0; S.dayConfig[tk]=Object.assign({},S.dayConfig[tk],{note:'say "hi" &quot;'}); switchPage('plan',null); buildPlanCalendar();
+      const cell=[...document.querySelectorAll('[title]')].find(e=>/say/.test(e.getAttribute('title')));
+      check(cell&&cell.getAttribute('title')==='say "hi" &quot;','tooltip changed the note: '+(cell&&cell.getAttribute('title')));
+      document.querySelectorAll('.mo.show').forEach(m=>m.classList.remove('show'));
+    });
+    test('text keys keep existing names, never break references, and one delete removes one record', () => {
+      reset(); buildTodayWorkout(); saveS(); const base=localStorage.getItem('pf_v4');
+      const good=JSON.parse(base); const g0=good.gymProfiles[0];
+      good.customFoods=[{n:'Oats',cal:100},{n:'Oats',cal:150},{n:'Oats (2)',cal:250},{n:'Oats',cal:150}];
+      good.gymProfiles=[Object.assign({},g0,{id:'constructor',name:'C'}),Object.assign({},g0,{id:'my-pf',name:'A'}),Object.assign({},g0,{id:'my-pf',name:'B'}),Object.assign({},g0,{id:'my-pf-2',name:'D'})];
+      good.activeGymId='constructor'; good.history=[{id:1,date:'2026-09-20',type:'gym',gymId:'constructor',exercises:[]}];
+      good.customRestProtocols=[{id:'walk',name:'Walk',dur:'20 min',isCustom:true},{id:'walk',name:'Walk 2',dur:'30 min',isCustom:true}];
+      good.customCatItems={freeweights:[{n:'Sandbag',sub:'a',isCustom:true},{n:'Sandbag',sub:'b',isCustom:true}]};
+      good.customExCatItems={chest:[{n:'Floor Press',muscles:'Chest',isCustom:true},{n:'Floor Press',muscles:'Chest',isCustom:true}]};
+      check(_commitRestore(validateBackupState(good))===true,'restore rejected: '+window._lastRestoreError);
+      check(S.customFoods.map(f=>f.n+':'+f.cal).join('|')==='Oats:100|Oats (3):150|Oats (2):250','food names not stable: '+S.customFoods.map(f=>f.n+':'+f.cal));
+      check(S.gymProfiles.map(g=>g.id).join('|')==='constructor|my-pf|my-pf-3|my-pf-2'&&S.activeGymId==='constructor'&&S.history[0].gymId==='constructor','gym ids or references broken: '+S.gymProfiles.map(g=>g.id)+' active='+S.activeGymId);
+      check(S.customRestProtocols.map(p=>p.id).join('|')==='walk|walk-2','rest ids not unique: '+S.customRestProtocols.map(p=>p.id));
+      check(S.customCatItems.freeweights.map(i=>i.n).join('|')==='Sandbag|Sandbag (2)','equipment names not unique');
+      check(S.customExCatItems.chest.length===1,'exact duplicate custom exercise kept');
+      deleteCustomRestActivity('walk'); confirmYes(); check(S.customRestProtocols.length===1,'rest delete removed '+(2-S.customRestProtocols.length));
+      deleteCustomEquipment('Sandbag','freeweights'); check(S.customCatItems.freeweights.length===1,'equipment delete removed '+(2-S.customCatItems.freeweights.length));
+      check(_withoutFirst([{n:'a'},{n:'a'}],x=>x.n==='a').length===1,'_withoutFirst');
+      // text that still reached markup
+      const mk=(id)=>'<i id="'+id+'">x</i>';
+      const parse=(h)=>{ const d=document.createElement('div'); d.innerHTML=h; return d; };
+      S.customRestProtocols[0].dur=mk('rd'); buildRestDayMgmtPage(); check(!document.getElementById('rd'),'rest duration became HTML');
+      S.history=[{id:3,date:'2026-09-20',type:'gym',day:'Upper',focus:'f',exercises:[]}]; _histSearch=mk('hs'); renderHistory();
+      check(!document.getElementById('hs'),'history search echoed HTML'); _histSearch='';
+      S.strengthNotes={}; const sk=getStrKey('Bench Press (Barbell)'); if(sk){ S.strengthNotes[sk]=mk('sn'); buildTodayWorkout(); check(!document.getElementById('sn'),'strength note became HTML'); S.strengthNotes={}; }
+      document.querySelectorAll('.mo.show').forEach(m=>m.classList.remove('show'));
+    });
+    test('generated names avoid every shared namespace; shared settings outlive a sibling delete; rest data is checked', () => {
+      reset(); buildTodayWorkout(); saveS(); const base=localStorage.getItem('pf_v4');
+      const mk=(id)=>'<i id="'+id+'">x</i>';
+      const good=JSON.parse(base);
+      good.customCatItems={free_weight_stations:[{n:'Synthetic Pad',sub:'a',isCustom:true},{n:'Synthetic Pad',sub:'b',isCustom:true}],functional_stations:[{n:'Synthetic Pad (2)',sub:'c',isCustom:true}]};
+      good.gymProfiles[0].equipment=(good.gymProfiles[0].equipment||[]).concat(['Synthetic Pad (2)']);
+      good.customExInfo=Object.assign({},good.customExInfo,{'Synthetic Pad (2)':{steps:[mk('gs')],mistakes:[mk('gm')],tips:[mk('gt')]}});
+      const bi=REST_PROTOCOLS[0].id;
+      good.enabledRestActivities=Object.assign({},good.enabledRestActivities,{[bi]:false});
+      good.customRestProtocols=[{id:bi,name:'Mine',dur:'5 min',requiredAny:[mk('rq')],steps:['a'],isCustom:true}];
+      check(_commitRestore(validateBackupState(good))===true,'restore rejected: '+window._lastRestoreError);
+      const names=[].concat(S.customCatItems.free_weight_stations,S.customCatItems.functional_stations).map(i=>i.n).sort();
+      check(names.join('|')==='Synthetic Pad|Synthetic Pad (2)|Synthetic Pad (3)','generated name collided: '+names);
+      const gen=S.customCatItems.free_weight_stations.find(i=>i.n!=='Synthetic Pad');
+      deleteCustomEquipment(gen.n,'free_weight_stations');
+      check(S.gymProfiles[0].equipment.includes('Synthetic Pad (2)')&&S.customExInfo['Synthetic Pad (2)'],'sibling delete cleared another item\'s gym setting or guide');
+      const cr=S.customRestProtocols[0]; check(cr.id!==bi&&S.enabledRestActivities[bi]===false,'custom rest kept a built-in id: '+cr.id);
+      buildRestDayMgmtPage(); check(!document.getElementById('rq'),'rest requirement became HTML');
+      openExerciseInfoModal('Synthetic Pad (2)',''); check(!['gs','gm','gt'].some(id=>document.getElementById(id)),'guide list became HTML');
+      document.querySelectorAll('.mo.show').forEach(m=>m.classList.remove('show'));
+      deleteCustomRestActivity(cr.id); confirmYes(); check(S.enabledRestActivities[bi]===false,'deleting the custom activity changed the built-in preference');
+      const bad=(mut)=>{ const d=JSON.parse(base); mut(d); try{ validateBackupState(d); return ''; }catch(e){ return e.message; } };
+      check(/rest activity name/.test(bad(d=>{d.customRestProtocols=[{id:'x',name:{a:1}}];})),'object rest name accepted');
+      check(/rest activity steps/.test(bad(d=>{d.customRestProtocols=[{id:'x',name:'X',steps:[{}]}];})),'object rest step accepted');
+      // the live catalogue keeps rehydrated custom items: take them out for the tests that follow
+      deleteCustomEquipment('Synthetic Pad','free_weight_stations'); deleteCustomEquipment('Synthetic Pad (2)','functional_stations');
+      check(!EQUIPMENT_CATALOGUE.some(c=>c.items.some(i=>/^Synthetic Pad/.test(i.n))),'custom equipment left in the catalogue');
+    });
+    test('equipment and exercises share one namespace; rest repair is stable; built-ins survive custom deletes', () => {
+      reset(); buildTodayWorkout(); saveS(); const base=localStorage.getItem('pf_v4');
+      const good=JSON.parse(base);
+      good.customCatItems={free_weight_stations:[{n:'Synthetic Cross',sub:'a',isCustom:true},{n:'Synthetic Cross',sub:'b',isCustom:true}]};
+      good.customExCatItems={ex_dumbbell:[{n:'Synthetic Cross (2)',muscles:'Chest',isCustom:true},{n:'Floor Press',muscles:'Chest',isCustom:true}],ex_chest_machine:[{n:'Floor Press',muscles:'Triceps',isCustom:true}]};
+      good.customExInfo=Object.assign({},good.customExInfo,{'Synthetic Cross (2)':{steps:['s']}});
+      good.enabledExercises=Object.assign({},good.enabledExercises,{'ex_chest_machine::Floor Press':false});
+      const bi=REST_PROTOCOLS[0].id;
+      good.enabledRestActivities=Object.assign({},good.enabledRestActivities,{[bi]:false});
+      good.customRestProtocols=[{id:bi,name:'A',dur:12,isCustom:true},{id:bi,name:'B',isCustom:true},{id:bi,name:'A',dur:12,isCustom:true}];
+      const builtinEq=EQUIPMENT_CATALOGUE[1].items[0].n;
+      good.customCatItems.cables=[{n:builtinEq,sub:'mine',isCustom:true}];
+      check(_commitRestore(validateBackupState(good))===true,'restore rejected: '+window._lastRestoreError);
+      const eq=S.customCatItems.free_weight_stations.map(i=>i.n); check(eq.join('|')==='Synthetic Cross|Synthetic Cross (3)','equipment took an exercise name: '+eq);
+      deleteCustomEquipment('Synthetic Cross (3)','free_weight_stations'); check(S.customExInfo['Synthetic Cross (2)'],'equipment delete erased an exercise guide');
+      check(S.enabledExercises['ex_chest_machine::Floor Press (2)']===false&&!('ex_chest_machine::Floor Press' in S.enabledExercises),'renamed exercise lost its setting');
+      const rp=S.customRestProtocols; check(rp.length===2&&rp.every(p=>p.id!==bi&&S.enabledRestActivities[p.id]!==false)&&S.enabledRestActivities[bi]===false,'rest repair wrong: '+JSON.stringify(rp.map(p=>p.id))+' '+JSON.stringify(S.enabledRestActivities));
+      check(rp[0].dur==='12 min','numeric rest duration not normalised: '+rp[0].dur);
+      // repair is idempotent, so a cold start (migrate, then repair once catalogues load) matches a restore
+      const snap=JSON.stringify([S.customRestProtocols,S.customCatItems,S.customExCatItems,S.enabledExercises,S.enabledRestActivities]);
+      migrateState(); _repairTextKeys(); check(JSON.stringify([S.customRestProtocols,S.customCatItems,S.customExCatItems,S.enabledExercises,S.enabledRestActivities])===snap,'repair is not idempotent');
+      deleteCustomEquipment(builtinEq,'cables'); check(EQUIPMENT_CATALOGUE[1].items.some(i=>i.n===builtinEq),'custom delete removed the built-in row');
+      // clean the live catalogues for later tests
+      deleteCustomEquipment('Synthetic Cross','free_weight_stations');
+      EXERCISE_CATALOGUE.forEach(c=>{ c.items=c.items.filter(i=>!(i.isCustom&&/^(Synthetic Cross|Floor Press)/.test(i.n))); });
+    });
+    test('every renamed exercise keeps a disabled setting; catalogue stores and rest durations are checked', () => {
+      reset(); buildTodayWorkout(); saveS(); const base=localStorage.getItem('pf_v4');
+      const good=JSON.parse(base);
+      good.customExCatItems={ex_treadmill:[{n:'Forward Elliptical',muscles:'Legs',isCustom:true}],ex_elliptical:[{n:'Forward Elliptical',muscles:'A',isCustom:true},{n:'Forward Elliptical',muscles:'B',isCustom:true}]};
+      good.enabledExercises=Object.assign({},good.enabledExercises,{'ex_elliptical::Forward Elliptical':false});
+      check(_commitRestore(validateBackupState(good))===true,'restore rejected: '+window._lastRestoreError);
+      const ren=S.customExCatItems.ex_elliptical.map(i=>i.n);
+      check(ren.length===2&&ren.every(n=>n!=='Forward Elliptical'&&S.enabledExercises['ex_elliptical::'+n]===false),'a renamed row lost its disabled setting: '+ren+' '+JSON.stringify(S.enabledExercises));
+      const builtinOwns=EXERCISE_CATALOGUE.some(c=>c.id==='ex_elliptical'&&c.items.some(i=>!i.isCustom&&i.n==='Forward Elliptical'));
+      if(builtinOwns) check(S.enabledExercises['ex_elliptical::Forward Elliptical']===false,'built-in lost its disabled setting');
+      EXERCISE_CATALOGUE.forEach(c=>{ c.items=c.items.filter(i=>!(i.isCustom&&/^Forward Elliptical/.test(i.n))); });
+      const bad=(mut)=>{ const d=JSON.parse(base); mut(d); try{ validateBackupState(d); return ''; }catch(e){ return e.message; } };
+      check(/customExCatItems retiredCategory/.test(bad(d=>{d.customExCatItems={retiredCategory:{}};})),'object category accepted');
+      check(/rest activity dur/.test(bad(d=>{d.customRestProtocols=[{id:'x',name:'X',dur:-5}];})),'negative duration accepted');
+      // Log Done keeps a fraction and ignores a negative text duration
+      let logged='unset'; const _l=window.logRestProtocol; window.logRestProtocol=function(k,n,m){ logged=m; };
+      const btn=document.createElement('button'); document.body.appendChild(btn);
+      try{
+        const got=(dur)=>{ S.customRestProtocols=[{id:'dtest',name:'D',dur:dur,requiredAny:[],steps:[],isCustom:true}]; logged='unset';
+          btn.setAttribute('data-logprotocol','dtest'); btn.setAttribute('data-pday',dKey(new Date())); btn.click(); return logged; };
+        const r=[got('12.5 min'),got('-5 min'),got(undefined),got('5-10 min')];
+        check(r[0]===12.5&&r[1]===null&&r[2]===null&&r[3]===5,'Log Done minutes: '+JSON.stringify(r));
+      } finally { window.logRestProtocol=_l; btn.remove(); S.customRestProtocols=[]; }
+    });
+    test('a second restore leaves no custom catalogue row from the first, and delete clears the last owner', () => {
+      reset(); buildTodayWorkout(); saveS(); const base=localStorage.getItem('pf_v4');
+      const withPad=(cat)=>{ const d=JSON.parse(base); d.customCatItems={[cat]:[{n:'Synthetic Adjustable Pad',sub:'x'}]};
+        d.gymProfiles[0].equipment=(d.gymProfiles[0].equipment||[]).concat(['Synthetic Adjustable Pad']);
+        d.customExInfo=Object.assign({},d.customExInfo,{'Synthetic Adjustable Pad':{steps:['s']}}); return d; };
+      check(_commitRestore(validateBackupState(withPad('cardio')))===true,'first restore rejected');
+      check(_commitRestore(validateBackupState(withPad('cables')))===true,'second restore rejected');
+      const rows=EQUIPMENT_CATALOGUE.flatMap(c=>c.items.filter(i=>i.n==='Synthetic Adjustable Pad').map(()=>c.id));
+      check(rows.join('|')==='cables','stale catalogue row after the second restore: '+rows);
+      deleteCustomEquipment('Synthetic Adjustable Pad','cables');
+      check(!S.gymProfiles[0].equipment.includes('Synthetic Adjustable Pad')&&!S.customExInfo['Synthetic Adjustable Pad'],'delete kept the gym setting or guide');
+      check(!EQUIPMENT_CATALOGUE.some(c=>c.items.some(i=>i.n==='Synthetic Adjustable Pad')),'row left in the catalogue');
+    });
+    test('custom equipment and rest activities saved without isCustom still get a Delete button', () => {
+      reset(); buildTodayWorkout(); saveS(); const d=JSON.parse(localStorage.getItem('pf_v4'));
+      d.customCatItems={cables:[{n:'Legacy Strap',sub:'old'}]};
+      d.customRestProtocols=[{id:'legacy-walk',name:'Legacy Walk',dur:'10 min',requiredAny:[],steps:[]}];
+      check(_commitRestore(validateBackupState(d))===true,'restore rejected: '+window._lastRestoreError);
+      const row=_eqItemRow(EQUIPMENT_CATALOGUE.find(c=>c.id==='cables').items.find(i=>i.n==='Legacy Strap'),{id:'cables'},getActiveGym(),{},{});
+      check(/eq-delete-custom-btn/.test(row),'legacy custom equipment has no Delete button');
+      buildRestDayMgmtPage();
+      check([...document.querySelectorAll('[onclick^="deleteCustomRestActivity"]')].some(b=>/legacy-walk/.test(b.getAttribute('onclick'))),'legacy custom rest activity has no Delete button');
+      deleteCustomEquipment('Legacy Strap','cables'); check(!EQUIPMENT_CATALOGUE.some(c=>c.items.some(i=>i.n==='Legacy Strap')),'legacy row left in the catalogue');
+    });
+    test('an untagged unfinished set withholds the increase; a picked date cancels a deferred rollover', () => {
+      reset(); const k=dKey(vDate);
+      S.weekFocus='power'; const sx=(w,r,lead,done=true)=>{ const s=Object.assign(set(w,r,'wk',done),{targetReps:lead?4:7}); if(lead!=null) s.lead=lead; return s; };
+      S.history=[{id:1,date:'2026-09-29',type:'gym',trainingFocus:'power',exercises:[{name:'Cable Low Row',targetReps:4,plannedWorkSets:5,
+        sets:[sx(100,4,true),sx(100,4,true),sx(100,4,true),sx(100,'',null,false),sx(100,7,false)]}]}];
+      S.sessions[k]={gym:{intensity:'standard',exercises:{},cardio:{},cardioBlocks:{},exList:[{n:'Cable Low Row',anchor:true,reps:4,sets:4}]}};
+      const last=getLastExSession('Cable Low Row',undefined,true), p=getProgression('Cable Low Row',4,4,1);
+      check(!last.ceilingHit&&p.weight<=100,'untagged unfinished set allowed an increase: '+JSON.stringify(p));
+      reset(); const kk=dKey(vDate);
+      S.sessions[kk]={gym:{intensity:'standard',exercises:{},cardio:{},cardioBlocks:{a:{timer:{running:true,startedAt:Date.now(),durMs:60000}}}}};
+      _lastSeenDayKey=kk; _rolloverPending=false; window.dispatchEvent(new Event('focus'));
+      check(_rolloverPending===kk,'pending advance not bound to its workout');
+      changeDate(-2); const picked=dKey(vDate); window.dispatchEvent(new Event('focus'));
+      check(!_rolloverPending&&dKey(vDate)===picked,'deferred rollover overrode a picked date');
+    });
+    test('Strength puts 3–5 reps on the lead lift and lighter work on supporting compounds; Muscle splits compounds and accessories', () => {
+      reset();
+      check(prescriptionForFocus({n:'Bench Press (Barbell)',anchor:true},'power').reps===4&&prescriptionForFocus({n:'Bench Press (Barbell)',anchor:true},'power').rest===210,'strength lead');
+      check(prescriptionForFocus({n:'Plate-Loaded Incline Press'},'power').reps===7&&prescriptionForFocus({n:'Plate-Loaded Incline Press'},'power').rest===150,'strength support');
+      check(prescriptionForFocus({n:'Dumbbell Lateral Raises'},'power').reps===10,'strength accessory');
+      check(_focusSetCount({n:'Plate-Loaded Incline Press',p:1},'standard','power')===3&&_focusSetCount({n:'Bench Press (Barbell)',p:1,anchor:true},'standard','power')===4,'strength sets by tier');
+      check(prescriptionForFocus({n:'Bench Press (Barbell)',anchor:true},'muscle').reps===8&&prescriptionForFocus({n:'Bench Press (Barbell)',anchor:true},'muscle').rest===150,'muscle lead');
+      check(prescriptionForFocus({n:'Plate-Loaded Incline Press'},'muscle').rest===120,'muscle compound rest');
+      check(prescriptionForFocus({n:'Dumbbell Lateral Raises'},'muscle').reps===12&&prescriptionForFocus({n:'Dumbbell Lateral Raises'},'muscle').rest===90,'muscle accessory');
+      reset();const k=dKey(vDate);S.dayConfig[k]={type:'gym',split:'upper'};S.sessions={};S.history=[];S.weekFocus='power';buildTodayWorkout();const g=GS(k);
+      check(g.exList.filter(e=>e.reps<=5).every(e=>_isLeadSlot(e)),'a non-lead lift got 3–5 reps: '+g.exList.map(e=>e.n+' '+e.reps));
+      check(g.exList.some(e=>getMG(e.n)==='back'),'strength upper day has no pulling');
     });
     test('full-body quick includes knee, hinge, chest and back', () => {
-      reset();S.weekFocus='hybrid';const k=dKey(vDate);S.dayConfig[k].split='fullbody';S.sessions[k]={gym:{intensity:'quick',exercises:{},cardio:{}}};buildTodayWorkout();
+      reset();S.weekFocus='power';const k=dKey(vDate);S.dayConfig[k].split='fullbody';S.sessions[k]={gym:{intensity:'quick',exercises:{},cardio:{}}};buildTodayWorkout();
       const groups=S.sessions[k].gym.exList.map(e=>getMG(e.n));check(['quads','hamstrings','chest','back'].every(g=>groups.includes(g)),groups.join(','));
     });
     test('equipment limits and fractional increments are respected', () => {
@@ -204,14 +666,14 @@ let server, browser;
       _stopWorkoutClock(k);clearInterval(timerInt);timerInt=null;localStorage.removeItem('pf_restTimer');
     });
     test('every focus uses its rep, rest, progression and cardio contract', () => {
-      const specs={general:[10,75,12,25],power:[4,210,5,15],muscle:[9,150,12,20],tone:[12,75,14,45],endurance:[18,35,20,45],hybrid:[6,180,8,15]};
+      const specs={general:[10,75,12,25],power:[4,210,5,15],muscle:[8,150,10,20],tone:[12,75,14,45],endurance:[18,35,20,45]};
       for(const [focus,[reps,rest,ceiling,cap]] of Object.entries(specs)){
         reset();S.weekFocus=focus;S.prefs.autoSuperset=true;buildTodayWorkout();
         const g=S.sessions[dKey(vDate)].gym;
         const ex=g.exList.find(e=>e.n==='Bench Press (Barbell)');
         check(ex&&ex.reps===reps&&ex.rest===rest,`${focus}: rendered prescription`);
         check(g._cardioPlan.finisherMin<=cap,`${focus}: excessive cardio`);
-        if(['power','hybrid'].includes(focus))check(!Object.keys(g.supersets||{}).length,`${focus}: auto superset`);
+        if(focus==='power')check(!Object.keys(g.supersets||{}).length,`${focus}: auto superset`);
         S.history=[history('2026-09-29',[set(100,ceiling),set(100,ceiling),set(100,ceiling)])];
         check(getProgression('Bench Press (Barbell)',reps,3,1).weight>100,`${focus}: ceiling not progressed`);
         const card=buildCardioBlock('finisher',{n:'Treadmill (HIIT)',tgt:'Sprint maximally',dur:20},{},0,'upper');
@@ -349,9 +811,9 @@ let server, browser;
     });
     test('focus changes back and forth on a live workout match a fresh build every time', () => {
       const fresh={};
-      for(const f of ['tone','power','muscle','endurance','general','hybrid']){ const k=liveReset('upper'); S.weekFocus=f; buildTodayWorkout(); fresh[f]=JSON.stringify(S.sessions[k].gym.exList); }
+      for(const f of ['tone','power','muscle','endurance','general']){ const k=liveReset('upper'); S.weekFocus=f; buildTodayWorkout(); fresh[f]=JSON.stringify(S.sessions[k].gym.exList); }
       const k=liveReset('upper'); S.weekFocus='tone'; buildTodayWorkout();
-      for(const f of ['power','tone','muscle','power','endurance','tone','hybrid','general']){
+      for(const f of ['power','tone','muscle','power','endurance','tone','general']){
         setWeeklyFocus(f); const g=S.sessions[k].gym;
         check(JSON.stringify(g.exList)===fresh[f],f+': list differs from a fresh '+f+' build');
         g.exList.forEach((e,i)=>{ const work=(g.exercises[i].sets||[]).filter(s=>!s.spec&&(s.type||'wk')==='wk'); check(work.length>=e.sets&&e.sets>=3,f+': '+e.n+' has '+work.length+' work sets'); });
@@ -378,8 +840,8 @@ let server, browser;
       check(!Object.values(g.exercises||{}).some(e=>(e.sets||[]).some(s=>s.done)),'logged sets kept');
     });
     test('each focus gets its own specialty sets as extras; the switch is separate from supersets', () => {
-      for(const f of Object.keys(SPECIALTY_BY_FOCUS)){
-        const k=liveReset(f==='chestcore'?'chest':f==='general'?'upper':'push'); _advSuggestEnabled=true; S.weekFocus=f; buildTodayWorkout(); const g=S.sessions[k].gym;
+      for(const f of Object.keys(SPECIALTY_BY_FOCUS).filter(f=>!FOCUS_META[f].homeOnly)){
+        const k=liveReset(f==='general'?'upper':'push'); _advSuggestEnabled=true; S.weekFocus=f; buildTodayWorkout(); const g=S.sessions[k].gym;
         const specs=[]; g.exList.forEach((e,i)=>(g.exercises[i].sets||[]).forEach(s=>{ if(s.spec) specs.push({n:e.n,t:s.type,i}); }));
         check(specs.length>0&&specs.every(x=>SPECIALTY_BY_FOCUS[f].some(r=>r.type===x.t)),f+': incorrect extras '+JSON.stringify(specs));
         for(const x of specs){ const work=g.exercises[x.i].sets.filter(s=>!s.spec&&(s.type||'wk')==='wk').length; check(work>=g.exList[x.i].sets,f+': specialty replaced a work set on '+x.n); }
@@ -665,7 +1127,7 @@ let server, browser;
     });
     test('Today gets the requested split after Auto-Rotate is toggled, in both directions', () => {
       for(const ar of [false,true]){
-        const k=monReset(ar), a=getEffTpl(k), b=['push','pull','core'].find(x=>x!==a);
+        const k=monReset(ar); S.daySched[1]='push'; _autoSplitCache={}; buildTodayWorkout(); const a=getEffTpl(k), b=['push','pull','core'].find(x=>x!==a);
         S.prefs.autoRotateSplits=!ar; _autoSplitCache={}; const other=getEffTpl(k); S.prefs.autoRotateSplits=ar; _autoSplitCache={};
         check(other!==a,'precondition: both settings give '+a+' for Monday');
         confirmSplitSwitch(b); reloadState(); toggleAR();
@@ -972,7 +1434,7 @@ let server, browser;
     // ── Gym Quick fits 30–45 min: short-end rests, then skip the finisher ────────
     test('every Gym Quick session is planned within 30–45 min with ≥3 work sets and in-range rests', () => {
       const bad=[];
-      for(const sp of ['push','pull','lower','upper','fullbody','glutes','arms','core']) for(const f of Object.keys(FOCUS_META)) for(const adv of [false,true]) for(const ss of [false,true]){
+      for(const sp of ['push','pull','lower','upper','fullbody','glutes','arms','core']) for(const f of Object.keys(FOCUS_META).filter(f=>!FOCUS_META[f].homeOnly)) for(const adv of [false,true]) for(const ss of [false,true]){
         const k=liveReset(sp); S.prefs.autoSuperset=ss; _advSuggestEnabled=adv; S.weekFocus=f; S.sessions[k]={gym:{exercises:{},cardio:{},cardioBlocks:{},intensity:'quick'}}; buildTodayWorkout();
         const g=S.sessions[k].gym, est=Number(el('intEstLine').getAttribute('data-est-mid')), ctx=sp+'/'+f+(adv?'/spec':'')+(ss?'/ss':'');
         // Full Body Strength keeps four heavy lifts at 3-min rests plus its cluster set:
@@ -985,11 +1447,11 @@ let server, browser;
       _advSuggestEnabled=false; check(!bad.length,bad.slice(0,12).join('; '));
     });
     test('Standard and Home keep their normal rests; the rest timer follows the exercise', () => {
-      let k=liveReset('push'); S.weekFocus='hybrid'; S.sessions[k]={gym:{exercises:{},cardio:{},cardioBlocks:{},intensity:'standard'}}; buildTodayWorkout();
-      let g=S.sessions[k].gym, mi=g.exList.findIndex(e=>isMainStrengthMovement(e.n)); check(mi>=0&&g.exList[mi].rest===180,'standard hybrid main lift rest changed: '+(mi>=0&&g.exList[mi].rest));
+      let k=liveReset('push'); S.weekFocus='muscle'; S.sessions[k]={gym:{exercises:{},cardio:{},cardioBlocks:{},intensity:'standard'}}; buildTodayWorkout();
+      let g=S.sessions[k].gym, mi=g.exList.findIndex(e=>isMainStrengthMovement(e.n)); check(mi>=0&&g.exList[mi].rest===150,'standard muscle lead lift rest changed: '+(mi>=0&&g.exList[mi].rest));
       const ai=g.exList.findIndex(e=>!isMainStrengthMovement(e.n)); if(ai>=0) check(getSupersetRestForExercise(ai,k,g.exList)===g.exList[ai].rest,'rest timer ignores the exercise rest');
-      k=homeReset('hpush'); S.weekFocus='hybrid'; S.sessions[k].home={exercises:{},cardio:{},cardioBlocks:{},intensity:'quick'}; buildTodayWorkout();
-      g=S.sessions[k].home; check(g.exList.some(e=>e.rest>QUICK_REST_BY_FOCUS.hybrid),'Home Quick got Gym Quick rests: '+g.exList.map(e=>e.rest));
+      k=homeReset('hpush'); S.weekFocus='muscle'; S.sessions[k].home={exercises:{},cardio:{},cardioBlocks:{},intensity:'quick'}; buildTodayWorkout();
+      g=S.sessions[k].home; check(g.exList.some(e=>e.rest>QUICK_REST_BY_FOCUS.muscle),'Home Quick got Gym Quick rests: '+g.exList.map(e=>e.rest));
       cMode='gym';
     });
     test('a skipped Quick finisher is not rendered, never blocks completion, and a started one stays', () => {
@@ -1047,7 +1509,7 @@ let server, browser;
       clearAllCardioTimers();
     });
     test('a superset done in the highlighted order rests after each round', () => {
-      const k=liveReset('push'); S.weekFocus='hybrid'; S.prefs.autoSuperset=false; S.prefs.autoTimer=true;
+      const k=liveReset('push'); S.weekFocus='muscle'; S.prefs.autoSuperset=false; S.prefs.autoTimer=true;
       const toasts=[]; showToast=m=>toasts.push(m);
       buildTodayWorkout(); const g=S.sessions[k].gym; g.supersets={1:2,2:1}; g.activeSuperset=undefined; saveS(); buildTodayWorkout();
       const rests=[];
@@ -1060,7 +1522,7 @@ let server, browser;
       S.prefs.autoTimer=false;
     });
     test('a pinned template is estimated from its own saved rests', () => {
-      const est=rest=>{ const k=liveReset('upper'); S.weekFocus='hybrid';
+      const est=rest=>{ const k=liveReset('upper'); S.weekFocus='muscle';
         S.workoutTemplates=[{id:1,name:'R'+rest,intensity:'quick',exercises:['Lat Pulldown','Seated Cable Row','Leg Extension'].map(n=>({n,t:'',sets:3,reps:'10',rest,p:3}))}];
         buildTodayWorkout(); applyWorkoutTemplate(1); buildTodayWorkout();
         check(S.sessions[k].gym.exListPinned&&S.sessions[k].gym.exList[0].rest===rest,'fixture: template not pinned with rest '+rest);
@@ -1079,7 +1541,7 @@ let server, browser;
       check(!!document.getElementById('cardio-block-finisher-0'),'stopped finisher card not rendered');
     });
     test('consecutive sets on one superset card still get the exercise rest', () => {
-      const k=liveReset('push'); S.weekFocus='hybrid'; S.prefs.autoSuperset=false; S.prefs.autoTimer=true; showToast=()=>{};
+      const k=liveReset('push'); S.weekFocus='muscle'; S.prefs.autoSuperset=false; S.prefs.autoTimer=true; showToast=()=>{};
       buildTodayWorkout(); const g=S.sessions[k].gym; g.supersets={1:2,2:1}; g.activeSuperset=undefined; saveS(); buildTodayWorkout();
       const rests=[];
       const doSet=ei=>{ const sets=S.sessions[k].gym.exercises[ei].sets, si=sets.findIndex(s=>!s.done&&(s.type||'wk')==='wk');
@@ -1153,7 +1615,7 @@ let server, browser;
     });
     test('every focus prescribes its own reps/rest, 3+ sets within its maximum, and its specialty set', () => {
       const bad=[];
-      for(const f of Object.keys(FOCUS_META)) for(const sp of ['push','pull','lower','upper','fullbody','glutes','arms','core']) for(const int of ['quick','standard','full']){
+      for(const f of Object.keys(FOCUS_META).filter(f=>!FOCUS_META[f].homeOnly)) for(const sp of ['push','pull','lower','upper','fullbody','glutes','arms','core']) for(const int of ['quick','standard','full']){
         const k=liveReset(sp); _advSuggestEnabled=true; S.weekFocus=f; S.sessions[k]={gym:{exercises:{},cardio:{},cardioBlocks:{},intensity:int}}; buildTodayWorkout();
         const g=GS(k), ctx=f+'/'+sp+'/'+int;
         g.exList.forEach((e,i)=>{ const r=workSetRange(e,f); if(e.sets<3||e.sets>r[1]) bad.push(ctx+': '+e.n+' '+e.sets+' sets (max '+r[1]+')');
@@ -1172,7 +1634,7 @@ let server, browser;
       check(workSetRange({n:'Bench Press (Barbell)',p:1},'power')[1]>workSetRange({n:'Dumbbell Lateral Raises',p:3},'endurance')[1],'max does not depend on focus/type');
     });
     test('Full sessions add a set to the main lifts on the strength and muscle focuses', () => {
-      for(const f of ['power','hybrid','muscle']) check(_focusSetCount({n:'Bench Press (Barbell)',p:1},'full',f)>_focusSetCount({n:'Bench Press (Barbell)',p:1},'standard',f),f);
+      for(const f of ['power','muscle']) check(_focusSetCount({n:'Bench Press (Barbell)',p:1,anchor:true},'full',f)>_focusSetCount({n:'Bench Press (Barbell)',p:1,anchor:true},'standard',f),f);
       check(_focusSetCount({n:'Bench Press (Barbell)',p:1,sets:4},'full','tone')===4,'tone primary lift');
       check(_focusSetCount({n:'Dumbbell Lateral Raises',p:2,sets:3},'full','tone')===3,'tone accessory');
     });
@@ -1320,10 +1782,9 @@ let server, browser;
     test('specialized workouts and gym stations are selectable, and gym variation uses past history only', () => {
       const k=liveReset('pull'),gym=getActiveGym();buildTodayWorkout();
       openSplitSwitcher();
-      check(el('splitSwitcherList').textContent.includes('Main workouts')&&el('splitSwitcherList').textContent.includes('Specialized workouts'),'Today group headings missing');
-      check(el('splitSwitcherList').textContent.includes('Back & Lats'),'specialized workout missing');
+      for(const t of ['Workouts by program','Push / Pull / Legs','Upper / Lower','Full Body','Add-on days']) check(el('splitSwitcherList').textContent.includes(t),'Today picker missing '+t);
       openDayModal(k);
-      check(el('splitGrid').textContent.includes('Main workouts')&&el('splitGrid').textContent.includes('Specialized workouts'),'Plan group headings missing');
+      check(el('splitGrid').textContent.includes('Workouts by program')&&el('splitGrid').textContent.includes('Add-on days'),'Plan group headings missing');
       for(const [name,gear] of [['Dips','Dip Station / Parallel Bars'],['Pull-Ups','Pull-Up Bar'],['Decline Bench Sit-Up','Decline Bench']]){
         check(gym.equipment.includes(gear)&&isExerciseAvailable(name,[gear])&&!isExerciseAvailable(name,[]),name+' does not require its station');
       }
@@ -1474,27 +1935,38 @@ let server, browser;
       doSaveWorkout(3,'');
       check(S.history.find(h=>h.date===k).exercises.some(e=>e.name===variant&&e.sets[0].done),'logged variation lost its identity');
     });
-    test('workout pickers nest specialized plans under their main workout', () => {
-      const k=liveReset('lower');buildTodayWorkout();openSplitSwitcher();
-      const today=Array.from(el('splitSwitcherList').querySelectorAll('details')).find(x=>x.querySelector('summary').textContent.includes('Lower Body Strength'));
-      check(today&&today.textContent.includes('Standard Lower')&&today.textContent.includes('Quads & Calves')&&today.textContent.includes('Hamstrings & Posterior Chain'),'Today lower workout missing children');
+    test('workout pickers group workouts by program, the focus\'s program first', () => {
+      const k=liveReset('lower');S.weekFocus='muscle';S.setup.gymDays=[1,2,3,4,5];buildTodayWorkout();openSplitSwitcher();
+      const fams=Array.from(el('splitSwitcherList').querySelectorAll('details.split-family'));
+      check(fams[0]&&fams[0].querySelector('summary').textContent.includes('Push / Pull / Legs')&&fams[0].open,'recommended program not first and open');
+      check(fams[0].textContent.includes('Legs'),'PPL lower day not labelled Legs');
+      check(fams.some(f=>f.querySelector('summary').textContent.includes('Add-on days')),'add-on days missing');
+      check(!el('splitSwitcherList').textContent.includes('Quads & Calves'),'retired single-muscle day still listed');
+      check(el('splitSwitcherList').textContent.includes('in your program'),'program recommendation missing');
       closeModal('splitSwitcherModal');
       openDayModal(k);
-      const plan=Array.from(el('splitGrid').querySelectorAll('details')).find(x=>x.querySelector('summary').textContent.includes('Lower Body Strength'));
-      plan.querySelector('summary').click();
-      plan.querySelector('button[onclick*="quads"]').click();
-      check(mDaySplit==='quads'&&el('splitGrid').querySelector('details[open] button.active'),'Plan did not preserve the selected child');
+      const add=Array.from(el('splitGrid').querySelectorAll('details')).find(x=>x.querySelector('summary').textContent.includes('Add-on days'));
+      add.querySelector('summary').click();
+      add.querySelector('button[onclick*="glutes"]').click();
+      check(mDaySplit==='glutes'&&el('splitGrid').querySelector('details[open] button.active'),'Plan did not keep the selected add-on open');
       saveDayConfig();
-      check(getEffTpl(k)==='quads','specialized workout did not save');
+      check(getEffTpl(k)==='glutes','add-on workout did not save');
+      S.dayConfig[k].split='quads';openDayModal(k);
+      check(el('splitGrid').querySelector('button.active[onclick*="quads"]'),'a legacy single-muscle day is hidden while selected');
+      closeModal('dayModal');
+      S.weekFocus='tone';S.dayConfig={};S.dayConfig[k]={type:'gym'};S.prefs.autoRotateSplits=false;
+      const fut=addDaysK(k,1);S.dayConfig[fut]={type:'gym',split:'arms'};buildWeekFocusRow();
+      check(el('planProgramCard').textContent.includes('Upper / Lower'),'Plan program card missing');
+      applyRecommendedProgram();
+      check(S.prefs.autoRotateSplits===true&&!S.dayConfig[fut].split&&S.dayConfig[fut].type==='gym','Follow program did not clear the upcoming manual split');
     });
     test('chest and core is selectable for Gym and Home with independent targets', () => {
       const k=liveReset('fullbody');
-      buildWeekFocusRow();el('weekFocusRow').querySelector('[onclick*="chestcore"]').click();confirmFocusChoice();
-      const gym=GS(k);
-      check(gym.trainingFocus==='chestcore','gym focus was not saved');
-      for(const group of ['chest','core','quads','hamstrings','back']) check(gym.exList.some(e=>getMG(e.n)===group),'full body missing '+group);
-      check(gym.exList.some(e=>e.n==='Bench Press (Barbell)'),'preferred full-body chest movement missing');
-      setWeeklyFocus('general');switchMode('home');
+      buildWeekFocusRow();check(!el('weekFocusRow').querySelector('[onclick*="chestcore"]'),'Chest & Core offered as a gym focus');
+      const gymFocus=S.weekFocus;setWeeklyFocus('chestcore');
+      check(S.weekFocus===gymFocus&&S.homeFocus==='chestcore','Home-only focus became the gym focus');
+      check(getWorkoutFocus(k)===gymFocus&&GS(k).trainingFocus!=='chestcore','gym day took the Home focus');
+      setWeeklyFocus('general');delete S.homeFocus;switchMode('home');
       el('swapWorkoutBanner').querySelector('button[onclick*="hchestcore"]').click();
       const select=el('swapWorkoutBanner').querySelector('[aria-label="Home focus"]');
       select.value='chestcore';select.dispatchEvent(new Event('change'));
@@ -1613,13 +2085,13 @@ let server, browser;
       check(getWarmupSets(280,'Plate-Loaded Leg Press','chestcore').every(w=>w.weight>=160&&w.weight<280&&isLoadableWeight('Plate-Loaded Leg Press',w.weight)),'plate warm-ups ignored the configured load');
     });
     test('next session refreshes working sets, warm-up ramp and controlled specialty set', () => {
-      let k=liveReset('chest'); S.weekFocus='chestcore'; _advSuggestEnabled=true;
+      let k=liveReset('chest'); S.weekFocus='muscle'; _advSuggestEnabled=true;
       buildTodayWorkout();
       let g=GS(k);
       const bench='Bench Press (Barbell)', fly='Pec Deck / Fly Machine';
       for(const [n,load] of [[bench,150],[fly,100]]){
         const i=g.exList.findIndex(e=>e.n===n);
-        check(i>=0,n+' missing from Chest & Core');
+        check(i>=0,n+' missing from the chest workout');
         g.exercises[i].sets.filter(isStraightWorkSet).forEach(row=>Object.assign(row,{weight:String(load),done:true,rpe:'8',reps:String(row.targetReps)}));
       }
       doSaveWorkout(3,'');
@@ -1631,11 +2103,13 @@ let server, browser;
       const benchData=g.exercises[bi], flyData=g.exercises[fi];
       check(benchData.sets.filter(isStraightWorkSet).every(row=>Number(row.weight)===155),'progressed work not seeded');
       check(benchData.warmupPlan.length>0&&benchData.warmupPlan.every(row=>row.weight===warmupWeightFor(bench,155,row.pct)),'old weight used for the next warm-up ramp');
-      const specialty=flyData.sets.find(row=>row.spec);
-      check(specialty?.type==='ds'&&Number(specialty.weight)===specialtySetTarget('ds',g.exList[fi],105,'chestcore').w,'drop set based on the wrong load');
-      check(Object.values(g.exercises).flatMap(e=>e.sets).filter(e=>e.spec).length===1,'more than one Chest & Core extra');
-      const quick=planSpecialtySets(g.exList,'chestcore','quick',g.exercises);
-      check(!Object.keys(quick).length,'Quick got a specialty extra');
+      check(flyData.sets.filter(isStraightWorkSet).every(row=>Number(row.weight)===105),'progressed accessory not seeded');
+      const specs=[];g.exList.forEach((e,i)=>(g.exercises[i].sets||[]).forEach(row=>{ if(row.spec) specs.push({e,i,row}); }));
+      check(specs.length>=1&&specs.length<=2,'expected one or two extras, got '+specs.length);
+      for(const {e,i,row} of specs){ const w=Number(g.exercises[i].sets.find(isStraightWorkSet).weight), want=specialtySetTarget(row.type,e,w,'muscle');
+        if(want&&want.w!=null) check(Number(row.weight)===want.w,row.type+' on '+e.n+' based on the wrong load'); }
+      const quick=planSpecialtySets(g.exList,'muscle','quick',g.exercises);
+      check(Object.keys(quick).length<=1,'Quick got more than one specialty extra');
       toggleAdvSuggest();
       check(!Object.values(GS(k).exercises).some(e=>e.sets.some(s=>s.spec)),'specialty switch did not remove the extra');
     });
