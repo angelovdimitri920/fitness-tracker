@@ -265,7 +265,7 @@ let server, browser;
       const setItem=Storage.prototype.setItem; Storage.prototype.setItem=function(k,v){ if(k==='pf_v4') throw new Error('QuotaExceededError'); return setItem.call(this,k,v); };
       try{ check(_commitRestore(JSON.parse(before))===false,'quota failure reported success'); } finally { Storage.prototype.setItem=setItem; }
       check(S===prevS&&localStorage.getItem('pf_v4')===before,'quota failure changed state');
-      good.weekFocus='hybrid'; check(_commitRestore(good)&&S.weekFocus==='muscle'&&JSON.parse(localStorage.getItem('pf_v4')).weekFocus==='muscle','migrated restore not written once');
+      good.weekFocus='hybrid'; check(_commitRestore(good)&&S.weekFocus==='muscle'&&JSON.parse(localStorage.getItem('pf_v4')).weekFocus==='muscle','migrated restore not written once: '+window._lastRestoreError);
     });
     test('Strength roles survive swaps and live re-plans; role changes use one real set', () => {
       reset(); S.weekFocus='power'; const k=dKey(vDate);
@@ -355,6 +355,41 @@ let server, browser;
       check(_lastSeenDayKey===dKey(new Date())&&_rolloverPending&&dKey(vDate)===kk,'running cardio did not hold Today');
       S.sessions[kk].gym.cardioBlocks={}; window.dispatchEvent(new Event('focus'));
       check(!_rolloverPending&&dKey(vDate)===dKey(new Date()),'deferred advance never happened');
+    });
+    test('restore normalises numeric text, rejects bad measurements and render-checks every page', () => {
+      reset(); buildTodayWorkout(); saveS(); const base=localStorage.getItem('pf_v4');
+      const bad=(mut)=>{ const d=JSON.parse(base); mut(d); try{ validateBackupState(d); return ''; }catch(e){ return e.message; } };
+      check(/measurement/.test(bad(d=>{d.measurements=[null];})),'null measurement accepted');
+      check(/measurement waist/.test(bad(d=>{d.measurements=[{date:'2026-09-20',waist:'abc'}];})),'text measurement accepted');
+      check(/distance/.test(bad(d=>{d.history.push({id:9,date:'2026-09-21',type:'run',distance:'three'});})),'non-numeric distance accepted');
+      const good=JSON.parse(base);
+      good.history.push({id:91,date:'2026-09-21',type:'run',day:'tue',phase:'Base',week:1,distance:'3',duration:'30'});
+      good.measurements=[{date:'2026-09-20',waist:'34.5'}]; good.weights.push({date:'2026-09-20',w:'200',bf:null});
+      check(_commitRestore(validateBackupState(good))===true,'numeric-text backup rejected: '+window._lastRestoreError);
+      const r=S.history.find(h=>h.id===91);
+      check(r.distance===3&&r.duration===30&&S.measurements[0].waist===34.5&&S.weights.slice(-1)[0].w===200,'numeric text not normalised');
+      openHistDetail(91); check(/3\.0/.test(el('histMC').innerHTML),'run detail did not render'); closeModal('histModal');
+      // a shape the validator misses still fails before the write, and the pages repaint live data
+      const live=localStorage.getItem('pf_v4'), orig=window.buildBodyPage, poisoned=JSON.parse(live); poisoned.profile.name='POISON';
+      window.buildBodyPage=function(){ if(S.profile.name==='POISON') throw new Error('body broke'); return orig.apply(this,arguments); };
+      try{ check(_commitRestore(poisoned)===false&&localStorage.getItem('pf_v4')===live&&S.profile.name!=='POISON','page-breaking backup committed'); }
+      finally{ window.buildBodyPage=orig; }
+      check(!el('histModal').classList.contains('show'),'render check left the history sheet open');
+    });
+    test('an untagged unfinished set withholds the increase; a picked date cancels a deferred rollover', () => {
+      reset(); const k=dKey(vDate);
+      S.weekFocus='power'; const sx=(w,r,lead,done=true)=>{ const s=Object.assign(set(w,r,'wk',done),{targetReps:lead?4:7}); if(lead!=null) s.lead=lead; return s; };
+      S.history=[{id:1,date:'2026-09-29',type:'gym',trainingFocus:'power',exercises:[{name:'Cable Low Row',targetReps:4,plannedWorkSets:5,
+        sets:[sx(100,4,true),sx(100,4,true),sx(100,4,true),sx(100,'',null,false),sx(100,7,false)]}]}];
+      S.sessions[k]={gym:{intensity:'standard',exercises:{},cardio:{},cardioBlocks:{},exList:[{n:'Cable Low Row',anchor:true,reps:4,sets:4}]}};
+      const last=getLastExSession('Cable Low Row',undefined,true), p=getProgression('Cable Low Row',4,4,1);
+      check(!last.ceilingHit&&p.weight<=100,'untagged unfinished set allowed an increase: '+JSON.stringify(p));
+      reset(); const kk=dKey(vDate);
+      S.sessions[kk]={gym:{intensity:'standard',exercises:{},cardio:{},cardioBlocks:{a:{timer:{running:true,startedAt:Date.now(),durMs:60000}}}}};
+      _lastSeenDayKey=kk; _rolloverPending=false; window.dispatchEvent(new Event('focus'));
+      check(_rolloverPending===kk,'pending advance not bound to its workout');
+      changeDate(-2); const picked=dKey(vDate); window.dispatchEvent(new Event('focus'));
+      check(!_rolloverPending&&dKey(vDate)===picked,'deferred rollover overrode a picked date');
     });
     test('Strength puts 3–5 reps on the lead lift and lighter work on supporting compounds; Muscle splits compounds and accessories', () => {
       reset();

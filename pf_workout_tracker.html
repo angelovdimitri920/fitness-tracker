@@ -4893,7 +4893,9 @@ function getLastExSession(exName, overrideFocus, curLead){
       var _all=(ex.sets||[]).filter(isStraightWorkSet);
       var _same=_all.filter(function(x){return x.lead!=null&&!!x.lead===!!curLead;});
       var _other=_all.filter(function(x){return x.lead!=null&&!!x.lead!==!!curLead;});
-      _partial=_all.some(function(x){return x.lead==null&&validCompletedSet(x);});
+      // An untagged work set — done or not — could belong to either role: an unfinished one
+      // may be the missing lead set, so its role's work can't be shown complete.
+      _partial=_all.some(function(x){return x.lead==null;});
       var _hasDone=function(a){return a.some(validCompletedSet);};
       if(_hasDone(_same)){ _sets=_same; _wasLead=!!curLead; }
       else if(_hasDone(_other)){ _sets=_other; _wasLead=!curLead; }
@@ -5663,7 +5665,8 @@ var _fns=[updateStreak,buildWeekStrip,updateDateDisplay,buildTodayWorkout,buildP
 window._lastSeenDayKey=dKey(new Date()); // global so the rollover can be exercised in tests
 // Wall-clock check (not a tick counter): it compares today's date with the last one seen,
 // so a suspended interval simply catches up on the next event.
-// Set when the date changed but Today could not move yet (a workout was still under way).
+// Set when the date changed but Today could not move yet (a workout was still under way): the
+// date key of the workout it is waiting on, or false. Picking another date cancels it.
 window._rolloverPending=false;
 function _viewedWorkUnderway(){
   var vk=dKey(vDate), g=null; try{ g=GS(vk); }catch(e){}
@@ -5680,13 +5683,15 @@ function _checkDayRollover(){
   if(_newDay){
     var _wasToday=dKey(vDate)===_lastSeenDayKey;
     _lastSeenDayKey=_nk; _autoSplitCache={};
-    if(_wasToday) _rolloverPending=true;
+    if(_wasToday) _rolloverPending=dKey(vDate);
     try{ updateDateDisplay(); buildWeekStrip(); }catch(e){}
     try{ buildPlan(); }catch(e){}
     try{ if(el('page-home')&&el('page-home').classList.contains('active')) buildHomePage(); }catch(e){}
     try{ updateStreak(); }catch(e){}
   }
-  // Today moves to the new date once nothing is under way on the day being shown.
+  // Today moves to the new date once nothing is under way on the day being shown — but only if
+  // that is still the workout it was waiting on. A date the user picked since is left alone.
+  if(_rolloverPending&&dKey(vDate)!==_rolloverPending){ _rolloverPending=false; return; }
   if(_rolloverPending&&!_viewedWorkUnderway()){
     _rolloverPending=false;
     try{ vDate=new Date(); updateDateDisplay(); buildWeekStrip(); buildTodayWorkout(); }catch(e){}
@@ -13139,9 +13144,9 @@ if(!s)return;
 selHistId=id;
 var title='',html='';
 if(s.type==='run'){
-title='🏃 '+s.day.toUpperCase()+' · '+fmtDate(s.date);
-html='<div style="font-size:11px;color:var(--ru);margin-bottom:10px;font-family:\'DM Mono\',monospace">'+s.phase+' · WEEK '+s.week+' · '+(s.status||'COMPLETED').toUpperCase()+'</div>'+
-'<div class="sg"><div class="sb"><div class="sv" style="color:var(--ru)">'+s.distance.toFixed(1)+'</div><div class="sl">Miles</div></div>'+
+title='🏃 '+String(s.day||'Run').toUpperCase()+' · '+fmtDate(s.date);
+html='<div style="font-size:11px;color:var(--ru);margin-bottom:10px;font-family:\'DM Mono\',monospace">'+escapeHtml(s.phase||'Run')+' · WEEK '+(s.week||'–')+' · '+(s.status||'COMPLETED').toUpperCase()+'</div>'+
+'<div class="sg"><div class="sb"><div class="sv" style="color:var(--ru)">'+(Number(s.distance)||0).toFixed(1)+'</div><div class="sl">Miles</div></div>'+
 '<div class="sb"><div class="sv" style="color:var(--ru)">'+(s.duration||0)+'</div><div class="sl">Min</div></div>'+
 '<div class="sb"><div class="sv" style="color:var(--ru)">'+(s.pace||'-')+'</div><div class="sl">Pace</div></div></div>'+
 (s.hr?(function(){var age=S.profile&&S.profile.age?parseInt(S.profile.age):35;var maxHR=220-age;var hr=parseInt(s.hr);var pct=Math.round(hr/maxHR*100);var zone=pct>=90?{n:'Z5',c:'var(--re)',d:'Max'}:pct>=80?{n:'Z4',c:'var(--or)',d:'Threshold'}:pct>=70?{n:'Z3',c:'var(--ye)',d:'Tempo'}:pct>=60?{n:'Z2',c:'var(--gr)',d:'Aerobic'}:{n:'Z1',c:'#60a5fa',d:'Recovery'};return'<div style="font-size:12px;color:#bbb;margin:4px 0">HR: '+s.hr+' bpm <span style="font-family:\'DM Mono\',monospace;font-size:10px;background:'+zone.c+'22;color:'+zone.c+';padding:1px 6px;border-radius:4px;margin-left:4px">'+zone.n+' '+zone.d+'</span></div>';})()
@@ -13153,7 +13158,7 @@ html='<div style="font-size:11px;color:var(--ru);margin-bottom:10px;font-family:
 (s.splits&&s.splits.length?'<div style="margin-top:10px"><div style="font-size:11px;font-weight:600;color:#fff;margin-bottom:6px">📊 Mile Splits</div>'+s.splits.map(function(sp,i){return'<div style="display:flex;gap:8px;font-size:11px;padding:4px 0;border-bottom:1px solid var(--b1)"><span style="color:var(--mu);width:50px;font-family:\'DM Mono\',monospace">Mile '+(i+1)+'</span>'+(sp.pace?'<span style="color:#fff">'+sp.pace+'/mi</span>':'')+(sp.hr?'<span style="color:var(--ru);margin-left:8px">'+sp.hr+'bpm</span>':'')+(sp.feel?'<span style="color:var(--mu);margin-left:auto">'+sp.feel+'</span>':'')+'</div>';}).join('')+'</div>':'')+
 (s.notes?'<div style="font-size:12px;color:#ccc;margin:8px 0;padding:9px;background:var(--s3);border-radius:7px">📝 '+escapeHtml(s.notes)+'</div>':'');
 } else {
-title='🏋️ '+s.day.toUpperCase()+' · '+fmtDate(s.date);
+title='🏋️ '+String(s.day||s.type||'Workout').toUpperCase()+' · '+fmtDate(s.date);
 var detStars=''; for(var ri=0;ri<(s.rating||0);ri++) detStars+='⭐';
 var _wuHD=getWeightUnit(),_sVolD=toDisplayWeight(s.volume||0);
 html=(detStars?'<div style="margin-bottom:8px">'+detStars+'</div>':'')+
@@ -13174,8 +13179,8 @@ html+='<div style="margin-bottom:9px">'+
 done.map(function(x,i){return'<div style="font-size:11px;color:var(--mu);font-family:\'DM Mono\',monospace">Set '+(i+1)+': '+fmtLoggedSet(ex.name,x)+(x.type&&x.type!=='wk'?' ['+x.type+']':'')+'</div>';}).join('')+
 '</div>';
 });
-(s.cardio||[]).forEach(function(cv){
-if(!cv.duration) return;
+(Array.isArray(s.cardio)?s.cardio:[]).forEach(function(cv){
+if(!cv||!cv.duration) return;
 html+='<div style="margin:7px 0;padding:9px;background:rgba(59,130,246,.08);border-radius:7px">'+
 '<div style="font-weight:600;font-size:12px">🏃 '+(cv.name||'Cardio')+'</div>'+
 '<div style="font-size:11px;color:var(--mu);font-family:\'DM Mono\',monospace;margin-top:2px">'+cv.duration+' min'+(cv.calories?' · ~'+cv.calories+' cal':'')+'</div></div>';
@@ -13581,8 +13586,7 @@ function importFromText(){
     var when=data._exportDate?data._exportDate.slice(0,10):'unknown date';
     showConfirm('Restore backup from '+when+'? This will replace all current data.',function(){
       if(!_commitRestore(data)) return;
-      ['buildWeekStrip','updateDateDisplay','buildTodayWorkout','buildPlan','buildMarathon','updateProgress','renderHistory','buildBodyPage','buildNutritionPage','buildGoalsPage','buildHomePage','updateStreak']
-        .forEach(function(fn){ try{ if(typeof window[fn]==='function') window[fn](); }catch(e){console.warn('post-restore '+fn+':',e);} });
+      _repaintAfterRestore();
       showToast('Backup restored');
     });
   });
@@ -13749,14 +13753,28 @@ function validateBackupState(data){
     });
   }
   function splits(v,what){ if(v!=null&&(!Array.isArray(v)||v.some(function(x){return !object(x);})))fail(what); }
+  // A number saved as text ("3") is turned back into a number: pages call .toFixed on these and
+  // add them up, so a string either throws or concatenates. Anything that is not a number fails.
+  function num(o,key,what,positive){
+    var v=o[key]; if(v==null||v==='') return;
+    var n=Number(v); if(typeof v==='boolean'||!isFinite(n)||n<0||(positive&&n===0)) fail(what||key);
+    o[key]=n;
+  }
   data.history.forEach(function(h){
     if(object(h)) splits(h.splits,'run splits');
     // Home workouts are resistance sessions like the gym ones and get the same checks.
     if(!object(h)||!date(h.date)||['gym','home','run'].indexOf(h.type)<0)fail('history entry');
     if(h.type==='gym'||h.type==='home'){if(!Array.isArray(h.exercises))fail(h.type+' exercises');h.exercises.forEach(function(e){if(!object(e)||typeof e.name!=='string')fail('exercise name');sets(e);});}
-    ['distance','duration','volume','sets','cardioMins'].forEach(function(key){if(h[key]!=null&&(!isFinite(Number(h[key]))||Number(h[key])<0))fail(key);});
+    ['distance','duration','volume','sets','cardioMins','calories','elevation'].forEach(function(key){num(h,key);});
   });
-  data.weights.forEach(function(w){if(!object(w)||!date(w.date)||!isFinite(Number(w.w))||Number(w.w)<=0)fail('body weight');});
+  data.weights.forEach(function(w){if(!object(w)||!date(w.date)||w.w==null||w.w==='')fail('body weight');num(w,'w','body weight',true);num(w,'bf','body fat');});
+  if(data.measurements!=null){
+    if(!Array.isArray(data.measurements))fail('measurements');
+    data.measurements.forEach(function(m){
+      if(!object(m)||!date(m.date))fail('measurement');
+      Object.keys(m).forEach(function(key){if(key!=='date')num(m,key,'measurement '+key);});
+    });
+  }
   Object.keys(data.sessions).forEach(function(k){
     var session=data.sessions[k];if(!date(k)||!object(session))fail('session');
     if(session.run!=null){ if(!object(session.run))fail('run session'); splits(session.run.splits,'run splits'); }
@@ -13812,6 +13830,19 @@ function _restoreSmoke(){
     order.forEach(function(i){ if(!list[i]) throw new Error(m+' '+k+': exercise '+i+' missing'); });
   }); }); }
   finally{ cMode=_mode; vDate=_vd; }
+  // Then the pages themselves, read-only: Body, Marathon, History (and every history entry's
+  // detail), Progress, Goals, Home. A shape the checks above missed fails here instead of
+  // after the write. _commitRestore repaints them with whichever state wins.
+  ['buildBodyPage','buildMarathon','renderHistory','updateProgress','buildGoalsPage','buildHomePage'].forEach(function(fn){
+    if(typeof window[fn]==='function') window[fn]();
+  });
+  var _hm=el('histModal'), _hmShown=_hm&&_hm.classList.contains('show'), _hmc=el('histMC'), _hmHtml=_hmc?_hmc.innerHTML:'', _sel=selHistId;
+  try{ (S.history||[]).forEach(function(h){ if(h&&h.id!=null) openHistDetail(h.id); }); }
+  finally{ selHistId=_sel; if(_hmc) _hmc.innerHTML=_hmHtml; if(_hm&&!_hmShown) _hm.classList.remove('show'); }
+}
+function _repaintAfterRestore(){
+  ['buildWeekStrip','updateDateDisplay','buildTodayWorkout','buildPlan','buildMarathon','updateProgress','renderHistory','buildBodyPage','buildNutritionPage','buildEquipmentPage','buildGoalsPage','buildHomePage','updateStreak']
+    .forEach(function(fn){ try{ if(typeof window[fn]==='function') window[fn](); }catch(e){console.warn('repaint '+fn+':',e);} });
 }
 // A restore is one transaction: the candidate is migrated and checked in memory with every
 // write suppressed, its final bytes are written once, and only then does it become the
@@ -13825,7 +13856,8 @@ function _commitRestore(data){
     migrateState(); _restoreSmoke();
     bytes=JSON.stringify(cand);
   }catch(e){
-    console.warn('restore rejected:',e);
+    console.warn('restore rejected:',e); window._lastRestoreError=(e&&e.stack)||String(e);
+    S=liveS; _restoreDryRun=false; _autoSplitCache={}; _repaintAfterRestore();
     showToast('Restore failed — your current data was kept ('+(e.message||'invalid backup')+')');
     return false;
   }finally{ S=liveS; _restoreDryRun=false; _autoSplitCache={}; }
@@ -13848,16 +13880,7 @@ function importData(){
           var exportDate=data._exportDate?data._exportDate.slice(0,10):'unknown date';
           showConfirm('Restore backup from '+exportDate+'? This will replace all current data.',function(){
             if(!_commitRestore(data)) return;
-            try{buildWeekStrip();}catch(e){console.warn('post-restore buildWeekStrip:',e);}
-            try{updateDateDisplay();}catch(e){console.warn('post-restore updateDateDisplay:',e);}
-            try{buildTodayWorkout();}catch(e){console.warn('post-restore buildTodayWorkout:',e);}
-            try{buildPlan();}catch(e){console.warn('post-restore buildPlan:',e);}
-            try{buildMarathon();}catch(e){console.warn('post-restore buildMarathon:',e);}
-            try{updateProgress();}catch(e){console.warn('post-restore updateProgress:',e);}
-            try{renderHistory();}catch(e){console.warn('post-restore renderHistory:',e);}
-            try{buildBodyPage();}catch(e){console.warn('post-restore buildBodyPage:',e);}
-            try{buildNutritionPage();}catch(e){console.warn('post-restore buildNutritionPage:',e);}
-            try{buildEquipmentPage();}catch(e){console.warn('post-restore buildEquipmentPage:',e);}
+            _repaintAfterRestore();
             closeModal('setupModal');
             showToast('Backup restored successfully!');
           });
@@ -14088,7 +14111,7 @@ function _nasApplyRestore(data){
   var when=data._exportDate?data._exportDate.slice(0,10):'unknown date';
   showConfirm('Restore backup from '+when+'? This replaces ALL current data on this device.',function(){
     if(!_commitRestore(data)) return;
-    ['buildHomePage','buildWeekStrip','updateDateDisplay','buildTodayWorkout','buildPlan','buildMarathon','updateProgress','renderHistory','buildBodyPage','buildNutritionPage','buildEquipmentPage'].forEach(function(fn){try{if(typeof window[fn]==='function')window[fn]();}catch(e){console.warn('post-restore '+fn+':',e);}});
+    _repaintAfterRestore();
     closeModal('setupModal');
     showToast('✅ Restored from NAS');
   });

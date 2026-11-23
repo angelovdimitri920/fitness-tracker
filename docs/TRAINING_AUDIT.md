@@ -202,3 +202,8 @@ Fourth review round:
 - **Each role keeps its planned sets.** Mixed-role filtering keeps that role's unfinished sets, so 3 of 4 lead sets is not a completed lead prescription.
 - **Legacy backfill on re-plan.** For a Strength main lift, a logged set's own target decides its role (3–5 reps = lead); other lifts take the old slot's role.
 - **Deferred Today advance.** The date change is recorded at once; Today moves to the new day only when the day on screen has no unsaved work under way, and a running cardio countdown counts as work.
+
+Fifth review round:
+- **Restore normalises and renders.** Numbers saved as text in history (distance, duration, volume, sets, cardio minutes, calories, elevation), body weights and measurements are converted to numbers; anything non-numeric fails. Measurement rows must be objects with a valid date. Inside the dry run the smoke check also renders Body, Marathon, History (and every history entry's detail), Progress, Goals and Home, so a shape the validator misses fails before the write; a rejected restore repaints the pages with the live state (`_repaintAfterRestore`). The history detail no longer assumes `day`, `phase`, `week` or an array `cardio`.
+- **Unknown-role work withholds load.** In mixed-role history any untagged straight work set, done or not, keeps the role's work from counting as complete.
+- **A picked date cancels a deferred advance.** `_rolloverPending` holds the date key of the workout it is waiting on; if the viewed date is no longer that day, the pending advance is dropped.
