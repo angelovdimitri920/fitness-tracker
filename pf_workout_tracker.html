@@ -13128,34 +13128,42 @@ function renderHistory(){
     if(s.type==='run'){
       var paceVsTarget='';
       if(s.pace&&S.setup.easyPaceMins){var toPN=function(p){var pts=(p+'').split(':');return parseInt(pts[0]||0)*60+(parseInt(pts[1]||0));};var diff=toPN(s.pace)-Math.round(S.setup.easyPaceMins*60);paceVsTarget=diff<=30?'<div class="hst" style="color:var(--gr)">🎯 On target</div>':diff<=60?'<div class="hst" style="color:var(--ye)">⚡ Near target</div>':'';}
-      return'<div class="hitem run" onclick="openHistDetail('+s.id+')"><div class="fbet"><div><div class="hdate">'+fmtDate(s.date)+'</div><div class="htitle">🏃 '+s.day+' · '+s.phase+' W'+s.week+'</div></div><span class="badge bru">'+s.distance.toFixed(1)+' mi</span></div><div class="hstats">'+(s.duration?'<div class="hst">Time: <span>'+s.duration+'m</span></div>':'')+(s.pace?'<div class="hst">Pace: <span>'+s.pace+'/mi</span></div>':'')+(s.calories?'<div class="hst">Cals: <span>'+s.calories+'</span></div>':'')+(s.hr?'<div class="hst">HR: <span>'+s.hr+'bpm</span></div>':'')+(s.injuryTag?'<div class="hst" style="color:var(--or)">⚠️ '+({knee:'Knee',itband:'IT Band',shin:'Shin',hip:'Hip',foot:'Foot',ankle:'Ankle',calf:'Calf',illness:'Illness',fatigue:'Fatigue'}[s.injuryTag]||s.injuryTag)+'</div>':'')+paceVsTarget+'</div></div>';
+      return'<div class="hitem run" onclick="openHistDetail('+s.id+')"><div class="fbet"><div><div class="hdate">'+fmtDate(s.date)+'</div><div class="htitle">🏃 '+escapeHtml(s.day)+' · '+escapeHtml(s.phase)+' W'+escapeHtml(s.week)+'</div></div><span class="badge bru">'+s.distance.toFixed(1)+' mi</span></div><div class="hstats">'+(s.duration?'<div class="hst">Time: <span>'+escapeHtml(s.duration)+'m</span></div>':'')+(s.pace?'<div class="hst">Pace: <span>'+escapeHtml(s.pace)+'/mi</span></div>':'')+(s.calories?'<div class="hst">Cals: <span>'+escapeHtml(s.calories)+'</span></div>':'')+(s.hr?'<div class="hst">HR: <span>'+escapeHtml(s.hr)+'bpm</span></div>':'')+(s.injuryTag?'<div class="hst" style="color:var(--or)">⚠️ '+({knee:'Knee',itband:'IT Band',shin:'Shin',hip:'Hip',foot:'Foot',ankle:'Ankle',calf:'Calf',illness:'Illness',fatigue:'Fatigue'}[s.injuryTag]||s.injuryTag)+'</div>':'')+paceVsTarget+'</div></div>';
     }
     var stars='';for(var ri=0;ri<(s.rating||0);ri++)stars+='⭐';
     var prBadge=s.prs&&s.prs.length?'<span class="badge by" style="margin-left:5px">🏆 '+s.prs.length+' PR'+(s.prs.length>1?'s':'')+'</span>':'';
     var topExercises='';
     var _wuHL=getWeightUnit(), _sVD=toDisplayWeight(s.volume||0);
     if(s.exercises&&s.exercises.length){var doneEx=s.exercises.filter(function(e){return e.sets&&e.sets.some(function(x){return x.done;});});if(doneEx.length){topExercises='<div style="font-size:10px;color:var(--mu);margin-top:4px;font-family:\'DM Mono\',monospace">'+doneEx.slice(0,3).map(function(e){var _ws=e.sets.filter(function(x){return x.done&&x.weight;}).map(function(x){return parseFloat(x.weight)||0;}),maxW=_ws.length?Math.max.apply(null,_ws):0;var _lv=e.sets.filter(function(x){return x.done&&x.level;}).map(function(x){return x.level;});return e.name+(maxW>0?': '+toDisplayWeight(maxW)+' '+_wuHL:_lv.length?': level '+_lv[_lv.length-1]:'');}).join(' · ')+(doneEx.length>3?' +more':'')+'</div>';}}
-    return'<div class="hitem gym" onclick="openHistDetail('+s.id+')"><div class="fbet"><div><div class="hdate">'+fmtDate(s.date)+(s.duration?'<span class="dur-badge" style="margin-left:6px">⏱ '+fmtDurShort(s.duration)+'</span>':'')+'</div><div class="htitle">'+(s.type==='home'?'🏠 ':'🏋️ ')+s.day+' · '+s.focus+prBadge+'</div></div><span class="badge bg">✓ '+(s.intensity||'std')+'</span></div><div class="hstats"><div class="hst">Vol: <span>'+(_sVD>999?Math.round(_sVD/1000)+'k':Math.round(_sVD))+'</span></div><div class="hst">Sets: <span>'+s.sets+'</span></div><div class="hst">Cardio: <span>'+Math.round(s.cardioMins||0)+'m</span></div>'+(stars?'<div class="hst"><span>'+stars+'</span></div>':'')+'</div>'+topExercises+(s.notes?'<div style="font-size:11px;color:var(--mu);margin-top:4px;font-style:italic">📝 '+escapeHtml(s.notes)+'</div>':'')+'</div>';
+    return'<div class="hitem gym" onclick="openHistDetail('+s.id+')"><div class="fbet"><div><div class="hdate">'+fmtDate(s.date)+(s.duration?'<span class="dur-badge" style="margin-left:6px">⏱ '+fmtDurShort(s.duration)+'</span>':'')+'</div><div class="htitle">'+(s.type==='home'?'🏠 ':'🏋️ ')+escapeHtml(s.day)+' · '+escapeHtml(s.focus)+prBadge+'</div></div><span class="badge bg">✓ '+escapeHtml(String(s.intensity||'std'))+'</span></div><div class="hstats"><div class="hst">Vol: <span>'+(_sVD>999?Math.round(_sVD/1000)+'k':Math.round(_sVD))+'</span></div><div class="hst">Sets: <span>'+escapeHtml(s.sets)+'</span></div><div class="hst">Cardio: <span>'+Math.round(s.cardioMins||0)+'m</span></div>'+(stars?'<div class="hst"><span>'+stars+'</span></div>':'')+'</div>'+topExercises+(s.notes?'<div style="font-size:11px;color:var(--mu);margin-top:4px;font-style:italic">📝 '+escapeHtml(s.notes)+'</div>':'')+'</div>';
   }).join('');
 }
 function openHistDetail(id){
 var s=S.history.find(function(h){return h.id===id;});
 if(!s)return;
 selHistId=id;
+var d=_histDetailParts(s);
+el('histMT').textContent=d.title;
+el('histMC').innerHTML=d.html;
+openModal('histModal');
+}
+// The detail sheet's title and markup for one history entry, built without touching the page
+// (the restore check renders every entry through this).
+function _histDetailParts(s){
 var title='',html='';
 if(s.type==='run'){
 title='🏃 '+String(s.day||'Run').toUpperCase()+' · '+fmtDate(s.date);
-html='<div style="font-size:11px;color:var(--ru);margin-bottom:10px;font-family:\'DM Mono\',monospace">'+escapeHtml(s.phase||'Run')+' · WEEK '+(s.week||'–')+' · '+(s.status||'COMPLETED').toUpperCase()+'</div>'+
+html='<div style="font-size:11px;color:var(--ru);margin-bottom:10px;font-family:\'DM Mono\',monospace">'+escapeHtml(s.phase||'Run')+' · WEEK '+escapeHtml(String(s.week||'–'))+' · '+escapeHtml(String(s.status||'COMPLETED').toUpperCase())+'</div>'+
 '<div class="sg"><div class="sb"><div class="sv" style="color:var(--ru)">'+(Number(s.distance)||0).toFixed(1)+'</div><div class="sl">Miles</div></div>'+
-'<div class="sb"><div class="sv" style="color:var(--ru)">'+(s.duration||0)+'</div><div class="sl">Min</div></div>'+
-'<div class="sb"><div class="sv" style="color:var(--ru)">'+(s.pace||'-')+'</div><div class="sl">Pace</div></div></div>'+
-(s.hr?(function(){var age=S.profile&&S.profile.age?parseInt(S.profile.age):35;var maxHR=220-age;var hr=parseInt(s.hr);var pct=Math.round(hr/maxHR*100);var zone=pct>=90?{n:'Z5',c:'var(--re)',d:'Max'}:pct>=80?{n:'Z4',c:'var(--or)',d:'Threshold'}:pct>=70?{n:'Z3',c:'var(--ye)',d:'Tempo'}:pct>=60?{n:'Z2',c:'var(--gr)',d:'Aerobic'}:{n:'Z1',c:'#60a5fa',d:'Recovery'};return'<div style="font-size:12px;color:#bbb;margin:4px 0">HR: '+s.hr+' bpm <span style="font-family:\'DM Mono\',monospace;font-size:10px;background:'+zone.c+'22;color:'+zone.c+';padding:1px 6px;border-radius:4px;margin-left:4px">'+zone.n+' '+zone.d+'</span></div>';})()
+'<div class="sb"><div class="sv" style="color:var(--ru)">'+escapeHtml(String(s.duration||0))+'</div><div class="sl">Min</div></div>'+
+'<div class="sb"><div class="sv" style="color:var(--ru)">'+escapeHtml(String(s.pace||'-'))+'</div><div class="sl">Pace</div></div></div>'+
+(s.hr?(function(){var age=S.profile&&S.profile.age?parseInt(S.profile.age):35;var maxHR=220-age;var hr=parseInt(s.hr);var pct=Math.round(hr/maxHR*100);var zone=pct>=90?{n:'Z5',c:'var(--re)',d:'Max'}:pct>=80?{n:'Z4',c:'var(--or)',d:'Threshold'}:pct>=70?{n:'Z3',c:'var(--ye)',d:'Tempo'}:pct>=60?{n:'Z2',c:'var(--gr)',d:'Aerobic'}:{n:'Z1',c:'#60a5fa',d:'Recovery'};return'<div style="font-size:12px;color:#bbb;margin:4px 0">HR: '+escapeHtml(s.hr)+' bpm <span style="font-family:\'DM Mono\',monospace;font-size:10px;background:'+zone.c+'22;color:'+zone.c+';padding:1px 6px;border-radius:4px;margin-left:4px">'+zone.n+' '+zone.d+'</span></div>';})()
 :'')+
-(s.rpe?'<div style="font-size:12px;color:#bbb;margin:4px 0">Effort: '+s.rpe+'/10</div>':'')+
-(s.cadence?'<div style="font-size:12px;color:#bbb;margin:4px 0">Cadence: '+s.cadence+' spm</div>':'')+
-(s.elevation?'<div style="font-size:12px;color:#bbb;margin:4px 0">Elevation: '+s.elevation+' ft</div>':'')+
+(s.rpe?'<div style="font-size:12px;color:#bbb;margin:4px 0">Effort: '+escapeHtml(s.rpe)+'/10</div>':'')+
+(s.cadence?'<div style="font-size:12px;color:#bbb;margin:4px 0">Cadence: '+escapeHtml(s.cadence)+' spm</div>':'')+
+(s.elevation?'<div style="font-size:12px;color:#bbb;margin:4px 0">Elevation: '+escapeHtml(s.elevation)+' ft</div>':'')+
 (s.injuryTag?'<div style="font-size:12px;color:var(--or);margin:4px 0;background:rgba(251,146,60,.08);padding:5px 8px;border-radius:6px">⚠️ Issue: '+({knee:'🦵 Knee',itband:'⚡ IT Band',shin:'🦴 Shin Splints',hip:'🏃 Hip/Glute',foot:'👟 Foot/Plantar',ankle:'🦶 Ankle',calf:'🦵 Calf',illness:'🤒 Illness',fatigue:'😴 Fatigue'}[s.injuryTag]||s.injuryTag)+'</div>':'')+
-(s.splits&&s.splits.length?'<div style="margin-top:10px"><div style="font-size:11px;font-weight:600;color:#fff;margin-bottom:6px">📊 Mile Splits</div>'+s.splits.map(function(sp,i){return'<div style="display:flex;gap:8px;font-size:11px;padding:4px 0;border-bottom:1px solid var(--b1)"><span style="color:var(--mu);width:50px;font-family:\'DM Mono\',monospace">Mile '+(i+1)+'</span>'+(sp.pace?'<span style="color:#fff">'+sp.pace+'/mi</span>':'')+(sp.hr?'<span style="color:var(--ru);margin-left:8px">'+sp.hr+'bpm</span>':'')+(sp.feel?'<span style="color:var(--mu);margin-left:auto">'+sp.feel+'</span>':'')+'</div>';}).join('')+'</div>':'')+
+(s.splits&&s.splits.length?'<div style="margin-top:10px"><div style="font-size:11px;font-weight:600;color:#fff;margin-bottom:6px">📊 Mile Splits</div>'+s.splits.map(function(sp,i){return'<div style="display:flex;gap:8px;font-size:11px;padding:4px 0;border-bottom:1px solid var(--b1)"><span style="color:var(--mu);width:50px;font-family:\'DM Mono\',monospace">Mile '+(i+1)+'</span>'+(sp.pace?'<span style="color:#fff">'+escapeHtml(sp.pace)+'/mi</span>':'')+(sp.hr?'<span style="color:var(--ru);margin-left:8px">'+escapeHtml(sp.hr)+'bpm</span>':'')+(sp.feel?'<span style="color:var(--mu);margin-left:auto">'+escapeHtml(sp.feel)+'</span>':'')+'</div>';}).join('')+'</div>':'')+
 (s.notes?'<div style="font-size:12px;color:#ccc;margin:8px 0;padding:9px;background:var(--s3);border-radius:7px">📝 '+escapeHtml(s.notes)+'</div>':'');
 } else {
 title='🏋️ '+String(s.day||s.type||'Workout').toUpperCase()+' · '+fmtDate(s.date);
@@ -13163,11 +13171,11 @@ var detStars=''; for(var ri=0;ri<(s.rating||0);ri++) detStars+='⭐';
 var _wuHD=getWeightUnit(),_sVolD=toDisplayWeight(s.volume||0);
 html=(detStars?'<div style="margin-bottom:8px">'+detStars+'</div>':'')+
 (s.notes?'<div style="font-size:12px;color:#ccc;padding:9px;background:var(--s3);border-radius:7px;margin-bottom:10px;font-style:italic">📝 '+escapeHtml(s.notes)+'</div>':'')+
-'<div style="font-size:11px;color:var(--mu);margin-bottom:10px;font-family:\'DM Mono\',monospace">'+s.focus+' · '+(s.intensity||'standard').toUpperCase()+'</div>'+
+'<div style="font-size:11px;color:var(--mu);margin-bottom:10px;font-family:\'DM Mono\',monospace">'+escapeHtml(s.focus)+' · '+escapeHtml(String(s.intensity||'standard').toUpperCase())+'</div>'+
 '<div class="sg"><div class="sb"><div class="sv">'+(_sVolD>999?Math.round(_sVolD/1000)+'k':Math.round(_sVolD))+'</div><div class="sl">Vol '+_wuHD+'</div></div>'+
-'<div class="sb"><div class="sv">'+s.sets+'</div><div class="sl">Sets</div></div>'+
+'<div class="sb"><div class="sv">'+escapeHtml(s.sets)+'</div><div class="sl">Sets</div></div>'+
 '<div class="sb"><div class="sv">'+Math.round(s.cardioMins||0)+'</div><div class="sl">Cardio</div></div>'+
-(s.duration?'<div class="sb"><div class="sv" style="color:var(--cy)">'+s.duration+'</div><div class="sl">Min</div></div>':'')+
+(s.duration?'<div class="sb"><div class="sv" style="color:var(--cy)">'+escapeHtml(s.duration)+'</div><div class="sl">Min</div></div>':'')+
 '</div>';
 s.exercises.forEach(function(ex){
 var done=ex.sets.filter(function(x){return x.done;});
@@ -13182,13 +13190,11 @@ done.map(function(x,i){return'<div style="font-size:11px;color:var(--mu);font-fa
 (Array.isArray(s.cardio)?s.cardio:[]).forEach(function(cv){
 if(!cv||!cv.duration) return;
 html+='<div style="margin:7px 0;padding:9px;background:rgba(59,130,246,.08);border-radius:7px">'+
-'<div style="font-weight:600;font-size:12px">🏃 '+(cv.name||'Cardio')+'</div>'+
-'<div style="font-size:11px;color:var(--mu);font-family:\'DM Mono\',monospace;margin-top:2px">'+cv.duration+' min'+(cv.calories?' · ~'+cv.calories+' cal':'')+'</div></div>';
+'<div style="font-weight:600;font-size:12px">🏃 '+escapeHtml(String(cv.name||'Cardio'))+'</div>'+
+'<div style="font-size:11px;color:var(--mu);font-family:\'DM Mono\',monospace;margin-top:2px">'+escapeHtml(cv.duration)+' min'+(cv.calories?' · ~'+escapeHtml(cv.calories)+' cal':'')+'</div></div>';
 });
 }
-el('histMT').textContent=title;
-el('histMC').innerHTML=html;
-openModal('histModal');
+return {title:title,html:html};
 }
 // Rebuild S.pbs from history — mirrors the per-set PR logic in doSaveWorkout so that
 // deleting an entry also removes any PRs it created (e.g. a typo'd weight).
@@ -13757,9 +13763,53 @@ function validateBackupState(data){
   // add them up, so a string either throws or concatenates. Anything that is not a number fails.
   function num(o,key,what,positive){
     var v=o[key]; if(v==null||v==='') return;
-    var n=Number(v); if(typeof v==='boolean'||!isFinite(n)||n<0||(positive&&n===0)) fail(what||key);
+    // Only a number or numeric text — Number([3]) is 3 and Number(true) is 1, so no coercion.
+    var n=typeof v==='number'?v:(typeof v==='string'&&v.trim()!==''?Number(v):NaN);
+    if(!isFinite(n)||n<0||(positive&&n===0)) fail(what||key);
     o[key]=n;
   }
+  // Every top-level list: no empty rows, and records are not mixed with bare values.
+  Object.keys(data).forEach(function(key){
+    var a=data[key]; if(!Array.isArray(a)) return;
+    if(a.some(function(x){return x==null;})||(a.some(object)&&!a.every(object))) fail(key+' entry');
+  });
+  // History ids end up inside onclick handlers: they must be numbers.
+  data.history.forEach(function(h){ if(object(h)&&h.id!=null){ num(h,'id','history id'); } });
+  if(data.fastLog!=null) data.fastLog.forEach(function(f){
+    if(!object(f)||f.start==null) fail('fast');
+    // Instants are epoch numbers (date text that parses is left as it is).
+    ['start','end'].forEach(function(key){
+      var v=f[key]; if(v==null) return;
+      if(typeof v==='string'&&v.trim()!==''&&isNaN(Number(v))){ if(isNaN(Date.parse(v))) fail('fast '+key); return; }
+      num(f,key,'fast '+key);
+    });
+    num(f,'durationH','fast length');
+  });
+  if(data.workoutTemplates!=null) data.workoutTemplates.forEach(function(t){
+    if(!object(t)||!Array.isArray(t.exercises)||t.exercises.some(function(e){return !object(e);})) fail('saved workout');
+  });
+  // Food rows: macros and micronutrients are numbers (two "100" kcal rows must total 200).
+  var NUT_MACRO={cal:1,pro:1,carb:1,fat:1,fiber:1,sodium:1,sugar:1};
+  var NUT_TEXT={n:1,name:1,srv:1,serving:1,unit:1,brand:1,barcode:1,src:1,source:1,type:1,id:1,time:1,note:1,notes:1,emoji:1,icon:1};
+  if(data.nutLog!=null) Object.keys(data.nutLog).forEach(function(dk){
+    var day=data.nutLog[dk]; if(day==null) return;
+    if(!object(day)) fail('nutrition day');
+    ['breakfast','lunch','dinner','snacks'].forEach(function(m){
+      if(day[m]==null) return;
+      if(!Array.isArray(day[m])) fail('nutrition '+m);
+      day[m].forEach(function(f){
+        if(!object(f)) fail('food entry');
+        Object.keys(f).forEach(function(key){
+          if(NUT_MACRO[key]){ num(f,key,'food '+key); return; }
+          if(NUT_TEXT[key]||typeof f[key]==='object'||typeof f[key]==='boolean') return;
+          if(typeof f[key]==='string'&&isNaN(Number(f[key]))) return;   // other text stays text
+          num(f,key,'food '+key);
+        });
+      });
+    });
+    num(day,'water','water');
+    if(day.waterLog!=null&&(!Array.isArray(day.waterLog)||day.waterLog.some(function(e){return !object(e);}))) fail('water log');
+  });
   data.history.forEach(function(h){
     if(object(h)) splits(h.splits,'run splits');
     // Home workouts are resistance sessions like the gym ones and get the same checks.
@@ -13830,15 +13880,47 @@ function _restoreSmoke(){
     order.forEach(function(i){ if(!list[i]) throw new Error(m+' '+k+': exercise '+i+' missing'); });
   }); }); }
   finally{ cMode=_mode; vDate=_vd; }
-  // Then the pages themselves, read-only: Body, Marathon, History (and every history entry's
-  // detail), Progress, Goals, Home. A shape the checks above missed fails here instead of
-  // after the write. _commitRestore repaints them with whichever state wins.
-  ['buildBodyPage','buildMarathon','renderHistory','updateProgress','buildGoalsPage','buildHomePage'].forEach(function(fn){
-    if(typeof window[fn]==='function') window[fn]();
+}
+// Runs fn with every page lookup pointed at an inert copy of the app: nothing it renders
+// reaches the screen, no timer it starts runs, nothing it writes reaches storage, and the
+// timer ids and selection it may reset are put back. Used to render a restore candidate.
+var _ISOLATED_GLOBALS=['selHistId','_ifInterval','_wTimerInterval','_cardioTickInt','timerInt','_bcLoop'];
+function _inIsolatedDom(fn){
+  var D=document, W=window, SP=Storage.prototype;
+  var doc=D.implementation.createHTMLDocument('');
+  var body=doc.importNode(D.body,true);
+  Array.prototype.slice.call(body.querySelectorAll('script')).forEach(function(n){ n.parentNode.removeChild(n); });
+  doc.documentElement.replaceChild(body,doc.body);
+  var dPatch={getElementById:function(id){return doc.getElementById(id);},querySelector:function(q){return doc.querySelector(q);},
+    querySelectorAll:function(q){return doc.querySelectorAll(q);},getElementsByClassName:function(c){return doc.getElementsByClassName(c);},
+    getElementsByTagName:function(t){return doc.getElementsByTagName(t);}};
+  var noop=function(){}, zero=function(){return 0;};
+  var wPatch={setTimeout:zero,setInterval:zero,clearTimeout:noop,clearInterval:noop,requestAnimationFrame:zero,scrollTo:noop,scrollBy:noop};
+  var sPatch={setItem:noop,removeItem:noop,clear:noop};
+  var wSaved={}, sSaved={}, gSaved={};
+  _ISOLATED_GLOBALS.forEach(function(g){ if(g in W) gSaved[g]=W[g]; });
+  Object.keys(wPatch).forEach(function(k){ wSaved[k]=W[k]; W[k]=wPatch[k]; });
+  Object.keys(sPatch).forEach(function(k){ sSaved[k]=SP[k]; SP[k]=sPatch[k]; });
+  Object.keys(dPatch).forEach(function(k){ D[k]=dPatch[k]; });
+  Object.defineProperty(D,'body',{configurable:true,get:function(){return doc.body;}});
+  try{ return fn(); }
+  finally{
+    delete D.body; Object.keys(dPatch).forEach(function(k){ delete D[k]; });
+    Object.keys(sSaved).forEach(function(k){ SP[k]=sSaved[k]; });
+    Object.keys(wSaved).forEach(function(k){ W[k]=wSaved[k]; });
+    Object.keys(gSaved).forEach(function(g){ W[g]=gSaved[g]; });
+  }
+}
+// Every page and the history detail rendered from the candidate, off screen. A shape the
+// validator misses fails here, before the write.
+function _restoreRenderCheck(){
+  _inIsolatedDom(function(){
+    ['buildBodyPage','buildMarathon','renderHistory','updateProgress','buildGoalsPage','buildHomePage',
+     'buildNutritionPage','buildPlan','buildSavedTemplates','buildEquipmentPage'].forEach(function(fn){
+      if(typeof window[fn]==='function') window[fn]();
+    });
+    (S.history||[]).forEach(function(h){ _histDetailParts(h); });
   });
-  var _hm=el('histModal'), _hmShown=_hm&&_hm.classList.contains('show'), _hmc=el('histMC'), _hmHtml=_hmc?_hmc.innerHTML:'', _sel=selHistId;
-  try{ (S.history||[]).forEach(function(h){ if(h&&h.id!=null) openHistDetail(h.id); }); }
-  finally{ selHistId=_sel; if(_hmc) _hmc.innerHTML=_hmHtml; if(_hm&&!_hmShown) _hm.classList.remove('show'); }
 }
 function _repaintAfterRestore(){
   ['buildWeekStrip','updateDateDisplay','buildTodayWorkout','buildPlan','buildMarathon','updateProgress','renderHistory','buildBodyPage','buildNutritionPage','buildEquipmentPage','buildGoalsPage','buildHomePage','updateStreak']
@@ -13854,15 +13936,16 @@ function _commitRestore(data){
     cand=JSON.parse(JSON.stringify(data));
     S=cand; _restoreDryRun=true; _autoSplitCache={};
     migrateState(); _restoreSmoke();
+    // The bytes are fixed before the pages render, so nothing a renderer changes is stored.
     bytes=JSON.stringify(cand);
+    _restoreRenderCheck();
   }catch(e){
     console.warn('restore rejected:',e); window._lastRestoreError=(e&&e.stack)||String(e);
-    S=liveS; _restoreDryRun=false; _autoSplitCache={}; _repaintAfterRestore();
     showToast('Restore failed — your current data was kept ('+(e.message||'invalid backup')+')');
     return false;
   }finally{ S=liveS; _restoreDryRun=false; _autoSplitCache={}; }
   try{ localStorage.setItem(SK,bytes); }catch(se){ showToast('Storage error — backup may be too large. Your current data was kept.'); return false; }
-  S=cand; _autoSplitCache={};
+  S=JSON.parse(bytes); _autoSplitCache={};
   rehydrateCustomCatalogues();
   return true;
 }

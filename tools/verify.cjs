@@ -376,6 +376,33 @@ let server, browser;
       finally{ window.buildBodyPage=orig; }
       check(!el('histModal').classList.contains('show'),'render check left the history sheet open');
     });
+    test('restore validates nutrition, fasts and templates and renders the candidate off screen', () => {
+      reset(); buildTodayWorkout(); saveS(); const k=dKey(vDate), base=localStorage.getItem('pf_v4');
+      const bad=(mut)=>{ const d=JSON.parse(base); mut(d); try{ validateBackupState(d); return ''; }catch(e){ return e.message; } };
+      check(/fast/.test(bad(d=>{d.fastLog=[null];})),'null fast accepted');
+      check(/saved workout|workoutTemplates/.test(bad(d=>{d.workoutTemplates=[null];})),'null template accepted');
+      check(/saved workout/.test(bad(d=>{d.workoutTemplates=[{name:'x'}];})),'template without exercises accepted');
+      check(/distance/.test(bad(d=>{d.history.push({id:7,date:'2026-09-21',type:'run',distance:[3]});})),'array distance accepted');
+      check(/food cal/.test(bad(d=>{d.nutLog[k]={lunch:[{n:'x',cal:[100]}]};})),'array calories accepted');
+      check(/history id/.test(bad(d=>{d.history.push({id:'1);alert(1',date:'2026-09-21',type:'run',distance:1});})),'script-like history id accepted');
+      // numeric text in food rows is summed, not concatenated
+      const good=JSON.parse(base); good.nutLog[k]={lunch:[{n:'A',cal:'100',pro:'10'},{n:'B',cal:'100',pro:'5'}],water:'8'};
+      good.history.push({id:92,date:'2026-09-21',type:'gym',day:'Upper',focus:'<b id="mk">x</b>',exercises:[]});
+      check(_commitRestore(validateBackupState(good))===true,'nutrition backup rejected: '+window._lastRestoreError);
+      check(_dayNutTotals(S.nutLog[k]).cal===200&&S.nutLog[k].water===8,'food numbers not normalised: '+_dayNutTotals(S.nutLog[k]).cal);
+      check(!document.getElementById('mk'),'restore check mounted imported markup');
+      openHistDetail(92); check(!document.getElementById('mk')&&/&lt;b/.test(el('histMC').innerHTML),'history detail did not escape focus'); closeModal('histModal');
+      renderHistory(); check(!document.getElementById('mk'),'history list did not escape focus');
+      // a failed final write leaves the screen, the open sheet, timers and selection exactly as they were
+      switchPage('history',null); const live=localStorage.getItem('pf_v4'), listHtml=el('page-history').innerHTML;
+      openHistDetail(92); const title=el('histMT').textContent, ifBefore=_ifInterval, selBefore=selHistId;
+      const cand=JSON.parse(live); cand.history=[{id:93,date:'2026-09-22',type:'run',day:'Wed',distance:2}];
+      const setItem=Storage.prototype.setItem; Storage.prototype.setItem=function(){ throw new Error('quota'); };
+      try{ check(_commitRestore(validateBackupState(cand))===false,'quota failure reported success'); } finally { Storage.prototype.setItem=setItem; }
+      check(el('page-history').innerHTML===listHtml&&localStorage.getItem('pf_v4')===live,'failed write left the candidate on screen');
+      check(el('histMT').textContent===title&&el('histModal').classList.contains('show')&&_ifInterval===ifBefore&&selHistId===selBefore,'failed restore changed the open sheet, timers or selection');
+      closeModal('histModal'); switchPage('today',null);
+    });
     test('an untagged unfinished set withholds the increase; a picked date cancels a deferred rollover', () => {
       reset(); const k=dKey(vDate);
       S.weekFocus='power'; const sx=(w,r,lead,done=true)=>{ const s=Object.assign(set(w,r,'wk',done),{targetReps:lead?4:7}); if(lead!=null) s.lead=lead; return s; };
