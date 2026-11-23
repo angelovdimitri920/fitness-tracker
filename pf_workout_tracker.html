@@ -5200,20 +5200,27 @@ try{ var _as=localStorage.getItem('pf_advSuggest'); if(_as!==null)_advSuggestEna
 // Merge persisted custom equipment/exercises back into the live catalogues.
 // Guarded so it's a safe no-op if called before the catalogues are defined (parse-time
 // migrateState run); the startup load handler calls it again once they exist. Idempotent.
+// Rows this app put into the live catalogues from saved custom records. They are rebuilt from
+// S on every rehydrate, so a second restore in the same tab leaves no row from the first one.
+var _customCatalogueRows=new WeakSet();
+function _isCustomRow(i){ return !!(i&&(i.isCustom||_customCatalogueRows.has(i))); }
 function rehydrateCustomCatalogues(){
   if(_restoreDryRun) return;
   try{ _repairTextKeys(); }catch(e){ console.warn('repairTextKeys failed:',e); }
   try{
+    [typeof EQUIPMENT_CATALOGUE!=='undefined'?EQUIPMENT_CATALOGUE:null,typeof EXERCISE_CATALOGUE!=='undefined'?EXERCISE_CATALOGUE:null].forEach(function(cat){
+      (cat||[]).forEach(function(c){ if(c&&Array.isArray(c.items)) c.items=c.items.filter(function(i){ return !_isCustomRow(i); }); });
+    });
     if(typeof EQUIPMENT_CATALOGUE!=='undefined' && S.customCatItems){
       Object.keys(S.customCatItems).forEach(function(catId){
         var items=S.customCatItems[catId]; if(!items||!items.length) return;
-        for(var ci=0;ci<EQUIPMENT_CATALOGUE.length;ci++){ if(EQUIPMENT_CATALOGUE[ci].id===catId){ var ex=EQUIPMENT_CATALOGUE[ci].items; items.forEach(function(it){ if(!ex.some(function(e){return e.n===it.n;})) ex.push(it); }); break; } }
+        for(var ci=0;ci<EQUIPMENT_CATALOGUE.length;ci++){ if(EQUIPMENT_CATALOGUE[ci].id===catId){ var ex=EQUIPMENT_CATALOGUE[ci].items; items.forEach(function(it){ if(it&&!ex.some(function(e){return e.n===it.n;})){ _customCatalogueRows.add(it); ex.push(it); } }); break; } }
       });
     }
     if(typeof EXERCISE_CATALOGUE!=='undefined' && S.customExCatItems){
       Object.keys(S.customExCatItems).forEach(function(catId){
         var items=S.customExCatItems[catId]; if(!items||!items.length) return;
-        for(var ci=0;ci<EXERCISE_CATALOGUE.length;ci++){ if(EXERCISE_CATALOGUE[ci].id===catId){ var ex=EXERCISE_CATALOGUE[ci].items; items.forEach(function(it){ if(!ex.some(function(e){return e.n===it.n;})) ex.push(it); }); break; } }
+        for(var ci=0;ci<EXERCISE_CATALOGUE.length;ci++){ if(EXERCISE_CATALOGUE[ci].id===catId){ var ex=EXERCISE_CATALOGUE[ci].items; items.forEach(function(it){ if(it&&!ex.some(function(e){return e.n===it.n;})){ _customCatalogueRows.add(it); ex.push(it); } }); break; } }
       });
     }
   }catch(e){ console.warn('rehydrateCustomCatalogues failed:',e); }
@@ -5255,7 +5262,7 @@ function _uniqueRecordKeys(list, getKey, setKey, suffix, dropExact, onRename, op
 }
 function _builtinNames(cat){
   var names=new Set();
-  (Array.isArray(cat)?cat:[]).forEach(function(c){ (c&&Array.isArray(c.items)?c.items:[]).forEach(function(i){ if(i&&!i.isCustom&&typeof i.n==='string') names.add(i.n); }); });
+  (Array.isArray(cat)?cat:[]).forEach(function(c){ (c&&Array.isArray(c.items)?c.items:[]).forEach(function(i){ if(i&&!_isCustomRow(i)&&typeof i.n==='string') names.add(i.n); }); });
   return names;
 }
 // Runs in migrateState and again once the catalogues exist (rehydrateCustomCatalogues), since
@@ -28732,7 +28739,7 @@ function buildExercisePage(){
           S.customExCatItems[catId]=_withoutFirst(S.customExCatItems[catId],function(i){return i.n===exName;});
           // Also remove from live EXERCISE_CATALOGUE
           var cat2=EXERCISE_CATALOGUE.find(function(c){return c.id===catId;});
-          if(cat2) cat2.items=_withoutFirst(cat2.items,function(i){return i.n===exName&&i.isCustom;});
+          if(cat2) cat2.items=_withoutFirst(cat2.items,function(i){return i.n===exName&&_isCustomRow(i);});
           saveS();buildExercisePage();
         }
       });
@@ -29550,7 +29557,7 @@ function deleteCustomEquipment(itemName, catId){
   // Remove from catalogue runtime
   for(var ci=0;ci<EQUIPMENT_CATALOGUE.length;ci++){
     if(EQUIPMENT_CATALOGUE[ci].id===catId){
-      EQUIPMENT_CATALOGUE[ci].items = _withoutFirst(EQUIPMENT_CATALOGUE[ci].items,function(i){return i.n===itemName&&i.isCustom;});
+      EQUIPMENT_CATALOGUE[ci].items = _withoutFirst(EQUIPMENT_CATALOGUE[ci].items,function(i){return i.n===itemName&&_isCustomRow(i);});
       break;
     }
   }
@@ -29560,7 +29567,9 @@ function deleteCustomEquipment(itemName, catId){
   }
   // Gym lists and guides refer to equipment by name: clear them only when no other item
   // (built-in or custom, in any category) still has this name.
-  var _has=function(cat){ return (cat||[]).some(function(c){ return (c.items||[]).some(function(i){ return i.n===itemName; }); }); };
+  // Ownership = built-in catalogue rows plus the custom records saved now (never a live row
+  // left over from an earlier restore).
+  var _has=function(cat){ return _builtinNames(cat).has(itemName); };
   var _inStore=function(store){ return Object.keys(store||{}).some(function(c){ return Array.isArray(store[c])&&store[c].some(function(i){ return i&&i.n===itemName; }); }); };
   var _stillNamed=_has(EQUIPMENT_CATALOGUE)||_inStore(S.customCatItems);
   // The guide is also an exercise's guide when an exercise has this name.

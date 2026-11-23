@@ -584,6 +584,19 @@ let server, browser;
         check(r[0]===12.5&&r[1]===null&&r[2]===null&&r[3]===5,'Log Done minutes: '+JSON.stringify(r));
       } finally { window.logRestProtocol=_l; btn.remove(); S.customRestProtocols=[]; }
     });
+    test('a second restore leaves no custom catalogue row from the first, and delete clears the last owner', () => {
+      reset(); buildTodayWorkout(); saveS(); const base=localStorage.getItem('pf_v4');
+      const withPad=(cat)=>{ const d=JSON.parse(base); d.customCatItems={[cat]:[{n:'Synthetic Adjustable Pad',sub:'x'}]};
+        d.gymProfiles[0].equipment=(d.gymProfiles[0].equipment||[]).concat(['Synthetic Adjustable Pad']);
+        d.customExInfo=Object.assign({},d.customExInfo,{'Synthetic Adjustable Pad':{steps:['s']}}); return d; };
+      check(_commitRestore(validateBackupState(withPad('cardio')))===true,'first restore rejected');
+      check(_commitRestore(validateBackupState(withPad('cables')))===true,'second restore rejected');
+      const rows=EQUIPMENT_CATALOGUE.flatMap(c=>c.items.filter(i=>i.n==='Synthetic Adjustable Pad').map(()=>c.id));
+      check(rows.join('|')==='cables','stale catalogue row after the second restore: '+rows);
+      deleteCustomEquipment('Synthetic Adjustable Pad','cables');
+      check(!S.gymProfiles[0].equipment.includes('Synthetic Adjustable Pad')&&!S.customExInfo['Synthetic Adjustable Pad'],'delete kept the gym setting or guide');
+      check(!EQUIPMENT_CATALOGUE.some(c=>c.items.some(i=>i.n==='Synthetic Adjustable Pad')),'row left in the catalogue');
+    });
     test('an untagged unfinished set withholds the increase; a picked date cancels a deferred rollover', () => {
       reset(); const k=dKey(vDate);
       S.weekFocus='power'; const sx=(w,r,lead,done=true)=>{ const s=Object.assign(set(w,r,'wk',done),{targetReps:lead?4:7}); if(lead!=null) s.lead=lead; return s; };

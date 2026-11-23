@@ -254,3 +254,7 @@ Thirteenth review round:
 - **Every renamed exercise keeps its setting.** The `category::name` on/off preferences are snapshotted before any rename; each renamed row takes its old key's original value, and the old key is removed only afterwards and only if no custom or built-in row in that category still has the old name (so a built-in's disabled setting stays).
 - **Catalogue stores are validated on restore:** `customExCatItems` / `customCatItems` must map categories to lists of named rows, and custom accessories need names. The custom-equipment delete's ownership checks skip a malformed category instead of throwing half-way.
 - **Rest durations:** a negative numeric `dur` is rejected; Log Done takes the first number including a fraction (12.5) and ignores a negative one.
+
+Fourteenth review round:
+- **Live catalogues are rebuilt from the saved state.** `rehydrateCustomCatalogues` first removes every custom row (flagged `isCustom`, or tracked in `_customCatalogueRows` when it came from a saved record) from the equipment and exercise catalogues, then adds the current saved custom records back. A second restore in the same tab therefore leaves no row from the first.
+- **Ownership never counts a live leftover.** `_builtinNames` and the custom-equipment delete count built-in rows plus the custom records saved now, so deleting the last owner clears its gym setting and guide even after several restores. Catalogue deletes recognise custom rows the same way (`_isCustomRow`).
