@@ -560,6 +560,30 @@ let server, browser;
       deleteCustomEquipment('Synthetic Cross','free_weight_stations');
       EXERCISE_CATALOGUE.forEach(c=>{ c.items=c.items.filter(i=>!(i.isCustom&&/^(Synthetic Cross|Floor Press)/.test(i.n))); });
     });
+    test('every renamed exercise keeps a disabled setting; catalogue stores and rest durations are checked', () => {
+      reset(); buildTodayWorkout(); saveS(); const base=localStorage.getItem('pf_v4');
+      const good=JSON.parse(base);
+      good.customExCatItems={ex_treadmill:[{n:'Forward Elliptical',muscles:'Legs',isCustom:true}],ex_elliptical:[{n:'Forward Elliptical',muscles:'A',isCustom:true},{n:'Forward Elliptical',muscles:'B',isCustom:true}]};
+      good.enabledExercises=Object.assign({},good.enabledExercises,{'ex_elliptical::Forward Elliptical':false});
+      check(_commitRestore(validateBackupState(good))===true,'restore rejected: '+window._lastRestoreError);
+      const ren=S.customExCatItems.ex_elliptical.map(i=>i.n);
+      check(ren.length===2&&ren.every(n=>n!=='Forward Elliptical'&&S.enabledExercises['ex_elliptical::'+n]===false),'a renamed row lost its disabled setting: '+ren+' '+JSON.stringify(S.enabledExercises));
+      const builtinOwns=EXERCISE_CATALOGUE.some(c=>c.id==='ex_elliptical'&&c.items.some(i=>!i.isCustom&&i.n==='Forward Elliptical'));
+      if(builtinOwns) check(S.enabledExercises['ex_elliptical::Forward Elliptical']===false,'built-in lost its disabled setting');
+      EXERCISE_CATALOGUE.forEach(c=>{ c.items=c.items.filter(i=>!(i.isCustom&&/^Forward Elliptical/.test(i.n))); });
+      const bad=(mut)=>{ const d=JSON.parse(base); mut(d); try{ validateBackupState(d); return ''; }catch(e){ return e.message; } };
+      check(/customExCatItems retiredCategory/.test(bad(d=>{d.customExCatItems={retiredCategory:{}};})),'object category accepted');
+      check(/rest activity dur/.test(bad(d=>{d.customRestProtocols=[{id:'x',name:'X',dur:-5}];})),'negative duration accepted');
+      // Log Done keeps a fraction and ignores a negative text duration
+      let logged='unset'; const _l=window.logRestProtocol; window.logRestProtocol=function(k,n,m){ logged=m; };
+      const btn=document.createElement('button'); document.body.appendChild(btn);
+      try{
+        const got=(dur)=>{ S.customRestProtocols=[{id:'dtest',name:'D',dur:dur,requiredAny:[],steps:[],isCustom:true}]; logged='unset';
+          btn.setAttribute('data-logprotocol','dtest'); btn.setAttribute('data-pday',dKey(new Date())); btn.click(); return logged; };
+        const r=[got('12.5 min'),got('-5 min'),got(undefined),got('5-10 min')];
+        check(r[0]===12.5&&r[1]===null&&r[2]===null&&r[3]===5,'Log Done minutes: '+JSON.stringify(r));
+      } finally { window.logRestProtocol=_l; btn.remove(); S.customRestProtocols=[]; }
+    });
     test('an untagged unfinished set withholds the increase; a picked date cancels a deferred rollover', () => {
       reset(); const k=dKey(vDate);
       S.weekFocus='power'; const sx=(w,r,lead,done=true)=>{ const s=Object.assign(set(w,r,'wk',done),{targetReps:lead?4:7}); if(lead!=null) s.lead=lead; return s; };

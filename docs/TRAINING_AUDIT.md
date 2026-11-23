@@ -249,3 +249,8 @@ Twelfth review round:
 - **Preferences follow renames.** A renamed custom exercise carries its `category::name` on/off setting to the new key.
 - **Built-ins survive custom deletes.** Deleting a custom exercise or equipment row removes only a custom catalogue row, never a built-in one of the same name; deleting a custom accessory keeps the on/off preference while a built-in or another custom accessory still has the name. Custom accessories' generated names avoid built-in accessory names.
 - **Rest durations:** a numeric `dur` becomes "N min" on migration, and Log Done treats a missing duration as unspecified.
+
+Thirteenth review round:
+- **Every renamed exercise keeps its setting.** The `category::name` on/off preferences are snapshotted before any rename; each renamed row takes its old key's original value, and the old key is removed only afterwards and only if no custom or built-in row in that category still has the old name (so a built-in's disabled setting stays).
+- **Catalogue stores are validated on restore:** `customExCatItems` / `customCatItems` must map categories to lists of named rows, and custom accessories need names. The custom-equipment delete's ownership checks skip a malformed category instead of throwing half-way.
+- **Rest durations:** a negative numeric `dur` is rejected; Log Done takes the first number including a fraction (12.5) and ignores a negative one.

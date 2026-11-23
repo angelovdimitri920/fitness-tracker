@@ -5293,15 +5293,24 @@ function _repairTextKeys(){
     var cats=S[pair[0]]; if(!cats||typeof cats!=='object') return;
     var flat=[], groupOf=new Map();
     Object.keys(cats).forEach(function(cid){ if(Array.isArray(cats[cid])) cats[cid].forEach(function(it){ flat.push(it); if(it&&typeof it==='object') groupOf.set(it,cid); }); });
+    // Exercise on/off preferences are keyed "category::name". Every renamed row takes the value
+    // its old key had before any renaming (a snapshot, so a second rename in the same category
+    // sees it too); the old key is removed afterwards only if no custom or built-in row in that
+    // category still has the old name.
+    var en=S.enabledExercises, en0=en&&typeof en==='object'?Object.assign({},en):null, renamed=[];
     var onRename=pair[0]!=='customExCatItems'?null:function(from,to,r,fromGroup,group){
-      // Exercise on/off preferences are keyed "category::name": the renamed row keeps its own
-      // category's setting, and that old key is dropped unless the first holder shares it.
-      var en=S.enabledExercises; if(!from||!en) return;
+      if(!from||!en0) return;
       var oldKey=group+'::'+from;
-      if(Object.prototype.hasOwnProperty.call(en,oldKey)){ en[group+'::'+to]=en[oldKey]; if(fromGroup!==group) delete en[oldKey]; }
+      if(Object.prototype.hasOwnProperty.call(en0,oldKey)){ en[group+'::'+to]=en0[oldKey]; renamed.push([group,from]); }
     };
     var keep=new Set(_uniqueRecordKeys(flat,byName,setName,paren,true,onRename,{reserved:reserved,groupOf:function(r){return groupOf.get(r)||'';}}));
     Object.keys(cats).forEach(function(cid){ if(Array.isArray(cats[cid])) cats[cid]=cats[cid].filter(function(it){ return keep.has(it); }); });
+    renamed.forEach(function(gf){
+      var g=gf[0], from=gf[1];
+      var custom=Array.isArray(cats[g])&&cats[g].some(function(it){ return it&&it.n===from; });
+      var builtin=(pair[1]||[]).some(function(c){ return c&&c.id===g&&(c.items||[]).some(function(i){ return i&&!i.isCustom&&i.n===from; }); });
+      if(!custom&&!builtin) delete en[g+'::'+from];
+    });
     keep.forEach(function(it){ if(it&&typeof it.n==='string') reserved.add(it.n); });
   });
 }
@@ -13909,11 +13918,19 @@ function validateBackupState(data){
       });
     });
   });
+  // Custom exercise / equipment stores: category -> list of named rows.
+  ['customExCatItems','customCatItems'].forEach(function(key){
+    var st=data[key]; if(st==null) return;
+    if(!object(st)) fail(key);
+    Object.keys(st).forEach(function(c){ if(!Array.isArray(st[c])||st[c].some(function(i){ return !object(i)||typeof i.n!=='string'||!i.n.trim(); })) fail(key+' '+c); });
+  });
+  if(data.customAccessories!=null&&data.customAccessories.some(function(a){ return !object(a)||typeof a.n!=='string'||!a.n.trim(); })) fail('custom accessory');
   // Custom rest activities: the Recovery views upper-case the name and walk the lists.
   if(data.customRestProtocols!=null) data.customRestProtocols.forEach(function(r){
     if(!object(r)||typeof r.name!=='string'||!r.name.trim()) fail('rest activity name');
     if(r.id!=null&&typeof r.id!=='string') fail('rest activity id');
     ['dur','color','cat','icon','desc','em','tagline','focus'].forEach(function(key){ if(r[key]!=null&&typeof r[key]!=='string'&&typeof r[key]!=='number') fail('rest activity '+key); });
+    if(typeof r.dur==='number'&&(!isFinite(r.dur)||r.dur<0)) fail('rest activity dur');
     ['requiredAny','steps'].forEach(function(key){ if(r[key]!=null&&(!Array.isArray(r[key])||r[key].some(function(x){return typeof x!=='string';}))) fail('rest activity '+key); });
   });
   // Food rows: macros and micronutrients are numbers (two "100" kcal rows must total 200).
@@ -19073,8 +19090,9 @@ document.addEventListener('click',function(e){
   if(protBtn&&protBtn.dataset.logprotocol){
     var prot=allRestProtocols().find(function(p){return p.id===protBtn.dataset.logprotocol;});
     if(prot){
-      var durMatch=String(prot.dur==null?'':prot.dur).match(/(\d+)/);
-      var defaultMin=durMatch?parseInt(durMatch[1]):null;
+      // The first number in the duration, fractions included; a negative one is not a duration.
+      var durMatch=String(prot.dur==null?'':prot.dur).match(/-?\d+(?:\.\d+)?/);
+      var defaultMin=durMatch&&parseFloat(durMatch[0])>=0?parseFloat(durMatch[0]):null;
       logRestProtocol(protBtn.dataset.pday,prot.name,defaultMin);
     }
     return;
@@ -29543,9 +29561,10 @@ function deleteCustomEquipment(itemName, catId){
   // Gym lists and guides refer to equipment by name: clear them only when no other item
   // (built-in or custom, in any category) still has this name.
   var _has=function(cat){ return (cat||[]).some(function(c){ return (c.items||[]).some(function(i){ return i.n===itemName; }); }); };
-  var _stillNamed=_has(EQUIPMENT_CATALOGUE)||Object.keys(S.customCatItems||{}).some(function(c){ return (S.customCatItems[c]||[]).some(function(i){ return i&&i.n===itemName; }); });
+  var _inStore=function(store){ return Object.keys(store||{}).some(function(c){ return Array.isArray(store[c])&&store[c].some(function(i){ return i&&i.n===itemName; }); }); };
+  var _stillNamed=_has(EQUIPMENT_CATALOGUE)||_inStore(S.customCatItems);
   // The guide is also an exercise's guide when an exercise has this name.
-  var _exNamed=_has(EXERCISE_CATALOGUE)||Object.keys(S.customExCatItems||{}).some(function(c){ return (S.customExCatItems[c]||[]).some(function(i){ return i&&i.n===itemName; }); });
+  var _exNamed=_has(EXERCISE_CATALOGUE)||_inStore(S.customExCatItems);
   if(!_stillNamed&&!_exNamed&&S.customExInfo&&S.customExInfo[itemName]) delete S.customExInfo[itemName];
   if(!_stillNamed){
     // Remove from all gym equipment lists
