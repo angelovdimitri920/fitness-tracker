@@ -5233,19 +5233,23 @@ function _uniqueRecordKeys(list, getKey, setKey, suffix, dropExact, onRename, op
   if(!Array.isArray(list)) return list;
   opts=opts||{};
   var held=opts.held||new Set(), groupOf=opts.groupOf||function(){return '';};
-  var taken=new Set(), kept=new Map(), out=[];
+  var taken=new Set(), kept=new Map(), firstGroup=new Map(), out=[];
   (opts.reserved||[]).forEach(function(k){ taken.add(k); });
   held.forEach(function(k){ taken.add(k); });
   list.forEach(function(r){ var k=r&&typeof r==='object'?getKey(r):null; if(typeof k==='string'&&k) taken.add(k); });
   list.forEach(function(r){
     if(!r||typeof r!=='object'){ out.push(r); return; }
     var k=getKey(r), valid=typeof k==='string'&&k, sig=groupOf(r)+'|'+JSON.stringify(r);
-    if(valid&&!held.has(k)&&!kept.has(k)){ kept.set(k,[sig]); out.push(r); return; }
+    if(valid&&!held.has(k)&&!kept.has(k)){ kept.set(k,[sig]); firstGroup.set(k,groupOf(r)); out.push(r); return; }
     var base=valid?k:null;
-    if(base&&dropExact&&kept.has(base)&&kept.get(base).indexOf(sig)>=0) return;
-    if(base&&kept.has(base)) kept.get(base).push(sig);
+    // A held key's custom holders are tracked too, so an exact copy of one is dropped.
+    if(base&&!kept.has(base)) kept.set(base,[]);
+    if(base&&dropExact&&kept.get(base).indexOf(sig)>=0) return;
+    if(base) kept.get(base).push(sig);
     var root=base||'item', n=2, nk; do{ nk=suffix(root,n++); }while(taken.has(nk));
-    taken.add(nk); setKey(r,nk); if(onRename) onRename(base,nk,r); kept.set(nk,[groupOf(r)+'|'+JSON.stringify(r)]); out.push(r);
+    var g=groupOf(r);
+    taken.add(nk); setKey(r,nk); if(onRename) onRename(base,nk,r,base?firstGroup.get(base):undefined,g);
+    kept.set(nk,[g+'|'+JSON.stringify(r)]); firstGroup.set(nk,g); out.push(r);
   });
   return out;
 }
@@ -5261,23 +5265,44 @@ function _repairTextKeys(){
   var byId=function(r){return r.id;}, setId=function(r,v){r.id=v;}, byName=function(r){return r.n;}, setName=function(r,v){r.n=v;};
   if(Array.isArray(S.gymProfiles)) S.gymProfiles=_uniqueRecordKeys(S.gymProfiles,byId,setId,function(k,n){return (k==='item'?'gym':k)+'-'+n;},false);
   if(Array.isArray(S.customFoods)) S.customFoods=_uniqueRecordKeys(S.customFoods,byName,setName,paren,true);
-  if(Array.isArray(S.customAccessories)) S.customAccessories=_uniqueRecordKeys(S.customAccessories,byName,setName,paren,true);
   // Restored custom activities get the lists the Recovery views walk.
-  if(Array.isArray(S.customRestProtocols)) S.customRestProtocols.forEach(function(p){ if(p&&typeof p==='object'){ if(!Array.isArray(p.requiredAny)) p.requiredAny=[]; if(!Array.isArray(p.steps)) p.steps=[]; } });
+  if(Array.isArray(S.customRestProtocols)) S.customRestProtocols.forEach(function(p){ if(p&&typeof p==='object'){ if(!Array.isArray(p.requiredAny)) p.requiredAny=[]; if(!Array.isArray(p.steps)) p.steps=[]; if(typeof p.dur==='number'&&isFinite(p.dur)) p.dur=p.dur+' min'; } });
+  // Stores whose keys are shared with built-in catalogues are repaired only once those exist
+  // (they are defined later in the file than the first migration, and rehydrateCustomCatalogues
+  // runs this again) — so a cold start and a restore make exactly the same choices.
+  var catsReady=typeof REST_PROTOCOLS!=='undefined'&&typeof EXERCISE_CATALOGUE!=='undefined'&&typeof EQUIPMENT_CATALOGUE!=='undefined'&&typeof ACCESSORY_CATALOGUE!=='undefined';
+  if(!catsReady) return;
+  if(Array.isArray(S.customAccessories)) S.customAccessories=_uniqueRecordKeys(S.customAccessories,byName,setName,paren,true,null,{reserved:_builtinNames(ACCESSORY_CATALOGUE)});
   if(Array.isArray(S.customRestProtocols)){
-    var builtinRest=new Set((typeof REST_PROTOCOLS!=='undefined'&&Array.isArray(REST_PROTOCOLS)?REST_PROTOCOLS:[]).map(function(p){return p&&p.id;}).filter(Boolean));
+    var builtinRest=new Set((Array.isArray(REST_PROTOCOLS)?REST_PROTOCOLS:[]).map(function(p){return p&&p.id;}).filter(Boolean));
     S.customRestProtocols=_uniqueRecordKeys(S.customRestProtocols,byId,setId,dash,true,function(from,to){
       // A copy of another custom record starts with that record's on/off state; a custom record
       // that used a built-in's id starts enabled and leaves the built-in's preference alone.
       if(from&&!builtinRest.has(from)&&S.enabledRestActivities&&Object.prototype.hasOwnProperty.call(S.enabledRestActivities,from)) S.enabledRestActivities[to]=S.enabledRestActivities[from];
     },{held:builtinRest});
   }
-  [['customExCatItems',typeof EXERCISE_CATALOGUE!=='undefined'?EXERCISE_CATALOGUE:null],['customCatItems',typeof EQUIPMENT_CATALOGUE!=='undefined'?EQUIPMENT_CATALOGUE:null]].forEach(function(pair){
+  // Custom exercises and custom equipment share guides (customExInfo) and history by name, so
+  // their names are one namespace: every built-in and custom name in both is reserved, and
+  // exercise renames are reserved before equipment is repaired.
+  var stores=[['customExCatItems',EXERCISE_CATALOGUE],['customCatItems',EQUIPMENT_CATALOGUE]];
+  var reserved=new Set();
+  _builtinNames(EXERCISE_CATALOGUE).forEach(function(n){reserved.add(n);});
+  _builtinNames(EQUIPMENT_CATALOGUE).forEach(function(n){reserved.add(n);});
+  stores.forEach(function(pair){ var cats=S[pair[0]]; if(cats&&typeof cats==='object') Object.keys(cats).forEach(function(cid){ (Array.isArray(cats[cid])?cats[cid]:[]).forEach(function(it){ if(it&&typeof it.n==='string') reserved.add(it.n); }); }); });
+  stores.forEach(function(pair){
     var cats=S[pair[0]]; if(!cats||typeof cats!=='object') return;
     var flat=[], groupOf=new Map();
     Object.keys(cats).forEach(function(cid){ if(Array.isArray(cats[cid])) cats[cid].forEach(function(it){ flat.push(it); if(it&&typeof it==='object') groupOf.set(it,cid); }); });
-    var keep=new Set(_uniqueRecordKeys(flat,byName,setName,paren,true,null,{reserved:_builtinNames(pair[1]),groupOf:function(r){return groupOf.get(r)||'';}}));
+    var onRename=pair[0]!=='customExCatItems'?null:function(from,to,r,fromGroup,group){
+      // Exercise on/off preferences are keyed "category::name": the renamed row keeps its own
+      // category's setting, and that old key is dropped unless the first holder shares it.
+      var en=S.enabledExercises; if(!from||!en) return;
+      var oldKey=group+'::'+from;
+      if(Object.prototype.hasOwnProperty.call(en,oldKey)){ en[group+'::'+to]=en[oldKey]; if(fromGroup!==group) delete en[oldKey]; }
+    };
+    var keep=new Set(_uniqueRecordKeys(flat,byName,setName,paren,true,onRename,{reserved:reserved,groupOf:function(r){return groupOf.get(r)||'';}}));
     Object.keys(cats).forEach(function(cid){ if(Array.isArray(cats[cid])) cats[cid]=cats[cid].filter(function(it){ return keep.has(it); }); });
+    keep.forEach(function(it){ if(it&&typeof it.n==='string') reserved.add(it.n); });
   });
 }
 function migrateState(){
@@ -19048,7 +19073,7 @@ document.addEventListener('click',function(e){
   if(protBtn&&protBtn.dataset.logprotocol){
     var prot=allRestProtocols().find(function(p){return p.id===protBtn.dataset.logprotocol;});
     if(prot){
-      var durMatch=prot.dur.match(/(\d+)/);
+      var durMatch=String(prot.dur==null?'':prot.dur).match(/(\d+)/);
       var defaultMin=durMatch?parseInt(durMatch[1]):null;
       logRestProtocol(protBtn.dataset.pday,prot.name,defaultMin);
     }
@@ -28689,7 +28714,7 @@ function buildExercisePage(){
           S.customExCatItems[catId]=_withoutFirst(S.customExCatItems[catId],function(i){return i.n===exName;});
           // Also remove from live EXERCISE_CATALOGUE
           var cat2=EXERCISE_CATALOGUE.find(function(c){return c.id===catId;});
-          if(cat2) cat2.items=_withoutFirst(cat2.items,function(i){return i.n===exName&&i.isCustom;},function(i){return i.n===exName;});
+          if(cat2) cat2.items=_withoutFirst(cat2.items,function(i){return i.n===exName&&i.isCustom;});
           saveS();buildExercisePage();
         }
       });
@@ -28866,7 +28891,8 @@ function buildAccessoryPage(){
       showConfirm('Remove "'+dName+'" from your accessories?',function(){
         if(!S.customAccessories) return;
         S.customAccessories=_withoutFirst(S.customAccessories,function(a){return a.n===dName;});
-        delete (S.enabledAccessories||{})[dName];
+        var _owned=_builtinNames(ACCESSORY_CATALOGUE).has(dName)||(S.customAccessories||[]).some(function(a){return a.n===dName;});
+        if(!_owned) delete (S.enabledAccessories||{})[dName];
         saveS(); buildAccessoryPage();
         showToast('Removed: '+dName);
       });
@@ -29506,7 +29532,7 @@ function deleteCustomEquipment(itemName, catId){
   // Remove from catalogue runtime
   for(var ci=0;ci<EQUIPMENT_CATALOGUE.length;ci++){
     if(EQUIPMENT_CATALOGUE[ci].id===catId){
-      EQUIPMENT_CATALOGUE[ci].items = _withoutFirst(EQUIPMENT_CATALOGUE[ci].items,function(i){return i.n===itemName&&i.isCustom;},function(i){return i.n===itemName;});
+      EQUIPMENT_CATALOGUE[ci].items = _withoutFirst(EQUIPMENT_CATALOGUE[ci].items,function(i){return i.n===itemName&&i.isCustom;});
       break;
     }
   }
@@ -29516,17 +29542,17 @@ function deleteCustomEquipment(itemName, catId){
   }
   // Gym lists and guides refer to equipment by name: clear them only when no other item
   // (built-in or custom, in any category) still has this name.
-  var _stillNamed=EQUIPMENT_CATALOGUE.some(function(c){ return (c.items||[]).some(function(i){ return i.n===itemName; }); });
+  var _has=function(cat){ return (cat||[]).some(function(c){ return (c.items||[]).some(function(i){ return i.n===itemName; }); }); };
+  var _stillNamed=_has(EQUIPMENT_CATALOGUE)||Object.keys(S.customCatItems||{}).some(function(c){ return (S.customCatItems[c]||[]).some(function(i){ return i&&i.n===itemName; }); });
+  // The guide is also an exercise's guide when an exercise has this name.
+  var _exNamed=_has(EXERCISE_CATALOGUE)||Object.keys(S.customExCatItems||{}).some(function(c){ return (S.customExCatItems[c]||[]).some(function(i){ return i&&i.n===itemName; }); });
+  if(!_stillNamed&&!_exNamed&&S.customExInfo&&S.customExInfo[itemName]) delete S.customExInfo[itemName];
   if(!_stillNamed){
     // Remove from all gym equipment lists
     S.gymProfiles.forEach(function(g){
       var idx = (g.equipment||[]).indexOf(itemName);
       if(idx>=0) g.equipment.splice(idx,1);
     });
-    // Remove AI-generated info card if it exists
-    if(S.customExInfo&&S.customExInfo[itemName]){
-      delete S.customExInfo[itemName];
-    }
   }
   saveS();
   buildEquipmentPage();

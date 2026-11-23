@@ -534,6 +534,32 @@ let server, browser;
       deleteCustomEquipment('Synthetic Pad','free_weight_stations'); deleteCustomEquipment('Synthetic Pad (2)','functional_stations');
       check(!EQUIPMENT_CATALOGUE.some(c=>c.items.some(i=>/^Synthetic Pad/.test(i.n))),'custom equipment left in the catalogue');
     });
+    test('equipment and exercises share one namespace; rest repair is stable; built-ins survive custom deletes', () => {
+      reset(); buildTodayWorkout(); saveS(); const base=localStorage.getItem('pf_v4');
+      const good=JSON.parse(base);
+      good.customCatItems={free_weight_stations:[{n:'Synthetic Cross',sub:'a',isCustom:true},{n:'Synthetic Cross',sub:'b',isCustom:true}]};
+      good.customExCatItems={ex_dumbbell:[{n:'Synthetic Cross (2)',muscles:'Chest',isCustom:true},{n:'Floor Press',muscles:'Chest',isCustom:true}],ex_chest_machine:[{n:'Floor Press',muscles:'Triceps',isCustom:true}]};
+      good.customExInfo=Object.assign({},good.customExInfo,{'Synthetic Cross (2)':{steps:['s']}});
+      good.enabledExercises=Object.assign({},good.enabledExercises,{'ex_chest_machine::Floor Press':false});
+      const bi=REST_PROTOCOLS[0].id;
+      good.enabledRestActivities=Object.assign({},good.enabledRestActivities,{[bi]:false});
+      good.customRestProtocols=[{id:bi,name:'A',dur:12,isCustom:true},{id:bi,name:'B',isCustom:true},{id:bi,name:'A',dur:12,isCustom:true}];
+      const builtinEq=EQUIPMENT_CATALOGUE[1].items[0].n;
+      good.customCatItems.cables=[{n:builtinEq,sub:'mine',isCustom:true}];
+      check(_commitRestore(validateBackupState(good))===true,'restore rejected: '+window._lastRestoreError);
+      const eq=S.customCatItems.free_weight_stations.map(i=>i.n); check(eq.join('|')==='Synthetic Cross|Synthetic Cross (3)','equipment took an exercise name: '+eq);
+      deleteCustomEquipment('Synthetic Cross (3)','free_weight_stations'); check(S.customExInfo['Synthetic Cross (2)'],'equipment delete erased an exercise guide');
+      check(S.enabledExercises['ex_chest_machine::Floor Press (2)']===false&&!('ex_chest_machine::Floor Press' in S.enabledExercises),'renamed exercise lost its setting');
+      const rp=S.customRestProtocols; check(rp.length===2&&rp.every(p=>p.id!==bi&&S.enabledRestActivities[p.id]!==false)&&S.enabledRestActivities[bi]===false,'rest repair wrong: '+JSON.stringify(rp.map(p=>p.id))+' '+JSON.stringify(S.enabledRestActivities));
+      check(rp[0].dur==='12 min','numeric rest duration not normalised: '+rp[0].dur);
+      // repair is idempotent, so a cold start (migrate, then repair once catalogues load) matches a restore
+      const snap=JSON.stringify([S.customRestProtocols,S.customCatItems,S.customExCatItems,S.enabledExercises,S.enabledRestActivities]);
+      migrateState(); _repairTextKeys(); check(JSON.stringify([S.customRestProtocols,S.customCatItems,S.customExCatItems,S.enabledExercises,S.enabledRestActivities])===snap,'repair is not idempotent');
+      deleteCustomEquipment(builtinEq,'cables'); check(EQUIPMENT_CATALOGUE[1].items.some(i=>i.n===builtinEq),'custom delete removed the built-in row');
+      // clean the live catalogues for later tests
+      deleteCustomEquipment('Synthetic Cross','free_weight_stations');
+      EXERCISE_CATALOGUE.forEach(c=>{ c.items=c.items.filter(i=>!(i.isCustom&&/^(Synthetic Cross|Floor Press)/.test(i.n))); });
+    });
     test('an untagged unfinished set withholds the increase; a picked date cancels a deferred rollover', () => {
       reset(); const k=dKey(vDate);
       S.weekFocus='power'; const sx=(w,r,lead,done=true)=>{ const s=Object.assign(set(w,r,'wk',done),{targetReps:lead?4:7}); if(lead!=null) s.lead=lead; return s; };
