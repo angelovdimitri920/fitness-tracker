@@ -182,3 +182,23 @@ An external review of this change found, and this pass fixed:
 - **Follow** pins an in-progress workout's current split even when it came from the weekly default. A schedule with no gym days says so instead of claiming three.
 - **Swaps** between a main lift and an accessory take the replacement's own reps and rest.
 - `hybrid` history counts as Build Muscle in migration and in the progression focus comparison.
+
+Second review round (same day):
+- **Restore is a single transaction.** The candidate is migrated and render-checked (`_restoreSmoke`) in memory with `saveS` and catalogue rehydration suppressed (`_restoreDryRun`); its final bytes are written once, then it becomes the live state. A storage failure at that write leaves everything as it was. `validateBackupState` also rejects any top-level field whose type differs from a fresh state (e.g. `daySched: null`, `shoes: {}`).
+- **Roles live on the sets.** Every unlogged work set is stamped `lead`, so work logged as a lead lift stays lead work through a live re-plan. History role = the sets' role, then the exercise flag, then the legacy assumption; work from both roles in one exercise never triggers a load increase. Swaps pass the destination slot's role into progression, and a role change derives its load from the best single completed set (`e1rm`), never from one set's load and another's reps.
+- **Swaps across classes** take the replacement's set count, priority and ceiling as well as its reps and rest.
+- **Templates** carry `roles:1`; older ones infer leads only from their own `baseSplit`.
+- **Day rollover** is checked on visibility, focus and pageshow, and once a minute while the app stays open.
+- **Copy.** Program descriptions describe the schedule the app actually produces (a fixed 5-day PPL preset gives Legs one slot; Full Body is best on non-consecutive days). With no gym days, no program is recommended anywhere.
+
+Third review round:
+- **Workout snapshots are validated on restore.** `exList` must be an array of named exercises; `exOrder`, `supersets`, cardio blocks, swap records, notes, added exercises and the workout timer must have their expected types; the smoke check also builds every saved session's exercise list.
+- **Rollover respects work in progress.** It waits while any sheet is open, and an unsaved workout with logged activity stays on screen. The save sheet is bound to the day and mode it opened for (`_pendingSaveTarget`).
+- **Mixed-role history.** Partly tagged work counts as mixed. On a Strength main lift, mixed work informs only the role being prescribed now (`getLastExSession(name, focus, curLead)`); if none was done in that role the other role's work re-derives the load, and untagged work alongside tagged work never adds load. The mixed guard applies only where the role changes the dose (Strength main lifts). A live re-plan backfills the old slot's role onto logged sets that predate the stamp.
+- A swap to a main lift takes priority 1; with no gym days the Today switcher recommends nothing either.
+
+Fourth review round:
+- **Restore checks.** `exOrder` may not hold negative or repeated indices, and a full-length order must be a permutation (shorter or longer orders are repaired by the renderer). Warm-up rows and run `splits` are validated. The smoke check walks every saved Gym and Home session under its own date and mode and resolves every ordered exercise.
+- **Each role keeps its planned sets.** Mixed-role filtering keeps that role's unfinished sets, so 3 of 4 lead sets is not a completed lead prescription.
+- **Legacy backfill on re-plan.** For a Strength main lift, a logged set's own target decides its role (3–5 reps = lead); other lifts take the old slot's role.
+- **Deferred Today advance.** The date change is recorded at once; Today moves to the new day only when the day on screen has no unsaved work under way, and a running cardio countdown counts as work.

@@ -3869,6 +3869,17 @@ function loggedLiftEstimate(key){
 function isStraightWorkSet(set){
   return !set.spec&&(set.type||'wk')==='wk';
 }
+// The role recorded on completed work sets: true / false when they agree, 'mixed' when an
+// exercise holds work from both roles, null when no set carries one (older history).
+function _setsRole(sets){
+  var work=(sets||[]).filter(function(x){return isStraightWorkSet(x)&&validCompletedSet(x);});
+  var roles=work.filter(function(x){return x.lead!=null;}).map(function(x){return !!x.lead;});
+  if(!roles.length) return null;
+  if(roles.length<work.length) return 'mixed'; // partly tagged: the untagged sets' role is unknown
+  return roles.every(function(r){return r===roles[0];})?roles[0]:'mixed';
+}
+// The role only changes the dose for a Strength main lift.
+function _roleSetsDose(focus,exName){ return normalizeFocus(focus)==='power'&&isMainStrengthMovement(exName); }
 // lead: the role the sets were prescribed for (true / false); undefined = today's role.
 function summarizeWorkSets(sets,focus,exName,plannedSets,plannedReps,lead){
   var all=(sets||[]).filter(isStraightWorkSet);
@@ -3888,13 +3899,18 @@ function summarizeWorkSets(sets,focus,exName,plannedSets,plannedReps,lead){
     return Number(s.reps)>=(Number(s.targetReps)||plannedReps||(bodyweight?1:rule.ceil));
   });
   var level=bodyweight&&isLevelExercise(exName)?String(done[done.length-1].level||''):undefined;
+  // Best estimated max from a single completed set — never one set's load with another's reps.
+  var e1rm=Math.max.apply(null,done.map(function(x){var w=Number(x.weight)||0,r=Number(x.reps)||0;return w>0&&r>0?est1RM(w,r):0;}));
+  // Work from two roles (lead and support) in one exercise is not comparable: no increase.
+  var mixed=_setsRole(done)==='mixed'&&_roleSetsDose(focus,exName);
   var levelMatch=level===undefined||done.every(function(s){return String(s.level||'')===String(level||'');});
   return {weight:weight,level:level,reps:editedReps?Number(editedReps.reps):minReps,minReps:minReps,sets:done.length,
     allCompleted:complete,repsHit:repsHit&&levelMatch,highEffort:highEffort,easy:easy,editedReps:!!editedReps,
     hasTarget:!!plannedReps||all.every(function(set){return Number(set.targetReps)>0;}),sameWeight:sameWeight,
-    ceilingHit:repsHit&&levelMatch&&sameWeight&&!highEffort&&!isAssistanceExercise(exName)};
+    ceilingHit:repsHit&&levelMatch&&sameWeight&&!highEffort&&!mixed&&!isAssistanceExercise(exName),e1rm:e1rm,mixedRoles:mixed};
 }
 function nextProgressionWeight(name,weight,focus,easy){
+  focus=normalizeFocus(focus);
   var larger=easy&&weight>=100&&isMainStrengthMovement(name)&&['power','muscle','chestcore'].includes(focus);
   // Bound the suggestion on light implements and respect the equipment's available steps.
   var maximum=weight===0&&getExType(name)==='plate_machine'?5:Math.min(larger?10:5,weight*0.10);
@@ -4575,8 +4591,10 @@ function equipmentBodyArea(item,sectionId){
 // Wrapper: whatever the progression logic below arrives at, a suggestion can never be
 // lighter than the equipment's own starting weight. Estimating 40 lb for a leg press
 // whose sled already weighs 160 lb is not a suggestion, it is a wrong number.
-function getProgression(exName, targetReps, targetSets, weightMult){
-  var res=_getProgressionRaw(exName, targetReps, targetSets, weightMult);
+// slotLead (optional): the role of the slot the exercise is being prescribed for, when it is
+// not on today's list yet (a swap preview).
+function getProgression(exName, targetReps, targetSets, weightMult, slotLead){
+  var res=_getProgressionRaw(exName, targetReps, targetSets, weightMult, slotLead);
   try{
     var base=getBaseWeight(exName);
     if(base>0&&res&&res.weight!=null&&res.weight<base){
@@ -4669,7 +4687,7 @@ function inferStrengthRef(exName){
   }
   return null;
 }
-function _getProgressionRaw(exName, targetReps, targetSets, weightMult){
+function _getProgressionRaw(exName, targetReps, targetSets, weightMult, slotLead){
 // Active strength program drives its main lifts (top working set headline; per-set ramp
 // is applied in the set renderer). Accessories fall through to focus-based progression.
 if(isAssistanceExercise(exName)){
@@ -4686,8 +4704,9 @@ if(_ap) return {weight:_ap.topWeight, reps:_ap.topReps, sets:_ap.setCount, badge
 var type = getExType(exName);
 if(!weightMult) weightMult=1.0;
 function applyMult(w){ if(!w||w===0) return w; return Math.round((w*weightMult)/5)*5; }
-var lastSession=getLastExSession(exName);
-var focus=getWorkoutFocus(), rule=exerciseProgressionRule(exName,focus);
+var focus=getWorkoutFocus(), _curLead=slotLead!=null?!!slotLead:_leadRoleOf(exName);
+var lastSession=getLastExSession(exName,undefined,_curLead);
+var rule=exerciseProgressionRule(exName,focus,_curLead!=null?{n:exName,lead:_curLead}:undefined);
 if(type==='bodyweight'){
   if(!lastSession) return {weight:null,reps:targetReps,sets:targetSets,badge:''};
   var reps=nextBodyweightReps(exName,lastSession);
@@ -4701,11 +4720,12 @@ if(lastSession){
   // changes rep range, so last time's load is re-derived for the new target rather than
   // progressed — a ceiling hit at 4 reps is not a reason to add weight for 7.
   var _roleChanged=!_focusChanged&&normalizeFocus(focus)==='power'&&isMainStrengthMovement(exName)&&
-    lastSession.lead!=null&&_leadRoleOf(exName)!=null&&!!lastSession.lead!==_leadRoleOf(exName);
+    lastSession.lead!=null&&_curLead!=null&&!!lastSession.lead!==_curLead;
   if(lastW>0&&(_focusChanged||_roleChanged)){
     var _tr=Array.isArray(targetReps)?targetReps[0]:Number(targetReps)||rule.floor;
-    var adjusted=snapToLoadable(exName,Math.min(lastW,est1RM(lastW,lastR)/(1+(_tr+FOCUS_RIR[normalizeFocus(focus)])/30)),'down');
-    if(_roleChanged&&_tr<lastR) adjusted=snapToLoadable(exName,est1RM(lastW,lastR)/(1+(_tr+FOCUS_RIR.power)/30),'down');
+    var _e1=lastSession.e1rm||est1RM(lastW,lastR);
+    var adjusted=snapToLoadable(exName,Math.min(lastW,_e1/(1+(_tr+FOCUS_RIR[normalizeFocus(focus)])/30)),'down');
+    if(_roleChanged&&_tr<lastR) adjusted=snapToLoadable(exName,_e1/(1+(_tr+FOCUS_RIR.power)/30),'down');
     return {weight:adjusted,reps:targetReps,sets:targetSets,badge:'prev',msg:_focusChanged?'adjusted for the new focus':'adjusted for the new rep range'};
   }
   if((lastW>0||getExType(exName)==='plate_machine')&&lastSession.ceilingHit){
@@ -4855,15 +4875,34 @@ function getLastExSessionSets(exName){
   }
   return null;
 }
-function getLastExSession(exName, overrideFocus){
+// curLead (optional): the role being prescribed now. When a past exercise holds work from
+// both roles, only the work done in that role is used (or, if none, the other role's work
+// flagged as such so the load is re-derived rather than progressed).
+function getLastExSession(exName, overrideFocus, curLead){
   var history=priorGymHistory();
   for(var i=0;i<history.length;i++){
     var ex=(history[i].exercises||[]).find(function(e){return e.name===exName&&!e.skipped;});
     // Before lead lifts existed every Strength main lift was a 3–5-rep lift, so a session
     // saved without the flag is judged as one.
-    var _wasLead=ex&&(ex.lead!=null?!!ex.lead:isMainStrengthMovement(exName));
-    var result=ex&&summarizeWorkSets(ex.sets,history[i].trainingFocus||overrideFocus,exName,ex.plannedWorkSets,ex.targetReps,_wasLead);
+    var _sr=ex&&_setsRole(ex.sets), _hf=history[i].trainingFocus||overrideFocus;
+    var _wasLead=ex&&(_sr===true||_sr===false?_sr:ex.lead!=null?!!ex.lead:isMainStrengthMovement(exName));
+    var _sets=ex&&ex.sets, _planned=ex&&ex.plannedWorkSets, _partial=false;
+    if(ex&&_sr==='mixed'&&_roleSetsDose(_hf,exName)&&curLead!=null){
+      // Every work set of a role counts toward that role's prescription, unfinished ones
+      // included — dropping them would turn 3 of 4 lead sets into a "complete" session.
+      var _all=(ex.sets||[]).filter(isStraightWorkSet);
+      var _same=_all.filter(function(x){return x.lead!=null&&!!x.lead===!!curLead;});
+      var _other=_all.filter(function(x){return x.lead!=null&&!!x.lead!==!!curLead;});
+      _partial=_all.some(function(x){return x.lead==null&&validCompletedSet(x);});
+      var _hasDone=function(a){return a.some(validCompletedSet);};
+      if(_hasDone(_same)){ _sets=_same; _wasLead=!!curLead; }
+      else if(_hasDone(_other)){ _sets=_other; _wasLead=!curLead; }
+      _planned=_sets.length;
+    }
+    var result=ex&&summarizeWorkSets(_sets,_hf,exName,_planned,ex.targetReps,_wasLead);
     if(result){
+      // Work of unknown role alongside tagged work: never a basis for adding load.
+      if(_partial) result.ceilingHit=false;
       result.date=history[i].date;
       result.focus=normalizeFocus(history[i].trainingFocus);
       result.lead=_wasLead;
@@ -5112,7 +5151,10 @@ function initS(){return{setup:{gymDays:[1,2,4,5,6],runDays:[2,4,6],goal:'tone',m
 }
 
 function loadS(){try{var s=localStorage.getItem(SK);return s?JSON.parse(s):null;}catch(e){console.warn('loadS: failed to load state',e);return null;}}
-function saveS(){try{localStorage.setItem(SK,JSON.stringify(S));}catch(e){console.warn('saveS: localStorage write failed (quota exceeded?)',e);showToast('⚠️ Could not save — storage full. Export a backup!');return false;}try{if(typeof _autoSplitCache!=='undefined')_autoSplitCache={};}catch(e){}try{if(typeof nasMaybeAutoBackup==='function')nasMaybeAutoBackup();}catch(e){}return true;}
+// True while a restore candidate is migrated and checked: nothing may be written or
+// published to the live catalogues until the candidate is accepted.
+var _restoreDryRun=false;
+function saveS(){if(_restoreDryRun)return true;try{localStorage.setItem(SK,JSON.stringify(S));}catch(e){console.warn('saveS: localStorage write failed (quota exceeded?)',e);showToast('⚠️ Could not save — storage full. Export a backup!');return false;}try{if(typeof _autoSplitCache!=='undefined')_autoSplitCache={};}catch(e){}try{if(typeof nasMaybeAutoBackup==='function')nasMaybeAutoBackup();}catch(e){}return true;}
 
 // ── Shared time/format helpers (extracted from duplicate local functions) ──
 // fmtRunTime: formats fractional minutes → "1h 30m 45s" or "30m 45s"
@@ -5157,6 +5199,7 @@ try{ var _as=localStorage.getItem('pf_advSuggest'); if(_as!==null)_advSuggestEna
 // Guarded so it's a safe no-op if called before the catalogues are defined (parse-time
 // migrateState run); the startup load handler calls it again once they exist. Idempotent.
 function rehydrateCustomCatalogues(){
+  if(_restoreDryRun) return;
   try{
     if(typeof EQUIPMENT_CATALOGUE!=='undefined' && S.customCatItems){
       Object.keys(S.customCatItems).forEach(function(catId){
@@ -5302,11 +5345,11 @@ function rebuildSched(){
 // missed day never skips a split. Add-on days (core, arms, glutes) are picked by hand.
 var TRAINING_PROGRAMS={
   ppl:{label:'Push / Pull / Legs',rotation:['push','pull','lower'],names:{lower:'Legs'},
-    desc:'Push (chest, shoulders, triceps) → Pull (back, biceps) → Legs. Each session goes deep on a few muscles; at 5–6 days every muscle is trained about twice a week.'},
+    desc:'Push (chest, shoulders, triceps) → Pull (back, biceps) → Legs. Each session goes deep on a few muscles. With Auto-Rotate the cycle runs across weeks, so at 5–6 gym days each day comes up about 1.5–2× a week; a fixed 5-day weekly preset gives Legs only one slot.'},
   upperlower:{label:'Upper / Lower',rotation:['upper','lower'],names:{},
-    desc:'Upper body and lower body on alternate gym days. Every muscle and main lift is trained about twice a week in moderate-length sessions.'},
+    desc:'Upper body and lower body on alternate gym days. At 4 gym days every muscle and main lift comes up twice a week in moderate-length sessions.'},
   fullbody:{label:'Full Body',rotation:['fullbody'],names:{},
-    desc:'Every major muscle in each session. With 2–3 gym days it is the only way to train each muscle more than once a week.'}
+    desc:'Every major muscle in each session, so 2–3 gym days still train each muscle more than once a week. Best on non-consecutive days.'}
 };
 var ADDON_GYM_SPLITS=['core','arms','glutes'];
 // focus → [[max gym days, program], …] — the first row whose day limit fits is used.
@@ -5617,17 +5660,42 @@ try{rehydrateCustomCatalogues();}catch(e){console.warn('rehydrate (load) failed:
 var _fns=[updateStreak,buildWeekStrip,updateDateDisplay,buildTodayWorkout,buildPlan,buildMarathon,updateProgress,renderHistory,buildBodyPage,buildNutritionPage,renderStrengthModal,initWorkoutTimer,restoreRestTimer,buildGoalsPage,buildHomePage,checkReminders,applyA11y];_fns.forEach(function(fn){try{fn();}catch(e){console.warn('Startup fn failed:',fn.name,e.message);}});
 // Midnight rollover: a PWA left open overnight kept showing yesterday's dashboard and
 // workout. When the app regains focus on a new calendar day, jump to today and refresh.
-var _lastSeenDayKey=dKey(new Date());
-document.addEventListener('visibilitychange',function(){
+window._lastSeenDayKey=dKey(new Date()); // global so the rollover can be exercised in tests
+// Wall-clock check (not a tick counter): it compares today's date with the last one seen,
+// so a suspended interval simply catches up on the next event.
+// Set when the date changed but Today could not move yet (a workout was still under way).
+window._rolloverPending=false;
+function _viewedWorkUnderway(){
+  var vk=dKey(vDate), g=null; try{ g=GS(vk); }catch(e){}
+  if(!g||isSessionComplete(vk,cMode==='home'?'home':'gym')) return false;
+  var cardioRunning=Object.values(g.cardioBlocks||{}).some(function(b){ try{ return b&&_cardioIsActive(b.timer); }catch(e){ return false; } });
+  return sessionHasActivity(g)||cardioRunning;
+}
+function _checkDayRollover(){
   if(document.hidden) return;
-  var _nk=dKey(new Date());
-  if(_nk===_lastSeenDayKey) return;
-  _lastSeenDayKey=_nk;
-  try{ vDate=new Date(); _autoSplitCache={}; updateDateDisplay(); buildWeekStrip(); buildTodayWorkout(); }catch(e){}
-  try{ buildPlan(); }catch(e){}
-  try{ if(el('page-home')&&el('page-home').classList.contains('active')) buildHomePage(); }catch(e){}
-  try{ updateStreak(); }catch(e){}
-});
+  var _nk=dKey(new Date()), _newDay=_nk!==_lastSeenDayKey;
+  if(!_newDay&&!_rolloverPending) return;
+  // A sheet or dialog is open (e.g. the save sheet): wait — the next check catches up.
+  if(document.querySelector('.mo.show')) return;
+  if(_newDay){
+    var _wasToday=dKey(vDate)===_lastSeenDayKey;
+    _lastSeenDayKey=_nk; _autoSplitCache={};
+    if(_wasToday) _rolloverPending=true;
+    try{ updateDateDisplay(); buildWeekStrip(); }catch(e){}
+    try{ buildPlan(); }catch(e){}
+    try{ if(el('page-home')&&el('page-home').classList.contains('active')) buildHomePage(); }catch(e){}
+    try{ updateStreak(); }catch(e){}
+  }
+  // Today moves to the new date once nothing is under way on the day being shown.
+  if(_rolloverPending&&!_viewedWorkUnderway()){
+    _rolloverPending=false;
+    try{ vDate=new Date(); updateDateDisplay(); buildWeekStrip(); buildTodayWorkout(); }catch(e){}
+  }
+}
+document.addEventListener('visibilitychange',_checkDayRollover);
+window.addEventListener('focus',_checkDayRollover);
+window.addEventListener('pageshow',_checkDayRollover);
+setInterval(_checkDayRollover,60000);
 // First-time setup: if user has no name set and no workouts, show settings after a short delay
 var _isFirstTime=!S.profile.name&&!S.history.length;
 if(_isFirstTime){setTimeout(function(){showFirstTimeWelcome();},600);}
@@ -6720,6 +6788,18 @@ function computeAutoSupersets(exs, midCardByIndex, maxPairs, focus){
 // keeps its machine and result, unfinished cardio is re-planned. Logged lift sets are
 // carried by exercise identity in buildGym.
 function _replanSession(k,gym){
+  // Logged work that predates the per-set role stamp keeps the role of the slot it was done in.
+  // On Strength the role IS the dose, so a set's own target decides it (3–5 = lead); an old
+  // snapshot without role flags cannot be trusted to say which slot was the lead.
+  var _pf=normalizeFocus(gym.trainingFocus)==='power';
+  (gym.exList||[]).forEach(function(e,i){
+    var d=gym.exercises&&gym.exercises[i];
+    (d&&d.sets||[]).forEach(function(x){
+      if(!x||!x.done||!isStraightWorkSet(x)||x.lead!=null) return;
+      if(_pf&&isMainStrengthMovement(e.n)){ var t=Number(x.targetReps); if(t>0) x.lead=t<=5; }
+      else x.lead=_isLeadSlot(e);
+    });
+  });
   gym.exListPinned=false; gym.fromTemplateName=null;
   gym.supersets={}; gym.activeSuperset=undefined; gym.userUnlinkedSupersets=false;
   gym.exOrder=null; gym.smartNote=null; gym.lastAppliedKey=null; gym.swapOriginals={}; gym.swapOriginalData={};
@@ -7103,6 +7183,9 @@ var _setCount=exD.sets.length;
 for(var s=0;s<_setCount;s++){
 var set=exD.sets[s];
 if(isStraightWorkSet(set)&&!set.done&&(!set.repsEdited||!set.targetReps)&&(!ex.replaces||!set.targetReps)) set.targetReps=(pyramidSets[s]&&pyramidSets[s].r)||suggReps;
+// The slot role travels with each set, so work logged as a lead lift stays lead work
+// through a live re-plan that moves the exercise to a supporting slot.
+if(isStraightWorkSet(set)&&!set.done) set.lead=_isLeadSlot(ex);
 // For done sets: preserve exactly what the user logged
 // For undone sets: always show current focus-adjusted values
 // This guarantees that changing focus immediately updates all unstarted inputs
@@ -9050,9 +9133,16 @@ function swapPrescription(current,data,name,target,k){
   if(timed) reps=Array(workCount).fill(isTimedHold(name)?30:prescriptionForFocus({n:name,reps:10},focus).reps);
   // Main lift ↔ accessory: the replacement takes its own class's dose (a pec deck for a
   // lead bench gets 8–12 reps and accessory rest, not 4 reps at 210 s).
-  var restOverride=null;
-  if(!timed&&!work.some(function(s){return s.done;})&&isMainStrengthMovement(name)!==isMainStrengthMovement(current.n)){
-    var _g=GS(k), _p=prescriptionForFocus(Object.assign({},current,{n:name}),focus,!!(_g&&_g.intensity==='quick'&&!isHomeMode(k)));
+  var restOverride=null, classChange=!timed&&!work.some(function(s){return s.done;})&&isMainStrengthMovement(name)!==isMainStrengthMovement(current.n);
+  var destMain=classChange?isMainStrengthMovement(name):!!(current.main||_isCompSlot(current));
+  if(classChange){
+    var _g=GS(k), _int=(_g&&_g.intensity)||'standard';
+    var _dest=Object.assign({},current,{n:name,main:destMain,p:destMain?1:Math.max(2,current.p||2)});
+    delete _dest.replaces; if(!destMain) delete _dest.lead;
+    var _p=prescriptionForFocus(_dest,focus,_int==='quick'&&!isHomeMode(k));
+    // The template's own set count stands in for the slot, so a lead slot keeps its heavy sets.
+    _dest.sets=destMain?Math.max(4,current.sets||0):MIN_WORK_SETS;
+    workCount=_focusSetCount(_dest,_int,focus);
     reps=Array(workCount).fill(_p.reps); restOverride=_p.rest;
   }
   var repsAvg=reps.reduce(function(sum,r){return sum+r;},0)/workCount;
@@ -9061,8 +9151,8 @@ function swapPrescription(current,data,name,target,k){
     var meta=FOCUS_META[focus];
     inheritedRamp.push({reps:Number(set.reps)||meta.wuReps[0],pct:i===0?0.4:meta.wuPct2});
   });
-  var source=getProgression(current.n,current.reps,current.sets,focusLoadFactor(focus,current.reps));
-  var dest=getProgression(name,repsAvg,workCount,focusLoadFactor(focus,repsAvg));
+  var source=getProgression(current.n,current.reps,current.sets,focusLoadFactor(focus,current.reps),_isLeadSlot(current));
+  var dest=getProgression(name,repsAvg,workCount,focusLoadFactor(focus,repsAvg),isMainStrengthMovement(name)&&_isLeadSlot(current));
   var sourceBase=getBaseWeight(current.n), destBase=getBaseWeight(name);
   var sourceRef=Math.max(0,(source.weight||0)-sourceBase), destRef=Math.max(0,(dest.weight||0)-destBase);
   var compatible=getMG(current.n)===getMG(name)&&getExType(current.n)!=='bodyweight'&&getExType(name)!=='bodyweight'&&
@@ -9074,8 +9164,8 @@ function swapPrescription(current,data,name,target,k){
     return {weight:weight>0?String(weight):'',reps:String(r),targetReps:r,type:'wk',done:false};
   });
   return {
-    exercise:Object.assign({},current,restOverride!=null?{rest:restOverride}:{},{n:name,t:target,sets:workCount,reps:Math.round(repsAvg),
-      main:!!(current.main||_isCompSlot(current)),replaces:current.replaces||current.n,warmupRamp:inheritedRamp.length?inheritedRamp:undefined}),
+    exercise:Object.assign({},current,restOverride!=null?{rest:restOverride}:{},classChange?{p:_dest.p}:{},{n:name,t:target,sets:workCount,reps:Math.round(repsAvg),
+      main:destMain,replaces:current.replaces||current.n,warmupRamp:inheritedRamp.length?inheritedRamp:undefined}),
     data:{sets:sets}
   };
 }
@@ -9348,10 +9438,10 @@ function doSaveWorkout(rating,notes){var k=dKey(vDate),dtype=getDayType(k),sess=
 // Snapshot S.pbs BEFORE the exLogs loop overwrites it  --  needed for accurate PR detection below
 var _historyWithToday=S.history;S.history=S.history.filter(function(h){return !(h.date===k&&h.type===_wt);});recomputePBs();S.history=_historyWithToday;
 var _pbsSnapshot={};Object.keys(S.pbs).forEach(function(k2){_pbsSnapshot[k2]=S.pbs[k2].vol;});
-exs.forEach(function(ex,ei){var actual=ex,exD=gym.exercises[ei]||{sets:[]},setLogs=[];if(exD.skipped)return;var _nS=(exD.sets||[]).length;for(var s=0;s<_nS;s++){var set=exD.sets[s]||{};if(set.done&&(set.type||'wk')!=='wu'){sc++;vol+=(parseFloat(set.weight)||0)*(parseFloat(set.reps)||0);}setLogs.push({weight:set.weight||'',reps:set.reps||'',done:!!set.done,type:set.type||'wk',rpe:set.rpe||'',level:set.level||'',spec:!!set.spec,weightEdited:!!set.weightEdited,repsEdited:!!set.repsEdited,targetReps:set.targetReps||undefined});}// allDoneEx: all WORK sets done (warmup sets are informational, not required for progression)
+exs.forEach(function(ex,ei){var actual=ex,exD=gym.exercises[ei]||{sets:[]},setLogs=[];if(exD.skipped)return;var _nS=(exD.sets||[]).length;for(var s=0;s<_nS;s++){var set=exD.sets[s]||{};if(set.done&&(set.type||'wk')!=='wu'){sc++;vol+=(parseFloat(set.weight)||0)*(parseFloat(set.reps)||0);}setLogs.push({weight:set.weight||'',reps:set.reps||'',done:!!set.done,type:set.type||'wk',rpe:set.rpe||'',level:set.level||'',spec:!!set.spec,weightEdited:!!set.weightEdited,repsEdited:!!set.repsEdited,targetReps:set.targetReps||undefined,lead:set.lead==null?undefined:!!set.lead});}// allDoneEx: all WORK sets done (warmup sets are informational, not required for progression)
 var plannedWorkSets=Math.max(ex.sets||0,setLogs.filter(isStraightWorkSet).length);
 var targetReps=(setLogs.find(isStraightWorkSet)||{}).targetReps||ex.reps;
-var _exLead=_isLeadSlot(actual);
+var _exLead=_setsRole(setLogs); if(_exLead!==true&&_exLead!==false) _exLead=_isLeadSlot(actual);
 var workSummary=summarizeWorkSets(setLogs,gym.trainingFocus||S.weekFocus,actual.n,plannedWorkSets,targetReps,_exLead)||{allCompleted:false,ceilingHit:false,weight:0};
 exLogs.push({name:actual.n,target:actual.t,sets:setLogs,plannedWorkSets:plannedWorkSets,targetReps:targetReps,rest:actual.rest,lead:_exLead,
   setAdjustment:workSetAdjustment(actual,exD),main:!!(actual.main||_isCompSlot(actual)),replaces:actual.replaces,
@@ -9593,10 +9683,10 @@ function programSplitKeys(){
   return keys.concat(ADDON_GYM_SPLITS);
 }
 function renderGymSplitFamilies(renderChoice,current){
-  var rec=recommendedProgramKey(), order=[rec].concat(Object.keys(TRAINING_PROGRAMS).filter(function(p){return p!==rec;}));
+  var rec=recommendedProgramKey(), _noDays=gymDaysPerWeek()===0, order=[rec].concat(Object.keys(TRAINING_PROGRAMS).filter(function(p){return p!==rec;}));
   var focusLb=(FOCUS_META[normalizeFocus(S.weekFocus)]||FOCUS_META.general).lb;
   var html=order.map(function(p){
-    var prog=TRAINING_PROGRAMS[p], isRec=p===rec;
+    var prog=TRAINING_PROGRAMS[p], isRec=!_noDays&&p===rec;
     var body=(isRec?'<div style="font-size:10px;color:var(--mu);margin:0 0 6px;line-height:1.4">'+escapeHtml(prog.desc)+'</div>':'')+
       prog.rotation.map(function(s){return renderChoice(s,{label:programSplitLabel(p,s),program:p,recommended:isRec});}).join('');
     var title=prog.label+(isRec?' · recommended for '+focusLb:'');
@@ -9767,7 +9857,7 @@ function openFocusModal(g,location) {
       _focusStat('Load', d.weight, d.color) +
       (d.uniqueStat ? _focusStat(d.uniqueStat.label, d.uniqueStat.val, d.color) : '') +
     '</div>' +
-    (d.program ? _focusSect('🗓 Weekly Program', '<b>'+TRAINING_PROGRAMS[recommendedProgramKey(g)].label+'</b> at '+gymDaysPerWeek()+' gym day'+(gymDaysPerWeek()===1?'':'s')+' a week. '+d.program) : '') +
+    (d.program ? _focusSect('🗓 Weekly Program', (gymDaysPerWeek()?'<b>'+TRAINING_PROGRAMS[recommendedProgramKey(g)].label+'</b> at '+gymDaysPerWeek()+' gym day'+(gymDaysPerWeek()===1?'':'s')+' a week. ':'Add gym days to your weekly schedule to get a program. ')+d.program) : '') +
     (FOCUS_META[g]&&FOCUS_META[g].homeOnly ? _focusSect('🏠 Home only', 'Built for bodyweight and your home equipment. Choose it from the Home tab on Today; gym days follow your Plan focus.') : '') +
     // Cardio full-width
     _focusSect('🏃 Cardio', d.cardio) +
@@ -10129,7 +10219,7 @@ function renderPlanProgramCard(){
   var next=programSplitFor(nextDay);
   box.innerHTML='<div style="background:var(--s2);border:1px solid var(--b1);border-radius:10px;padding:10px 12px">'+
     '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mu);letter-spacing:1px;margin-bottom:4px">🗓 WEEKLY PROGRAM</div>'+
-    '<div style="font-weight:600;font-size:13px;color:var(--ye)">'+escapeHtml(prog.label)+' <span style="font-size:10px;color:var(--mu);font-weight:400">· '+days+' gym day'+(days===1?'':'s')+'/week · next: '+escapeHtml(programSplitLabel(pk,next))+'</span></div>'+
+    '<div style="font-weight:600;font-size:13px;color:var(--ye)">'+escapeHtml(prog.label)+' <span style="font-size:10px;color:var(--mu);font-weight:400">· '+days+' gym day'+(days===1?'':'s')+'/week'+(days?' · next: '+escapeHtml(programSplitLabel(pk,next)):'')+'</span></div>'+
     '<div style="font-size:11px;color:var(--mu);margin-top:4px;line-height:1.5">'+escapeHtml(FOCUS_PROGRAM_WHY[normalizeFocus(S.weekFocus)]||prog.desc)+'</div>'+
     (days===0?'<div style="font-size:11px;color:var(--mu);margin-top:6px">No gym days in your weekly schedule yet — add some in the schedule editor.</div>':
      following?'<div style="font-size:11px;color:var(--ru);margin-top:6px">✓ Your calendar follows this program.</div>':
@@ -10261,7 +10351,7 @@ function renderScheduleEditor(){
     '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mu);letter-spacing:1px;margin-bottom:8px">🗂 PROGRAM PRESETS</div>'+
     '<div style="display:flex;flex-wrap:wrap;gap:6px">'+
       Object.keys(TRAINING_PROGRAMS).map(function(p){
-        var rec=p===recommendedProgramKey();
+        var rec=gymDaysPerWeek()>0&&p===recommendedProgramKey();
         return '<button onclick="applySplitPreset(\''+p+'\')" style="padding:5px 10px;border-radius:7px;border:1px solid '+(rec?'var(--ye)':'var(--b2)')+';background:var(--s3);color:'+(rec?'var(--ye)':'var(--mu)')+';font-size:10px;cursor:pointer">'+TRAINING_PROGRAMS[p].label+(rec?' ✓':'')+'</button>';
       }).join('')+
     '</div>'+
@@ -13658,7 +13748,9 @@ function validateBackupState(data){
       ['weight','reps'].forEach(function(key){if(s[key]!=null&&s[key]!==''&&(!isFinite(Number(s[key]))||Number(s[key])<0))fail('negative or invalid '+key);});
     });
   }
+  function splits(v,what){ if(v!=null&&(!Array.isArray(v)||v.some(function(x){return !object(x);})))fail(what); }
   data.history.forEach(function(h){
+    if(object(h)) splits(h.splits,'run splits');
     // Home workouts are resistance sessions like the gym ones and get the same checks.
     if(!object(h)||!date(h.date)||['gym','home','run'].indexOf(h.type)<0)fail('history entry');
     if(h.type==='gym'||h.type==='home'){if(!Array.isArray(h.exercises))fail(h.type+' exercises');h.exercises.forEach(function(e){if(!object(e)||typeof e.name!=='string')fail('exercise name');sets(e);});}
@@ -13667,33 +13759,80 @@ function validateBackupState(data){
   data.weights.forEach(function(w){if(!object(w)||!date(w.date)||!isFinite(Number(w.w))||Number(w.w)<=0)fail('body weight');});
   Object.keys(data.sessions).forEach(function(k){
     var session=data.sessions[k];if(!date(k)||!object(session))fail('session');
+    if(session.run!=null){ if(!object(session.run))fail('run session'); splits(session.run.splits,'run splits'); }
     ['gym','home'].forEach(function(w){
       if(session[w]==null)return;
       if(!object(session[w])||(!object(session[w].exercises)&&!Array.isArray(session[w].exercises)))fail(w+' session');
       Object.values(session[w].exercises).forEach(sets);
+      // Snapshot fields Today reads directly: a wrong type here blanks the page.
+      var g=session[w];
+      if(g.exList!=null&&(!Array.isArray(g.exList)||g.exList.some(function(e){return !object(e)||typeof e.n!=='string';})))fail(w+' exercise list');
+      // exOrder must be a permutation of the list's positions (a stray 999 reads a missing exercise).
+      if(g.exOrder!=null){
+        var n=Array.isArray(g.exList)?g.exList.length:null;
+        // A length mismatch is repaired by the renderer (indices past the end are dropped), so
+        // only non-integer, negative or repeated indices — or a full-length non-permutation — fail.
+        if(!Array.isArray(g.exOrder)||g.exOrder.some(function(i){return !Number.isInteger(i)||i<0;})||
+          new Set(g.exOrder).size!==g.exOrder.length||(n!=null&&g.exOrder.length===n&&g.exOrder.some(function(i){return i>=n;})))fail(w+' exercise order');
+      }
+      Object.values(g.exercises).forEach(function(ex){
+        if(ex.warmupPlan!=null&&(!Array.isArray(ex.warmupPlan)||ex.warmupPlan.some(function(r){return !object(r)||['weight','reps'].some(function(f){return r[f]!=null&&r[f]!==''&&!isFinite(Number(r[f]));});})))fail(w+' warm-up');
+      });
+      ['supersets','cardioBlocks','cardio','cardioSwaps','swapOriginals','swapOriginalData','exNotes'].forEach(function(f){if(g[f]!=null&&!object(g[f])&&!(f==='cardio'&&Array.isArray(g[f])))fail(w+' '+f);});
+      if(g.addedEx!=null&&!Array.isArray(g.addedEx))fail(w+' added exercises');
+      if(g.wTimer!=null&&!object(g.wTimer))fail(w+' workout timer');
     });
+  });
+  // Every field the app reads must have the type a fresh state gives it (null counts as
+  // wrong): a backup with daySched:null or shoes:{} passes the checks above but breaks
+  // Today, Plan or migration.
+  var _shape=initS();
+  Object.keys(_shape).forEach(function(key){
+    if(!(key in data)) return;
+    var want=_shape[key], got=data[key];
+    if(Array.isArray(want)&&!Array.isArray(got)) fail(key);
+    else if(object(want)&&!object(got)) fail(key);
   });
   if(data.gymProfiles!=null&&(!Array.isArray(data.gymProfiles)||data.gymProfiles.some(function(g){return !object(g)||!Array.isArray(g.equipment)||g.equipment.some(function(e){return typeof e!=='string';});})))fail('gym equipment');
   return data;
 }
 // Write a validated backup, load and migrate it; if anything fails, put the previous state
 // back exactly as it was. Returns true on success.
+// Read-only calls the Today and Plan pages make on every render. A candidate that throws
+// here would blank those pages, so it is rejected before anything is written.
+function _restoreSmoke(){
+  var t=new Date();
+  for(var i=-7;i<=14;i++){ var d=new Date(t); d.setDate(t.getDate()+i); var k=dKey(d); getDayType(k); getEffTpl(k); }
+  recommendedProgramKey(); autoSplitPool(); getWorkoutFocus(dKey(t));
+  var _mode=cMode, _vd=vDate;
+  try{ Object.keys(S.sessions||{}).forEach(function(k){ ['gym','home'].forEach(function(m){
+    var g=S.sessions[k]&&S.sessions[k][m]; if(!g) return;
+    vDate=new Date(k+'T12:00:00'); cMode=m;
+    var list=getRenderedExList(k), order=(g.exOrder&&g.exOrder.length===list.length)?g.exOrder:list.map(function(_,i){return i;});
+    order.forEach(function(i){ if(!list[i]) throw new Error(m+' '+k+': exercise '+i+' missing'); });
+  }); }); }
+  finally{ cMode=_mode; vDate=_vd; }
+}
+// A restore is one transaction: the candidate is migrated and checked in memory with every
+// write suppressed, its final bytes are written once, and only then does it become the
+// live state. Any failure before that write leaves storage, S and the catalogues untouched.
 function _commitRestore(data){
-  var prev=null; try{ prev=localStorage.getItem(SK); }catch(e){}
-  var prevS=S;
+  var liveS=S, cand, bytes;
   delete data._version; delete data._exportDate; delete data._appName;
-  try{ localStorage.setItem(SK,JSON.stringify(data)); }catch(se){ showToast('Storage error — backup may be too large'); return false; }
   try{
-    var loaded=loadS(); if(!loaded) throw new Error('backup could not be loaded');
-    S=loaded; migrateState();
-    return true;
+    cand=JSON.parse(JSON.stringify(data));
+    S=cand; _restoreDryRun=true; _autoSplitCache={};
+    migrateState(); _restoreSmoke();
+    bytes=JSON.stringify(cand);
   }catch(e){
-    console.warn('restore rolled back:',e);
-    try{ if(prev!=null) localStorage.setItem(SK,prev); else localStorage.removeItem(SK); }catch(e2){}
-    S=prevS;
+    console.warn('restore rejected:',e);
     showToast('Restore failed — your current data was kept ('+(e.message||'invalid backup')+')');
     return false;
-  }
+  }finally{ S=liveS; _restoreDryRun=false; _autoSplitCache={}; }
+  try{ localStorage.setItem(SK,bytes); }catch(se){ showToast('Storage error — backup may be too large. Your current data was kept.'); return false; }
+  S=cand; _autoSplitCache={};
+  rehydrateCustomCatalogues();
+  return true;
 }
 function importData(){
   try{
@@ -16013,7 +16152,7 @@ buildTodayWorkout();
 }
 
 // ═══ FEATURE 3+11: SAVE MODAL - NOTES + RATING ══════════════════
-var _pendingSave=false, _sessionRating=0;
+var _pendingSave=false, _sessionRating=0, _pendingSaveTarget=null;
 
 function setRating(n){
 _sessionRating=n;
@@ -16063,12 +16202,16 @@ try{
   } else if(calEstEl){ calEstEl.style.display='none'; }
 } catch(e){ if(calEstEl) calEstEl.style.display='none'; }
 _pendingSave=true;
+_pendingSaveTarget={k:dKey(vDate),mode:cMode};
 openModal('saveModal');
 }
 
 function confirmSave(){
 closeModal('saveModal');
 _pendingSave=false;
+// Save the workout the sheet was opened for, even if the viewed day moved meanwhile.
+var _t=_pendingSaveTarget; _pendingSaveTarget=null;
+if(_t&&(dKey(vDate)!==_t.k||cMode!==_t.mode)){ vDate=new Date(_t.k+'T12:00:00'); cMode=_t.mode; }
 doSaveWorkout(_sessionRating, el('sessionNotes')?el('sessionNotes').value.trim():'');
 }
 
@@ -30325,9 +30468,9 @@ function openSplitSwitcher(){
   }
   // The recommendation is what the focus's program says comes next after the last saved
   // workout — not whichever split happens to overlap least.
-  var recommended=programSplitFor(k);
+  var recommended=gymDaysPerWeek()>0?programSplitFor(k):null;
 
-  var html='<div style="font-size:11px;color:var(--mu);margin:8px 0 4px;line-height:1.5">'+(recommended===currentSplit?'✓ Today\'s workout is the next one in your program.':'Next in your program: <b>'+escapeHtml(programSplitLabel(recommendedProgramKey(),recommended))+'</b>.')+'</div>'+
+  var html=(recommended==null?'':'<div style="font-size:11px;color:var(--mu);margin:8px 0 4px;line-height:1.5">'+(recommended===currentSplit?'✓ Today\'s workout is the next one in your program.':'Next in your program: <b>'+escapeHtml(programSplitLabel(recommendedProgramKey(),recommended))+'</b>.')+'</div>')+
     '<div class="slbl" style="margin:10px 0 4px">Workouts by program</div>'+renderGymSplitFamilies(function(s,info){
     var tpl=WTPL[s]; if(!tpl) return '';
     var isCurrent=s===currentSplit;
@@ -31340,7 +31483,7 @@ function confirmSaveTemplate(){
   if(!name){showToast('Enter a template name first');return;}
   var cap=_captureRichTemplate(k);
   if(!cap){showToast('Nothing to save — no exercises in today\'s workout');return;}
-  var tmpl={id:Date.now(),v:2,name:name,baseSplit:wkTpl(k),intensity:cap.intensity,focus:S.weekFocus||'general',exercises:cap.exercises,supersets:cap.supersets,created:k};
+  var tmpl={id:Date.now(),v:2,roles:1,name:name,baseSplit:wkTpl(k),intensity:cap.intensity,focus:S.weekFocus||'general',exercises:cap.exercises,supersets:cap.supersets,created:k};
   if(!S.workoutTemplates) S.workoutTemplates=[];
   S.workoutTemplates.push(tmpl);
   saveS();
@@ -31414,8 +31557,9 @@ function applyWorkoutTemplate(id){
   gym.userUnlinkedSupersets=false;
   // Templates saved before slot roles were recorded: the first exercise is the anchor and
   // a template's own second lead (the row on Upper, the press on Full Body) keeps its role.
-  var _hasRoles=tmpl.exercises.some(function(e){return e.anchor||e.lead;});
-  var _tplLeads={}; Object.keys(WTPL).forEach(function(tk){(WTPL[tk].exercises||[]).forEach(function(x){if(x.lead)_tplLeads[x.n]=1;});});
+  // roles:1 marks a template saved with slot roles (it may legitimately have no lead flag).
+  var _hasRoles=!!tmpl.roles||tmpl.exercises.some(function(e){return e.anchor||e.lead;});
+  var _tplLeads={}; ((WTPL[tmpl.baseSplit]||{}).exercises||[]).forEach(function(x){if(x.lead)_tplLeads[x.n]=1;});
   gym.exList=tmpl.exercises.map(function(e,i){
     var o={n:e.n,t:e.t,sets:e.sets,reps:e.reps,rest:e.rest,p:(e.p!=null?e.p:1)};
     if(_hasRoles){ if(e.anchor)o.anchor=true; if(e.lead)o.lead=true; }

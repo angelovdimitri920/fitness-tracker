@@ -242,13 +242,119 @@ let server, browser;
       reset(); S.weekFocus='power'; const k=dKey(vDate);
       S.sessions[k]={gym:{intensity:'standard',exercises:{},cardio:{},cardioBlocks:{},exList:[{n:'Bench Press (Barbell)',anchor:true,reps:4,sets:4,rest:210},{n:'Cable Low Row',lead:true,reps:4,sets:4,rest:210},{n:'Dumbbell Lateral Raises',reps:10,sets:3,rest:90}]}};
       const cap=_captureRichTemplate(k);
-      S.workoutTemplates=[{id:'t1',name:'T',exercises:cap.exercises},{id:'t2',name:'Old',exercises:cap.exercises.map(e=>({n:e.n,t:e.t,sets:e.sets,reps:e.reps,rest:e.rest,p:e.p}))}];
+      S.workoutTemplates=[{id:'t1',name:'T',exercises:cap.exercises},{id:'t2',name:'Old',baseSplit:'upper',exercises:cap.exercises.map(e=>({n:e.n,t:e.t,sets:e.sets,reps:e.reps,rest:e.rest,p:e.p}))}];
       applyWorkoutTemplate('t1'); let L=S.sessions[k].gym.exList;
       check(L[0].anchor&&L[1].lead&&!L[2].lead,'template lost lead roles');
       applyWorkoutTemplate('t2'); L=S.sessions[k].gym.exList;
       check(L[0].anchor&&L[1].lead,'old template roles not inferred');
       const sw=swapPrescription({n:'Bench Press (Barbell)',anchor:true,reps:4,sets:4,rest:210,p:1},{sets:[]},'Dumbbell Lateral Raises','Shoulders',k);
       check(sw.exercise.reps>=8&&sw.exercise.reps<=12&&sw.exercise.rest===90,'accessory inherited the lead dose: '+sw.exercise.reps+'@'+sw.exercise.rest);
+    });
+    test('restore is one transaction: unusable backups, quota failures and catalogue leaks are all rejected', () => {
+      reset(); S.history=[history('2026-09-29',[set(100,8)])]; saveS();
+      const before=localStorage.getItem('pf_v4'), prevS=S, good=JSON.parse(before);
+      for(const bad of [{daySched:null},{shoes:{}},{dayConfig:[]}]){
+        let msg=''; try{ validateBackupState(Object.assign(JSON.parse(before),bad)); }catch(e){ msg=e.message; }
+        check(/Invalid backup/.test(msg),'unusable field accepted: '+JSON.stringify(bad));
+      }
+      const cat=EQUIPMENT_CATALOGUE[0], orig=migrateState, poisoned=JSON.parse(before);
+      poisoned.customCatItems={[cat.id]:[{n:'Leaked Test Machine'}]};
+      migrateState=function(){ rehydrateCustomCatalogues(); throw new Error('boom'); };
+      try{ check(_commitRestore(poisoned)===false,'failed migration committed'); } finally { migrateState=orig; }
+      check(S===prevS&&localStorage.getItem('pf_v4')===before&&!cat.items.some(i=>i.n==='Leaked Test Machine'),'rejected backup leaked into state, storage or catalogue');
+      const setItem=Storage.prototype.setItem; Storage.prototype.setItem=function(k,v){ if(k==='pf_v4') throw new Error('QuotaExceededError'); return setItem.call(this,k,v); };
+      try{ check(_commitRestore(JSON.parse(before))===false,'quota failure reported success'); } finally { Storage.prototype.setItem=setItem; }
+      check(S===prevS&&localStorage.getItem('pf_v4')===before,'quota failure changed state');
+      good.weekFocus='hybrid'; check(_commitRestore(good)&&S.weekFocus==='muscle'&&JSON.parse(localStorage.getItem('pf_v4')).weekFocus==='muscle','migrated restore not written once');
+    });
+    test('Strength roles survive swaps and live re-plans; role changes use one real set', () => {
+      reset(); S.weekFocus='power'; const k=dKey(vDate);
+      const lead3=(name,extra)=>({id:1,date:'2026-09-29',type:'gym',trainingFocus:'power',exercises:[Object.assign({name,targetReps:4,plannedWorkSets:3,sets:[set(100,4),set(100,4),set(100,4)]},extra)]});
+      S.history=[lead3('Chest Press Machine',{lead:true})];
+      S.sessions[k]={gym:{intensity:'standard',exercises:{},cardio:{},cardioBlocks:{},exList:[{n:'Barbell Back Squat',anchor:true,reps:4,sets:4},{n:'Plate-Loaded Incline Press',reps:7,sets:3,p:1}]}};
+      const sw=swapPrescription(S.sessions[k].gym.exList[1],{sets:[]},'Chest Press Machine','Chest',k);
+      check(Number(sw.data.sets[0].weight)<100,'swap into a support slot progressed lead work: '+sw.data.sets[0].weight);
+      // Sets logged as lead work, saved after a re-plan put the row in a support slot
+      const hist=lead3('Cable Low Row',{lead:false}); hist.exercises[0].sets.forEach(x=>x.lead=true); S.history=[hist];
+      S.sessions[k].gym.exList=[{n:'Barbell Back Squat',anchor:true,reps:4,sets:4},{n:'Cable Low Row',reps:7,sets:3}];
+      check(getLastExSession('Cable Low Row').lead===true,'set-level role ignored');
+      const p=getProgression('Cable Low Row',7,3,1); check(p.weight<100,'re-planned lead work progressed as support: '+JSON.stringify(p));
+      hist.exercises[0].sets[2].lead=false; check(!getLastExSession('Cable Low Row').ceilingHit,'mixed-role work allowed an increase');
+      // Role change: the e1RM comes from one completed set, not the heaviest load with the most reps
+      const sup={id:3,date:'2026-09-29',type:'gym',trainingFocus:'power',exercises:[{name:'Bench Press (Barbell)',lead:false,targetReps:7,plannedWorkSets:3,sets:[set(100,7),set(100,7),Object.assign(set(40,15),{repsEdited:true})]}]};
+      S.history=[sup]; S.sessions[k].gym.exList=[{n:'Bench Press (Barbell)',anchor:true,reps:4,sets:4}];
+      const q=getProgression('Bench Press (Barbell)',4,4,1); check(q.weight<=105,'role change mixed load and reps: '+JSON.stringify(q));
+      check(nextProgressionWeight('Bench Press (Barbell)',100,'hybrid',true)===nextProgressionWeight('Bench Press (Barbell)',100,'muscle',true),'hybrid resave increment');
+    });
+    test('cross-class swaps take the destination set count; legacy templates infer from their own split', () => {
+      reset(); S.weekFocus='power'; const k=dKey(vDate);
+      S.sessions[k]={gym:{intensity:'standard',exercises:{},cardio:{},cardioBlocks:{},exList:[{n:'Bench Press (Barbell)',anchor:true,reps:4,sets:4,rest:210,p:1}]}};
+      const sw=swapPrescription(S.sessions[k].gym.exList[0],{sets:[]},'Dumbbell Lateral Raises','Shoulders',k);
+      check(sw.exercise.sets===3&&workSetRange(sw.exercise,'power')[1]<=4,'accessory kept lead volume: '+sw.exercise.sets+' / '+workSetRange(sw.exercise,'power')[1]);
+      S.workoutTemplates=[{id:'p',name:'Old Pull',baseSplit:'pull',exercises:[{n:'Lat Pull-Down Machine',sets:4,reps:8},{n:'Cable Low Row',sets:4,reps:10},{n:'Dumbbell Bicep Curls',sets:3,reps:10}]},
+        {id:'n',name:'New',roles:1,baseSplit:'upper',exercises:[{n:'Bench Press (Barbell)',sets:4,reps:8},{n:'Cable Low Row',sets:4,reps:10}]}];
+      applyWorkoutTemplate('p'); let L=S.sessions[k].gym.exList; check(L[0].anchor&&!L[1].lead,'Pull row marked as an Upper lead');
+      applyWorkoutTemplate('n'); L=S.sessions[k].gym.exList; check(!L[0].anchor&&!L[1].lead,'role-aware template re-inferred roles');
+      S.setup.gymDays=[]; renderPlanProgramCard(); check(!/next:/.test(el('planProgramCard').textContent),'zero gym days still shows a next split');
+      _lastSeenDayKey='2000-01-01'; window.dispatchEvent(new Event('focus')); check(_lastSeenDayKey===dKey(new Date()),'focus does not refresh a stale day');
+    });
+    test('restore rejects malformed workout snapshots; rollover never moves a pending save or a live workout', () => {
+      reset(); buildTodayWorkout(); saveS(); const k=dKey(vDate), snap=JSON.parse(localStorage.getItem('pf_v4'));
+      snap.sessions[k].gym.exList={0:{n:'Bench Press (Barbell)'}};
+      let msg=''; try{ validateBackupState(snap); }catch(e){ msg=e.message; } check(/exercise list/.test(msg),'object exList accepted: '+msg);
+      reset(); const g=GS(dKey(vDate))||(S.sessions[dKey(vDate)]={gym:{intensity:'standard',exercises:{},cardio:{},cardioBlocks:{}}}).gym;
+      buildTodayWorkout(); const kk=dKey(vDate); GS(kk).exercises[0]={sets:[{weight:'100',reps:'8',type:'wk',done:true}]};
+      openModal('saveModal'); _lastSeenDayKey='2000-01-01'; window.dispatchEvent(new Event('focus'));
+      check(_lastSeenDayKey==='2000-01-01'&&dKey(vDate)===kk,'rollover ran under an open sheet');
+      closeModal('saveModal'); window.dispatchEvent(new Event('focus'));
+      check(_lastSeenDayKey===dKey(new Date())&&dKey(vDate)===kk,'rollover moved an unsaved workout in progress');
+      _pendingSaveTarget={k:kk,mode:'gym'}; vDate=new Date('2026-10-02T12:00:00'); confirmSave();
+      check(S.history.some(h=>h.date===kk&&h.type==='gym'),'save sheet saved the wrong day');
+      document.querySelectorAll('.mo').forEach(m=>m.classList.remove('show'));
+    });
+    test('mixed-role history only informs the role being prescribed; role-only changes do not block progression', () => {
+      reset(); S.weekFocus='power'; const k=dKey(vDate);
+      const sx=(w,r,lead)=>Object.assign(set(w,r),lead==null?{}:{lead});
+      const h=(sets)=>[{id:1,date:'2026-09-29',type:'gym',trainingFocus:'power',exercises:[{name:'Cable Low Row',targetReps:7,plannedWorkSets:3,sets}]}];
+      S.sessions[k]={gym:{intensity:'standard',exercises:{},cardio:{},cardioBlocks:{},exList:[{n:'Barbell Back Squat',anchor:true,reps:4,sets:4},{n:'Cable Low Row',reps:7,sets:3}]}};
+      S.history=h([sx(100,4,true),sx(80,7,false),sx(80,7,false)]);
+      let p=getProgression('Cable Low Row',7,3,1); check(p.weight<=80,'support dose took the lead load: '+JSON.stringify(p));
+      S.history=h([sx(100,4),sx(100,7,false),sx(100,7,false),sx(100,7,false)]);
+      p=getProgression('Cable Low Row',7,3,1); check(p.weight<=100,'partly tagged history added load: '+JSON.stringify(p));
+      const g=summarizeWorkSets([sx(100,10,true),sx(100,10,true),sx(100,10,false)].map(x=>Object.assign(x,{targetReps:10})),'general','Cable Low Row',3,10);
+      check(g.ceilingHit,'role-only change blocked General progression');
+      S.sessions[k].gym.exList=[{n:'Dumbbell Lateral Raises',anchor:true,reps:10,sets:3,p:3}];
+      const sw=swapPrescription(S.sessions[k].gym.exList[0],{sets:[]},'Bench Press (Barbell)','Chest',k);
+      check(sw.exercise.p===1,'new main lift kept accessory priority: '+sw.exercise.p);
+      S.setup.gymDays=[]; const html=renderGymSplitFamilies((x,i)=>i.recommended?'[REC]':'',null);
+      check(!/\[REC\]|recommended for/.test(html),'zero gym days still recommends in the switcher');
+    });
+    test('restore rejects bad orders, warm-ups and run splits; history keeps each role\'s planned sets', () => {
+      reset(); buildTodayWorkout(); saveS(); const k=dKey(vDate), base=localStorage.getItem('pf_v4');
+      const bad=(mut)=>{ const d=JSON.parse(base); mut(d); try{ validateBackupState(d); return ''; }catch(e){ return e.message; } };
+      const n=JSON.parse(base).sessions[k].gym.exList.length;
+      check(/order/.test(bad(d=>{d.sessions[k].gym.exOrder=[...Array(n).keys()];d.sessions[k].gym.exOrder[0]=999;})),'out-of-range exOrder accepted');
+      check(bad(d=>{d.sessions[k].gym.exOrder=[0,1,2,3,4,5,6,7,8,9,10,11].slice(0,n+2);})==='','repairable longer order rejected');
+      check(/warm-up/.test(bad(d=>{d.sessions['2026-09-20']={home:{exercises:{0:{sets:[],warmupPlan:{}}}}};})),'object warm-up accepted');
+      check(/run splits/.test(bad(d=>{d.history.push({date:'2026-09-21',type:'run',splits:'1,2'});})),'string run splits accepted');
+      // 3 of 4 lead sets done plus one support set: not a completed lead prescription
+      S.weekFocus='power'; const sx=(w,r,lead,done=true)=>Object.assign(set(w,r,'wk',done),{lead,targetReps:lead?4:7});
+      S.history=[{id:1,date:'2026-09-29',type:'gym',trainingFocus:'power',exercises:[{name:'Cable Low Row',targetReps:4,plannedWorkSets:5,
+        sets:[sx(100,4,true),sx(100,4,true),sx(100,4,true),sx(100,'',true,false),sx(100,7,false)]}]}];
+      S.sessions[k]={gym:{intensity:'standard',exercises:{},cardio:{},cardioBlocks:{},exList:[{n:'Cable Low Row',anchor:true,reps:4,sets:4}]}};
+      const last=getLastExSession('Cable Low Row',undefined,true), p=getProgression('Cable Low Row',4,4,1);
+      check(!last.ceilingHit&&p.weight<=100,'unfinished lead work counted as complete: '+JSON.stringify(p));
+      // a pre-role snapshot: the set's own Strength target decides its role on re-plan
+      const g={trainingFocus:'power',exercises:{1:{sets:[Object.assign(set(100,4),{targetReps:4}),Object.assign(set(100,7),{targetReps:7})]}},exList:[{n:'Bench Press (Barbell)',anchor:true},{n:'Cable Low Row'}],cardioBlocks:{}};
+      _replanSession(k,g); check(g.exercises[1].sets[0].lead===true&&g.exercises[1].sets[1].lead===false,'legacy backfill ignored the set target');
+    });
+    test('rollover moves Today only once the shown workout is no longer under way', () => {
+      reset(); const kk=dKey(vDate);
+      S.sessions[kk]={gym:{intensity:'standard',exercises:{},cardio:{},cardioBlocks:{a:{timer:{running:true,startedAt:Date.now(),durMs:60000}}}}};
+      _lastSeenDayKey=kk; _rolloverPending=false; window.dispatchEvent(new Event('focus'));
+      check(_lastSeenDayKey===dKey(new Date())&&_rolloverPending&&dKey(vDate)===kk,'running cardio did not hold Today');
+      S.sessions[kk].gym.cardioBlocks={}; window.dispatchEvent(new Event('focus'));
+      check(!_rolloverPending&&dKey(vDate)===dKey(new Date()),'deferred advance never happened');
     });
     test('Strength puts 3–5 reps on the lead lift and lighter work on supporting compounds; Muscle splits compounds and accessories', () => {
       reset();

@@ -45,7 +45,8 @@ persisted to `localStorage`. No backend, no accounts, no analytics.
     sets, other compounds 6–8 @ 150 s and 3 sets. Muscle: compounds 6–10 (lead 150 s, others
     120 s), accessories 10–14 @ 90 s. Saved exercises record `lead`; history is judged by the
     role it had (unflagged old Strength main lifts = lead), and a role change re-derives the load
-    (`_leadRoleOf`). Templates keep `anchor`/`lead`.
+    (`_leadRoleOf`). Work sets carry `lead` too (survives re-plans; mixed roles never
+    progress). Templates keep `anchor`/`lead` (`roles:1`).
   - **Programs.** `TRAINING_PROGRAMS` (ppl / upperlower / fullbody) + `FOCUS_PROGRAM_RULES`
     (focus × scheduled gym days) → `recommendedProgramKey`; `autoSplitPool()` is that
     program's rotation. Auto-rotate walks from the last SAVED gym workout — past untrained days
@@ -367,7 +368,8 @@ test that they degrade without breaking anything.
    - **`importFromText()` ("Paste Backup") is the escape hatch** when a file never made it off
      the old device. Same restore path as `importData`, just parsed from pasted text. All three
      restores (file, paste, NAS) validate with `validateBackupState` and write via
-     `_commitRestore`, which rolls back if loading or migration fails.
+     `_commitRestore`: the candidate is migrated and render-checked in memory with writes
+     suppressed (`_restoreDryRun`), then written once — a failure changes nothing.
    - **On iOS a home-screen PWA has its own storage container, separate from Safari at the same
      URL.** Opening the URL in Safari will NOT show an installed app's data. This is why
      migrating between installs has to go through an export, and why deleting a home-screen
