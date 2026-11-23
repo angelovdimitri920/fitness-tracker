@@ -258,3 +258,6 @@ Thirteenth review round:
 Fourteenth review round:
 - **Live catalogues are rebuilt from the saved state.** `rehydrateCustomCatalogues` first removes every custom row (flagged `isCustom`, or tracked in `_customCatalogueRows` when it came from a saved record) from the equipment and exercise catalogues, then adds the current saved custom records back. A second restore in the same tab therefore leaves no row from the first.
 - **Ownership never counts a live leftover.** `_builtinNames` and the custom-equipment delete count built-in rows plus the custom records saved now, so deleting the last owner clears its gym setting and guide even after several restores. Catalogue deletes recognise custom rows the same way (`_isCustomRow`).
+
+Fifteenth review round (approved at 0398975; minor follow-up):
+- **Delete buttons for unflagged custom records.** The Equipment row shows Delete when `_isCustomRow(item)` (saved custom records without `isCustom` included), and Recovery management shows Delete for any activity stored in `S.customRestProtocols`, flagged or not. Custom exercises and accessories already decided this from the saved store.

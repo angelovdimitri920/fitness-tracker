@@ -597,6 +597,17 @@ let server, browser;
       check(!S.gymProfiles[0].equipment.includes('Synthetic Adjustable Pad')&&!S.customExInfo['Synthetic Adjustable Pad'],'delete kept the gym setting or guide');
       check(!EQUIPMENT_CATALOGUE.some(c=>c.items.some(i=>i.n==='Synthetic Adjustable Pad')),'row left in the catalogue');
     });
+    test('custom equipment and rest activities saved without isCustom still get a Delete button', () => {
+      reset(); buildTodayWorkout(); saveS(); const d=JSON.parse(localStorage.getItem('pf_v4'));
+      d.customCatItems={cables:[{n:'Legacy Strap',sub:'old'}]};
+      d.customRestProtocols=[{id:'legacy-walk',name:'Legacy Walk',dur:'10 min',requiredAny:[],steps:[]}];
+      check(_commitRestore(validateBackupState(d))===true,'restore rejected: '+window._lastRestoreError);
+      const row=_eqItemRow(EQUIPMENT_CATALOGUE.find(c=>c.id==='cables').items.find(i=>i.n==='Legacy Strap'),{id:'cables'},getActiveGym(),{},{});
+      check(/eq-delete-custom-btn/.test(row),'legacy custom equipment has no Delete button');
+      buildRestDayMgmtPage();
+      check([...document.querySelectorAll('[onclick^="deleteCustomRestActivity"]')].some(b=>/legacy-walk/.test(b.getAttribute('onclick'))),'legacy custom rest activity has no Delete button');
+      deleteCustomEquipment('Legacy Strap','cables'); check(!EQUIPMENT_CATALOGUE.some(c=>c.items.some(i=>i.n==='Legacy Strap')),'legacy row left in the catalogue');
+    });
     test('an untagged unfinished set withholds the increase; a picked date cancels a deferred rollover', () => {
       reset(); const k=dKey(vDate);
       S.weekFocus='power'; const sx=(w,r,lead,done=true)=>{ const s=Object.assign(set(w,r,'wk',done),{targetReps:lead?4:7}); if(lead!=null) s.lead=lead; return s; };

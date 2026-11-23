@@ -28541,7 +28541,7 @@ function buildRestDayMgmtPage(){
             '<div style="font-size:9px;color:var(--mu);font-family:\'DM Mono\',monospace">'+escapeHtml(p.dur)+(needsEquip?' · 🎯 '+escapeHtml(p.requiredAny[0]):'')+(needsEquip&&!isAccessible?' <span style="color:#f87171">— not enabled</span>':'')+'</div>'+
           '</div>'+
           '<button onclick="openRestProtocolInfo(\''+jsArg(p.id)+'\')" title="What to do" style="width:28px;height:28px;border-radius:8px;border:1px solid var(--b2);background:var(--s3);color:#94a3b8;font-size:13px;cursor:pointer;flex-shrink:0;margin-right:8px">ℹ️</button>'+
-          (p.isCustom?'<button onclick="deleteCustomRestActivity(\''+jsArg(p.id)+'\')" style="width:28px;height:28px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.08);color:var(--re);font-size:11px;cursor:pointer;flex-shrink:0;margin-right:8px">🗑</button>':'')+
+          ((p.isCustom||(S.customRestProtocols||[]).indexOf(p)>=0)?'<button onclick="deleteCustomRestActivity(\''+jsArg(p.id)+'\')" style="width:28px;height:28px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.08);color:var(--re);font-size:11px;cursor:pointer;flex-shrink:0;margin-right:8px">🗑</button>':'')+
           '<div onclick="toggleRestActivity(\''+jsArg(p.id)+'\')" style="cursor:pointer;width:44px;height:24px;border-radius:12px;background:'+(isEnabled?'var(--gr)':'var(--b2)')+';position:relative;flex-shrink:0;transition:background .2s"><div style="position:absolute;top:2px;'+(isEnabled?'right:2px':'left:2px')+';width:20px;height:20px;border-radius:50%;background:#fff;transition:all .2s"></div></div>'+
         '</div>';
     });
@@ -29072,7 +29072,7 @@ function _eqItemRow(item, cat, gym, _equipUsage, _equipLastUsed){
       html += '<div style="min-width:0;flex:1;margin-right:10px">';
       html += '<div style="display:flex;align-items:center;justify-content:space-between">'+
         '<div style="font-size:13px;color:#fff;font-weight:500">'+escapeHtml(item.n)+'</div>'+
-        (item.isCustom?'<button class="eq-delete-custom-btn" data-exname="'+encodeURIComponent(item.n)+'" data-catid="'+cat.id+'" style="background:none;border:none;color:rgba(239,68,68,.5);font-size:11px;cursor:pointer;padding:0 2px;line-height:1">✕</button>':'')+
+        (_isCustomRow(item)?'<button class="eq-delete-custom-btn" data-exname="'+encodeURIComponent(item.n)+'" data-catid="'+escapeHtml(cat.id)+'" style="background:none;border:none;color:rgba(239,68,68,.5);font-size:11px;cursor:pointer;padding:0 2px;line-height:1">✕</button>':'')+
       '</div>';
       html += '<div style="font-size:10px;color:var(--mu);font-family:\'DM Mono\',monospace">'+escapeHtml(item.sub)+(item.note?' · '+escapeHtml(item.note):'')+'</div>';
       // Usage count from history
