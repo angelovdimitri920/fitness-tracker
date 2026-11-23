@@ -5224,23 +5224,45 @@ if(!S.profile)S.profile={name:'',heightIn:72,goalWeight:185,age:null};
 // (and pass it unquoted in click handlers), so a shared, missing, text, 0 or 1e20 id opened
 // the wrong record or deleted several. The first holder of a good id keeps it; the rest get
 // the smallest unused integers (new records use Date.now(), so they never meet these).
-// Gym profiles are keyed by a text id and My Foods by name: a repeated key gets a new one
-// ("-2", " (2)") so selecting or deleting acts on one record; references to the key keep
-// pointing at its first holder. An exact duplicate food is dropped.
+// Records keyed by text — gym profiles and custom rest activities by id; My Foods, custom
+// exercises and custom equipment by name within their category — must have unique keys, or
+// one delete removes several. Every original key is reserved first, so a distinct record
+// already called "Oats (2)" or "my-pf-2" keeps its name; the first holder of a repeated key
+// keeps it (and every reference to it), later holders get the next free "-N" / " (N)", and an
+// exact copy of a record already kept under that key is dropped. Sets, not plain objects, so
+// a key such as "constructor" is not mistaken for an existing one.
+function _uniqueRecordKeys(list, getKey, setKey, suffix, dropExact, onRename){
+  if(!Array.isArray(list)) return list;
+  var taken=new Set(), kept=new Map(), out=[];
+  list.forEach(function(r){ var k=r&&typeof r==='object'?getKey(r):null; if(typeof k==='string'&&k) taken.add(k); });
+  list.forEach(function(r){
+    if(!r||typeof r!=='object'){ out.push(r); return; }
+    var k=getKey(r), j=JSON.stringify(r);
+    if(typeof k==='string'&&k&&!kept.has(k)){ kept.set(k,[j]); out.push(r); return; }
+    var base=(typeof k==='string'&&k)?k:null;
+    if(base&&dropExact&&kept.get(base).indexOf(j)>=0) return;
+    if(base) kept.get(base).push(j);
+    var root=base||'item', n=2, nk; do{ nk=suffix(root,n++); }while(taken.has(nk));
+    taken.add(nk); setKey(r,nk); if(onRename) onRename(base,nk); kept.set(nk,[JSON.stringify(r)]); out.push(r);
+  });
+  return out;
+}
 (function(){
-  var gs=Array.isArray(S.gymProfiles)?S.gymProfiles:[], gSeen={};
-  gs.forEach(function(g){ if(g&&typeof g.id==='string'&&g.id&&!gSeen[g.id]){ gSeen[g.id]=1; } else if(g&&typeof g==='object'){ g._fixId=true; } });
-  gs.forEach(function(g){ if(!g||!g._fixId) return; delete g._fixId;
-    var base=(typeof g.id==='string'&&g.id)?g.id:'gym', i=2; while(gSeen[base+'-'+i]) i++; g.id=base+'-'+i; gSeen[g.id]=1; });
-  if(Array.isArray(S.customFoods)){
-    var fSeen={}, fJson={};
-    S.customFoods=S.customFoods.filter(function(f){
-      if(!f||typeof f!=='object'||typeof f.n!=='string') return true;
-      var j=JSON.stringify(f);
-      if(fSeen[f.n]){ if(fJson[f.n]===j) return false; var i=2; while(fSeen[f.n+' ('+i+')']) i++; f.n=f.n+' ('+i+')'; }
-      fSeen[f.n]=1; fJson[f.n]=JSON.stringify(f); return true;
-    });
-  }
+  var dash=function(k,n){return k+'-'+n;}, paren=function(k,n){return k+' ('+n+')';};
+  var byId=function(r){return r.id;}, setId=function(r,v){r.id=v;}, byName=function(r){return r.n;}, setName=function(r,v){r.n=v;};
+  if(Array.isArray(S.gymProfiles)) S.gymProfiles=_uniqueRecordKeys(S.gymProfiles,byId,setId,function(k,n){return (k==='item'?'gym':k)+'-'+n;},false);
+  if(Array.isArray(S.customFoods)) S.customFoods=_uniqueRecordKeys(S.customFoods,byName,setName,paren,true);
+  if(Array.isArray(S.customAccessories)) S.customAccessories=_uniqueRecordKeys(S.customAccessories,byName,setName,paren,true);
+  // Restored custom activities get the lists the Recovery views walk.
+  if(Array.isArray(S.customRestProtocols)) S.customRestProtocols.forEach(function(p){ if(p&&typeof p==='object'){ if(!Array.isArray(p.requiredAny)) p.requiredAny=[]; if(!Array.isArray(p.steps)) p.steps=[]; } });
+  if(Array.isArray(S.customRestProtocols)) S.customRestProtocols=_uniqueRecordKeys(S.customRestProtocols,byId,setId,dash,true,function(from,to){
+    // a renamed copy starts with the same on/off state as the record it was copied from
+    if(from&&S.enabledRestActivities&&Object.prototype.hasOwnProperty.call(S.enabledRestActivities,from)) S.enabledRestActivities[to]=S.enabledRestActivities[from];
+  });
+  ['customExCatItems','customCatItems'].forEach(function(key){
+    var cats=S[key]; if(!cats||typeof cats!=='object') return;
+    Object.keys(cats).forEach(function(cid){ if(Array.isArray(cats[cid])) cats[cid]=_uniqueRecordKeys(cats[cid],byName,setName,paren,true); });
+  });
 })();
 ['history','workoutTemplates','recipes','shoes','raceResults'].forEach(function(key){
   var list=S[key]; if(!Array.isArray(list)) return;
@@ -5643,6 +5665,9 @@ function escapeHtml(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c
 // A value placed inside a quoted JS string in an inline handler (onclick="f('...')"): JS-escape
 // backslashes, quotes and line breaks, then HTML-escape, so names with ' or " cannot end the
 // string or the attribute.
+// A copy of arr without its first element matching pred (or, if none, fallback): deleting one
+// record must never take another that happens to share its key.
+function _withoutFirst(arr,pred,fallback){var a=(arr||[]).slice(),i=a.findIndex(pred);if(i<0&&fallback)i=a.findIndex(fallback);if(i>=0)a.splice(i,1);return a;}
 function jsArg(v){return escapeHtml(String(v==null?'':v).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\n/g,'\\n').replace(/\r/g,'\\r').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029'));}
 function showToast(msg){var t=el('toast');t.textContent=msg;t.classList.add('show');setTimeout(function(){t.classList.remove('show');},2000);}
 
@@ -7392,7 +7417,7 @@ html+='<div id="exCard_'+ei+'" class="exrow '+(isSwapped?'swapped':'')+'" data-e
 '<div class="fbet"><div style="min-width:0;flex:1;display:flex;align-items:flex-start;gap:6px">'+
 '<div class="ex-drag-handle" title="Drag to reorder">⠿</div>'+
 '<div style="min-width:0;flex:1">'+
-'<div class="exname">'+escapeHtml(ex.n)+(isSwapped?' <span class="badge bp" style="margin-left:5px">SWAPPED</span>':'')+(ex.carried?' <span class="badge" style="margin-left:5px;background:rgba(148,163,184,.12);color:#94a3b8;border:1px solid rgba(148,163,184,.3)">DONE · EARLIER PLAN</span>':'')+(ex.added?' <span class="badge" style="margin-left:5px;background:rgba(34,211,238,.1);color:#22d3ee;border:1px solid rgba(34,211,238,.3)">ADDED</span>':'')+badgeHtml+'</div>'+(getStrengthNote(ex.n)?'<div style="font-size:10px;color:#f97316;padding:2px 0 0;line-height:1.4">⚠️ '+getStrengthNote(ex.n)+'</div>':'')+
+'<div class="exname">'+escapeHtml(ex.n)+(isSwapped?' <span class="badge bp" style="margin-left:5px">SWAPPED</span>':'')+(ex.carried?' <span class="badge" style="margin-left:5px;background:rgba(148,163,184,.12);color:#94a3b8;border:1px solid rgba(148,163,184,.3)">DONE · EARLIER PLAN</span>':'')+(ex.added?' <span class="badge" style="margin-left:5px;background:rgba(34,211,238,.1);color:#22d3ee;border:1px solid rgba(34,211,238,.3)">ADDED</span>':'')+badgeHtml+'</div>'+(getStrengthNote(ex.n)?'<div style="font-size:10px;color:#f97316;padding:2px 0 0;line-height:1.4">⚠️ '+escapeHtml(getStrengthNote(ex.n))+'</div>':'')+
 '<div class="extgt">'+(ex.replaces&&ex.main?'Main lift · ':'')+escapeHtml(ex.t)+' · '+escapeHtml(ex.sets)+'×'+suggReps+(isUnilateralPulldown(ex.n)?' / side':'')+' · Rest '+escapeHtml(ex.rest)+'s'+(function(){try{var _r=workSetRange(ex,getWorkoutFocus(k));return ' · <span title="Work sets allowed for this exercise and focus">'+_r[0]+'–'+_r[1]+' sets</span>';}catch(e){return '';}})()+'</div>'+
 _baseWeightChip(ei,ex)+
 (!noWeight&&getBaseWeight(ex.n)===0?'<button class="btn btn-g bsm" onclick="editExerciseLoading('+ei+')">Load increments / limit</button>':'')+
@@ -7405,7 +7430,7 @@ _lastSessLine+'</div></div><div style="display:flex;gap:6px"><button class="ex-i
 '<button onclick="startTimer('+(parseInt(ex.rest,10)||60)+',true,\'\')" title="Start rest timer ('+escapeHtml(ex.rest||60)+'s)" style="background:none;border:none;cursor:pointer;font-size:15px;padding:2px 4px;line-height:1;color:#475569">&#x23F1;&#xFE0F;</button>'+
 '<button onclick="toggleSkipExercise('+ei+')" title="Skip this exercise today" style="background:none;border:none;cursor:pointer;font-size:15px;padding:2px 4px;line-height:1;color:#475569">&#x2298;</button>'+
 '</div></div>'+
-(_isSS&&_ssPName?'<div style="font-size:10px;color:#a78bfa;padding:2px 12px 4px">SUPERSET WITH: '+_ssPName+'</div>':'')+
+(_isSS&&_ssPName?'<div style="font-size:10px;color:#a78bfa;padding:2px 12px 4px">SUPERSET WITH: '+escapeHtml(_ssPName)+'</div>':'')+
 sH+'<div class="ex-note-row"><input type="text" class="ex-note-inp" placeholder="Note for this exercise..." value="'+_safeAttr((GS(k)&&GS(k).exNotes&&GS(k).exNotes[ei])||'')+'" oninput="saveExNote('+ei+',this.value)"></div>'+// Add Set picker (inline, shown on button tap)
 '<div id="addSetPicker_'+ei+'" style="display:none;flex-wrap:wrap;gap:6px;padding:8px 12px 4px;border-top:1px solid var(--b2);margin-top:4px">'+
 '<span style="font-size:10px;color:var(--mu);width:100%;margin-bottom:2px">ADD SET TYPE:</span>'+
@@ -11760,7 +11785,7 @@ function buildExerciseProgressionChart(){
   var byDate={};
   points.forEach(function(p){if(!byDate[p.date]||p.orm>byDate[p.date].orm) byDate[p.date]=p;});
   var pts=Object.values(byDate).sort(function(a,b){return a.date.localeCompare(b.date);});
-  if(pts.length<2){chart.innerHTML='<div style="font-size:11px;color:var(--mu)">Log at least 2 sessions with '+exName+' to see progression.</div>';return;}
+  if(pts.length<2){chart.innerHTML='<div style="font-size:11px;color:var(--mu)">Log at least 2 sessions with '+escapeHtml(exName)+' to see progression.</div>';return;}
   var maxOrm=Math.max.apply(null,pts.map(function(p){return p.orm;}));
   var minOrm=Math.min.apply(null,pts.map(function(p){return p.orm;}));
   var range=maxOrm-minOrm||1;
@@ -13088,7 +13113,7 @@ var plateauHTML='';
 if(plateaus.length){
 plateauHTML='<div style="margin-bottom:8px"><div class="slbl">⚠️ Plateaus Detected</div>'+
 plateaus.slice(0,4).map(function(p){
-return '<div class="plateau-item">📊 <strong>'+p.name.split('(')[0].trim()+'</strong> - stuck at '+toDisplayWeight(parseFloat(p.weight)||0)+' '+getWeightUnit()+' for '+escapeHtml(p.sessions)+' sessions. Try a deload set, different grip, or swap exercise.</div>';
+return '<div class="plateau-item">📊 <strong>'+escapeHtml(p.name.split('(')[0].trim())+'</strong> - stuck at '+toDisplayWeight(parseFloat(p.weight)||0)+' '+getWeightUnit()+' for '+escapeHtml(p.sessions)+' sessions. Try a deload set, different grip, or swap exercise.</div>';
 }).join('')+'</div>';
 }
 var progAlertsEl=el('progAlerts');
@@ -13152,7 +13177,7 @@ function renderHistory(){
 
   if(!sessions.length){
     var noMsg = allSessions.length
-      ? (_histSearch ? 'No sessions match "'+_histSearch+'".' : 'No sessions match this filter.')
+      ? (_histSearch ? 'No sessions match "'+escapeHtml(_histSearch)+'".' : 'No sessions match this filter.')
       : 'No workouts logged yet.';
     el('histList').innerHTML='<div style="color:var(--mu);font-size:13px;text-align:center;padding:40px 0">'+noMsg+'</div>';
     return;
@@ -13964,7 +13989,7 @@ function _inIsolatedDom(fn){
 function _restoreRenderCheck(){
   _inIsolatedDom(function(){
     ['buildBodyPage','buildMarathon','renderHistory','updateProgress','buildGoalsPage','buildHomePage',
-     'buildNutritionPage','buildPlan','buildSavedTemplates','buildEquipmentPage'].forEach(function(fn){
+     'buildNutritionPage','buildPlan','buildSavedTemplates','buildEquipmentPage','buildRestDayMgmtPage'].forEach(function(fn){
       if(typeof window[fn]==='function') window[fn]();
     });
     (S.history||[]).forEach(function(h){ _histDetailParts(h); });
@@ -17448,8 +17473,10 @@ function _accEnabled(name){
 }
 
 function _protocolVisible(p){
-  if(p.requiredAny.length===0) return true; // no equipment needed
-  return p.requiredAny.some(function(acc){return _accEnabled(acc);});
+  // A restored custom activity may lack the list: treat that as needing no equipment.
+  var req=Array.isArray(p.requiredAny)?p.requiredAny:[];
+  if(req.length===0) return true; // no equipment needed
+  return req.some(function(acc){return _accEnabled(acc);});
 }
 
 // Determine smart recommended protocols based on recent training
@@ -17507,7 +17534,7 @@ function _buildProtocolCard(p,k,isDone){
   var stepsHTML=p.steps.map(function(s,i){
     return '<div style="display:flex;gap:8px;margin-bottom:5px">'+
       '<span style="color:'+escapeHtml(p.color)+';font-weight:700;min-width:16px;font-size:11px">'+(i+1)+'.</span>'+
-      '<span style="font-size:11px;color:#ccc;line-height:1.55">'+s+'</span>'+
+      '<span style="font-size:11px;color:#ccc;line-height:1.55">'+escapeHtml(s)+'</span>'+
     '</div>';
   }).join('');
   return '<div style="border:1px solid '+(isDone?p.color+'66':'var(--b2)')+';border-radius:10px;padding:10px 12px;margin-bottom:8px;background:'+(isDone?p.color+'0d':'var(--s2)')+'">'+
@@ -17520,7 +17547,7 @@ function _buildProtocolCard(p,k,isDone){
             '<div style="font-size:10px;color:'+escapeHtml(p.color)+'">'+escapeHtml(p.tagline)+'</div>'+
           '</div>'+
         '</div>'+
-        '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mu);margin-bottom:6px">⏱ '+p.dur+(p.requiredAny.length?' · 🎯 '+p.requiredAny[0]:'')+'</div>'+
+        '<div style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mu);margin-bottom:6px">⏱ '+escapeHtml(p.dur)+(p.requiredAny.length?' · 🎯 '+escapeHtml(p.requiredAny[0]):'')+'</div>'+
         '<details style="cursor:pointer">'+
           '<summary style="font-size:11px;color:var(--mu);list-style:none;display:flex;align-items:center;gap:4px;margin-bottom:6px">'+
             '<span style="color:'+escapeHtml(p.color)+'">▶</span> View Steps & Protocol'+
@@ -27568,7 +27595,7 @@ function buildRecoveryCheckin(dk){
     // Build overlap note for display
     if(_hasHardOverlap){
       var _mgNames=_overlap48.map(function(g){return (MG_META[g]&&MG_META[g].nm)||g;});
-      recOverlapNote='⚠️ '+_mgNames.join(', ')+' trained <48h ago  --  these muscles aren\'t fully recovered for today\'s '+_splitName+'.';
+      recOverlapNote='⚠️ '+_mgNames.join(', ')+' trained <48h ago  --  these muscles aren\'t fully recovered for today\'s '+escapeHtml(_splitName)+'.';
     } else if(_hasSoftOverlap){
       var _mgNames72=_overlap72.map(function(g){return (MG_META[g]&&MG_META[g].nm)||g;});
       recOverlapNote='ℹ️ '+_mgNames72.join(', ')+' trained 48-72h ago. Keep volume moderate.';
@@ -28431,7 +28458,7 @@ function buildRestDayMgmtPage(){
         '<div data-restname="'+encodeURIComponent(p.name)+'" style="display:flex;align-items:center;padding:7px 0;border-bottom:1px solid rgba(255,255,255,.04)">'+
           '<div style="flex:1;min-width:0;margin-right:10px">'+
             '<div style="font-size:12px;color:'+(isEnabled&&isAccessible?'#fff':'var(--mu)')+';font-weight:500">'+escapeHtml(p.em)+' '+escapeHtml(p.name)+(p.isCustom?' <span style="font-size:8px;color:var(--ye);font-family:\'DM Mono\',monospace">CUSTOM</span>':'')+'</div>'+
-            '<div style="font-size:9px;color:var(--mu);font-family:\'DM Mono\',monospace">'+p.dur+(needsEquip?' · 🎯 '+p.requiredAny[0]:'')+(needsEquip&&!isAccessible?' <span style="color:#f87171">— not enabled</span>':'')+'</div>'+
+            '<div style="font-size:9px;color:var(--mu);font-family:\'DM Mono\',monospace">'+escapeHtml(p.dur)+(needsEquip?' · 🎯 '+p.requiredAny[0]:'')+(needsEquip&&!isAccessible?' <span style="color:#f87171">— not enabled</span>':'')+'</div>'+
           '</div>'+
           '<button onclick="openRestProtocolInfo(\''+jsArg(p.id)+'\')" title="What to do" style="width:28px;height:28px;border-radius:8px;border:1px solid var(--b2);background:var(--s3);color:#94a3b8;font-size:13px;cursor:pointer;flex-shrink:0;margin-right:8px">ℹ️</button>'+
           (p.isCustom?'<button onclick="deleteCustomRestActivity(\''+jsArg(p.id)+'\')" style="width:28px;height:28px;border-radius:8px;border:1px solid rgba(239,68,68,.3);background:rgba(239,68,68,.08);color:var(--re);font-size:11px;cursor:pointer;flex-shrink:0;margin-right:8px">🗑</button>':'')+
@@ -28470,8 +28497,8 @@ function openRestProtocolInfo(id){
   // Duration + equipment, styled like the "Equipment & Setup" section
   c+='<div style="margin-bottom:10px">'+
     '<div style="font-size:9px;color:var(--mu);letter-spacing:1px;margin-bottom:5px;text-transform:uppercase">⏱ Duration & Equipment</div>'+
-    '<div style="font-size:12px;color:#ccc;line-height:1.6">'+(p.dur||'As needed')+
-    ((p.requiredAny&&p.requiredAny.length)?' · Requires '+p.requiredAny.join(' or ')+' (enable under Accessories)':' · No equipment needed')+
+    '<div style="font-size:12px;color:#ccc;line-height:1.6">'+escapeHtml(p.dur||'As needed')+
+    ((p.requiredAny&&p.requiredAny.length)?' · Requires '+escapeHtml(p.requiredAny.join(' or '))+' (enable under Accessories)':' · No equipment needed')+
     '</div></div>';
 
   // Image-search block (offline-safe Google link), same component as the other modals
@@ -28480,7 +28507,7 @@ function openRestProtocolInfo(id){
   // Steps — identical numbered style to the exercise/cardio modals
   if(p.steps&&p.steps.length){
     c+='<div style="margin-bottom:10px"><div style="font-size:9px;color:var(--gr);letter-spacing:1px;margin-bottom:6px;text-transform:uppercase">✅ How to do it</div>';
-    p.steps.forEach(function(s,i){ c+='<div style="display:flex;gap:8px;margin-bottom:6px"><div style="font-size:1rem;color:var(--ye);flex-shrink:0;width:18px;font-weight:700">'+(i+1)+'</div><div style="font-size:12px;color:#ccc;line-height:1.5">'+s+'</div></div>'; });
+    p.steps.forEach(function(s,i){ c+='<div style="display:flex;gap:8px;margin-bottom:6px"><div style="font-size:1rem;color:var(--ye);flex-shrink:0;width:18px;font-weight:700">'+(i+1)+'</div><div style="font-size:12px;color:#ccc;line-height:1.5">'+escapeHtml(s)+'</div></div>'; });
     c+='</div>';
   }
 
@@ -28533,7 +28560,7 @@ function confirmAddCustomRestActivity(){
 function deleteCustomRestActivity(id){
   var p=(S.customRestProtocols||[]).find(function(x){return x.id===id;}); if(!p) return;
   showConfirm('Remove "'+p.name+'" from your rest-day activities?',function(){
-    S.customRestProtocols=(S.customRestProtocols||[]).filter(function(x){return x.id!==id;});
+    S.customRestProtocols=_withoutFirst(S.customRestProtocols||[],function(x){return x.id===id;});
     if(S.enabledRestActivities) delete S.enabledRestActivities[id];
     saveS(); buildRestDayMgmtPage();
     showToast('Removed: '+p.name);
@@ -28626,10 +28653,10 @@ function buildExercisePage(){
       var exName=decodeURIComponent(db.dataset.exname),catId=db.dataset.catid;
       showConfirm('Remove "'+exName+'" from your exercise list?',function(){
         if(S.customExCatItems&&S.customExCatItems[catId]){
-          S.customExCatItems[catId]=S.customExCatItems[catId].filter(function(i){return i.n!==exName;});
+          S.customExCatItems[catId]=_withoutFirst(S.customExCatItems[catId],function(i){return i.n===exName;});
           // Also remove from live EXERCISE_CATALOGUE
           var cat2=EXERCISE_CATALOGUE.find(function(c){return c.id===catId;});
-          if(cat2) cat2.items=cat2.items.filter(function(i){return i.n!==exName;});
+          if(cat2) cat2.items=_withoutFirst(cat2.items,function(i){return i.n===exName&&i.isCustom;},function(i){return i.n===exName;});
           saveS();buildExercisePage();
         }
       });
@@ -28664,7 +28691,7 @@ function openExerciseInfoModal(exName,muscles){
   if(musclesText){
     c+='<div style="background:rgba(245,196,0,.08);border:1px solid rgba(245,196,0,.25);border-radius:10px;padding:12px 14px;margin-bottom:12px">';
     c+='<div style="font-size:9px;color:var(--ye);letter-spacing:1.5px;margin-bottom:6px">💪 MUSCLES WORKED</div>';
-    c+='<div style="font-size:13px;color:#fff">'+musclesText+'</div></div>';
+    c+='<div style="font-size:13px;color:#fff">'+escapeHtml(musclesText)+'</div></div>';
   }
 
   if(hasStaticInfo){
@@ -28805,7 +28832,7 @@ function buildAccessoryPage(){
       var dName=decodeURIComponent(db.dataset.accname);
       showConfirm('Remove "'+dName+'" from your accessories?',function(){
         if(!S.customAccessories) return;
-        S.customAccessories=S.customAccessories.filter(function(a){return a.n!==dName;});
+        S.customAccessories=_withoutFirst(S.customAccessories,function(a){return a.n===dName;});
         delete (S.enabledAccessories||{})[dName];
         saveS(); buildAccessoryPage();
         showToast('Removed: '+dName);
@@ -29446,13 +29473,13 @@ function deleteCustomEquipment(itemName, catId){
   // Remove from catalogue runtime
   for(var ci=0;ci<EQUIPMENT_CATALOGUE.length;ci++){
     if(EQUIPMENT_CATALOGUE[ci].id===catId){
-      EQUIPMENT_CATALOGUE[ci].items = EQUIPMENT_CATALOGUE[ci].items.filter(function(i){return i.n!==itemName;});
+      EQUIPMENT_CATALOGUE[ci].items = _withoutFirst(EQUIPMENT_CATALOGUE[ci].items,function(i){return i.n===itemName&&i.isCustom;},function(i){return i.n===itemName;});
       break;
     }
   }
   // Remove from persistent storage
   if(S.customCatItems&&S.customCatItems[catId]){
-    S.customCatItems[catId] = S.customCatItems[catId].filter(function(i){return i.n!==itemName;});
+    S.customCatItems[catId] = _withoutFirst(S.customCatItems[catId],function(i){return i.n===itemName;});
   }
   // Remove from all gym equipment lists
   S.gymProfiles.forEach(function(g){
@@ -30855,7 +30882,7 @@ function buildRunStretchBlock(k,phase,stretches,runType){
     if(!s)return;
     html+='<div style="background:var(--s2);border:1px solid var(--b1);border-radius:9px;padding:9px 12px;margin-bottom:6px;display:flex;align-items:center;gap:10px">'+
       '<div style="flex:1;min-width:0">'+
-        '<div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:3px">'+sName+'</div>'+
+        '<div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:3px">'+escapeHtml(sName)+'</div>'+
         '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">'+
           '<span style="font-size:9px;color:'+color+';background:'+bg+';border:1px solid '+border+';padding:2px 6px;border-radius:4px;font-family:\'DM Mono\',monospace">'+s.body+'</span>'+
           '<span style="font-size:9px;color:var(--mu);font-family:\'DM Mono\',monospace">&#x23F1; '+s.time+(s.sides?' / side':'')+(s.reps?' &middot; '+s.reps:'')+'</span>'+
@@ -30926,7 +30953,7 @@ function openStretchSwap(k,phase,idx,encodedCurrent){
   var currentName=decodeURIComponent(encodedCurrent);
   var isPost=phase==='post';
   var pool=Object.keys(RUN_STRETCHES).filter(function(n){return RUN_STRETCHES[n].type===(isPost?'static':'dynamic');});
-  var html='<div style="font-size:10px;color:var(--mu);margin-bottom:12px">Pick a '+(isPost?'post-run static hold':'pre-run dynamic drill')+' to replace <strong style="color:#fff">'+currentName+'</strong></div>';
+  var html='<div style="font-size:10px;color:var(--mu);margin-bottom:12px">Pick a '+(isPost?'post-run static hold':'pre-run dynamic drill')+' to replace <strong style="color:#fff">'+escapeHtml(currentName)+'</strong></div>';
   pool.forEach(function(name){
     var s=RUN_STRETCHES[name];
     var isCur=name===currentName;

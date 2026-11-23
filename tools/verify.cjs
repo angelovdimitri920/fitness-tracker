@@ -479,6 +479,33 @@ let server, browser;
       check(cell&&cell.getAttribute('title')==='say "hi" &quot;','tooltip changed the note: '+(cell&&cell.getAttribute('title')));
       document.querySelectorAll('.mo.show').forEach(m=>m.classList.remove('show'));
     });
+    test('text keys keep existing names, never break references, and one delete removes one record', () => {
+      reset(); buildTodayWorkout(); saveS(); const base=localStorage.getItem('pf_v4');
+      const good=JSON.parse(base); const g0=good.gymProfiles[0];
+      good.customFoods=[{n:'Oats',cal:100},{n:'Oats',cal:150},{n:'Oats (2)',cal:250},{n:'Oats',cal:150}];
+      good.gymProfiles=[Object.assign({},g0,{id:'constructor',name:'C'}),Object.assign({},g0,{id:'my-pf',name:'A'}),Object.assign({},g0,{id:'my-pf',name:'B'}),Object.assign({},g0,{id:'my-pf-2',name:'D'})];
+      good.activeGymId='constructor'; good.history=[{id:1,date:'2026-09-20',type:'gym',gymId:'constructor',exercises:[]}];
+      good.customRestProtocols=[{id:'walk',name:'Walk',dur:'20 min',isCustom:true},{id:'walk',name:'Walk 2',dur:'30 min',isCustom:true}];
+      good.customCatItems={freeweights:[{n:'Sandbag',sub:'a',isCustom:true},{n:'Sandbag',sub:'b',isCustom:true}]};
+      good.customExCatItems={chest:[{n:'Floor Press',muscles:'Chest',isCustom:true},{n:'Floor Press',muscles:'Chest',isCustom:true}]};
+      check(_commitRestore(validateBackupState(good))===true,'restore rejected: '+window._lastRestoreError);
+      check(S.customFoods.map(f=>f.n+':'+f.cal).join('|')==='Oats:100|Oats (3):150|Oats (2):250','food names not stable: '+S.customFoods.map(f=>f.n+':'+f.cal));
+      check(S.gymProfiles.map(g=>g.id).join('|')==='constructor|my-pf|my-pf-3|my-pf-2'&&S.activeGymId==='constructor'&&S.history[0].gymId==='constructor','gym ids or references broken: '+S.gymProfiles.map(g=>g.id)+' active='+S.activeGymId);
+      check(S.customRestProtocols.map(p=>p.id).join('|')==='walk|walk-2','rest ids not unique: '+S.customRestProtocols.map(p=>p.id));
+      check(S.customCatItems.freeweights.map(i=>i.n).join('|')==='Sandbag|Sandbag (2)','equipment names not unique');
+      check(S.customExCatItems.chest.length===1,'exact duplicate custom exercise kept');
+      deleteCustomRestActivity('walk'); confirmYes(); check(S.customRestProtocols.length===1,'rest delete removed '+(2-S.customRestProtocols.length));
+      deleteCustomEquipment('Sandbag','freeweights'); check(S.customCatItems.freeweights.length===1,'equipment delete removed '+(2-S.customCatItems.freeweights.length));
+      check(_withoutFirst([{n:'a'},{n:'a'}],x=>x.n==='a').length===1,'_withoutFirst');
+      // text that still reached markup
+      const mk=(id)=>'<i id="'+id+'">x</i>';
+      const parse=(h)=>{ const d=document.createElement('div'); d.innerHTML=h; return d; };
+      S.customRestProtocols[0].dur=mk('rd'); buildRestDayMgmtPage(); check(!document.getElementById('rd'),'rest duration became HTML');
+      S.history=[{id:3,date:'2026-09-20',type:'gym',day:'Upper',focus:'f',exercises:[]}]; _histSearch=mk('hs'); renderHistory();
+      check(!document.getElementById('hs'),'history search echoed HTML'); _histSearch='';
+      S.strengthNotes={}; const sk=getStrKey('Bench Press (Barbell)'); if(sk){ S.strengthNotes[sk]=mk('sn'); buildTodayWorkout(); check(!document.getElementById('sn'),'strength note became HTML'); S.strengthNotes={}; }
+      document.querySelectorAll('.mo.show').forEach(m=>m.classList.remove('show'));
+    });
     test('an untagged unfinished set withholds the increase; a picked date cancels a deferred rollover', () => {
       reset(); const k=dKey(vDate);
       S.weekFocus='power'; const sx=(w,r,lead,done=true)=>{ const s=Object.assign(set(w,r,'wk',done),{targetReps:lead?4:7}); if(lead!=null) s.lead=lead; return s; };
