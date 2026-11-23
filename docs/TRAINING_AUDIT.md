@@ -224,3 +224,9 @@ Eighth review round:
 - **Inline handlers are quote-safe.** All 101 handlers that pass a value inside a quoted JS string (`onclick="f('…')"`) now use `jsArg(v)`, which JS-escapes backslashes, quotes and line breaks and then HTML-escapes, so a name such as `Curl "Pro" 12' Bar` reaches Info, Chart, Swap and the rest intact. The Today rest button takes `parseInt(rest)`.
 - **Record ids are unique positive safe integers** in history, saved workouts, recipes, shoes and race results (`migrateState`). The first holder of a good id keeps it; missing, text, 0, unsafe (`1e20`) or repeated ids get the smallest unused integers, which new `Date.now()` ids never meet.
 - **Saved workouts:** `sets`, `rest` and priority are numbers (a label such as "90 seconds" keeps its number); `reps` may stay descriptive.
+
+Ninth review round:
+- **One delete, one record.** Deleting a gym profile or a My Foods entry removes only the first match. `migrateState` also gives a repeated gym-profile id a new one (`id-2`, …) and a repeated food name a suffix (` (2)`), dropping exact duplicate foods; references keep pointing at the first holder.
+- **Composed labels.** Equipment notes, extra-activity metadata (`meta.join`), activity chip data attributes and search-query echoes (beverages, the exercise library, rest items) are escaped.
+- **Plain text stays plain.** The sweep's escaping was removed where the text never becomes markup: share text (including PR exercise names, which were escaped before this PR), the deload confirmation, the barcode serving label (escaped again at display), stored beverage names, the rest-protocol search haystack, coaching tips and the home run glance.
+- **Plan tooltips** use attribute escaping, so a note keeps its quotes and literal `&quot;` exactly.

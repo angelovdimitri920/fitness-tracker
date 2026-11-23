@@ -5224,6 +5224,24 @@ if(!S.profile)S.profile={name:'',heightIn:72,goalWeight:185,age:null};
 // (and pass it unquoted in click handlers), so a shared, missing, text, 0 or 1e20 id opened
 // the wrong record or deleted several. The first holder of a good id keeps it; the rest get
 // the smallest unused integers (new records use Date.now(), so they never meet these).
+// Gym profiles are keyed by a text id and My Foods by name: a repeated key gets a new one
+// ("-2", " (2)") so selecting or deleting acts on one record; references to the key keep
+// pointing at its first holder. An exact duplicate food is dropped.
+(function(){
+  var gs=Array.isArray(S.gymProfiles)?S.gymProfiles:[], gSeen={};
+  gs.forEach(function(g){ if(g&&typeof g.id==='string'&&g.id&&!gSeen[g.id]){ gSeen[g.id]=1; } else if(g&&typeof g==='object'){ g._fixId=true; } });
+  gs.forEach(function(g){ if(!g||!g._fixId) return; delete g._fixId;
+    var base=(typeof g.id==='string'&&g.id)?g.id:'gym', i=2; while(gSeen[base+'-'+i]) i++; g.id=base+'-'+i; gSeen[g.id]=1; });
+  if(Array.isArray(S.customFoods)){
+    var fSeen={}, fJson={};
+    S.customFoods=S.customFoods.filter(function(f){
+      if(!f||typeof f!=='object'||typeof f.n!=='string') return true;
+      var j=JSON.stringify(f);
+      if(fSeen[f.n]){ if(fJson[f.n]===j) return false; var i=2; while(fSeen[f.n+' ('+i+')']) i++; f.n=f.n+' ('+i+')'; }
+      fSeen[f.n]=1; fJson[f.n]=JSON.stringify(f); return true;
+    });
+  }
+})();
 ['history','workoutTemplates','recipes','shoes','raceResults'].forEach(function(key){
   var list=S[key]; if(!Array.isArray(list)) return;
   var seen={}, next=1, fix=[];
@@ -5832,7 +5850,7 @@ function buildHomePage(){
       }
       if(type==='run'||type==='both'){
         if(runDone) bits.push('✅ Run logged');
-        else { var _tr=getTodayRunGlance(); bits.push(_tr?('⬜ '+_tr.type.charAt(0)+_tr.type.slice(1).toLowerCase()+' run · '+escapeHtml(_tr.dist)+' mi'):'⬜ Run pending'); }
+        else { var _tr=getTodayRunGlance(); bits.push(_tr?('⬜ '+_tr.type.charAt(0)+_tr.type.slice(1).toLowerCase()+' run · '+_tr.dist+' mi'):'⬜ Run pending'); }
       }
       status=bits.join('  ·  '); }
     cards.push(_homeCard('today',
@@ -8229,7 +8247,7 @@ function _bwApplyPhase(initial){
   var pat=BW_PATTERNS[_bw.pattern]||BW_PATTERNS.box, ph=pat.phases[_bw.phaseIdx];
   var orb=el('bwOrb'), lbl=el('bwPhase'), cnt=el('bwCount');
   if(orb){
-    orb.style.transition='transform '+escapeHtml(ph.secs)+'s ease-in-out, background .4s';
+    orb.style.transition='transform '+ph.secs+'s ease-in-out, background .4s';
     var sc=ph.scale>0.5?1.7:0.6; // grow on inhale/hold-full, shrink on exhale/hold-empty
     orb.style.transform='scale('+sc+')';
     orb.style.background=ph.name==='Exhale'?'radial-gradient(circle at 40% 35%,#7dd3fc,#0284c7)':'radial-gradient(circle at 40% 35%,#a5b4fc,#6366f1)';
@@ -8340,7 +8358,7 @@ function bcRenderProduct(p, code){
   _bcProduct={ n:(p.product_name||'Unknown product')+(p.brands?' ('+p.brands.split(',')[0]+')':''),
     cal:cal, pro:g('proteins'), carb:g('carbohydrates'), fat:g('fat'), fiber:g('fiber'), sugar:g('sugars'),
     sodium:Math.round(((n['sodium'+suffix]!=null?n['sodium'+suffix]:n['sodium_100g'])||0)*1000),
-    basis: perServ?('per serving'+(p.serving_size?' ('+escapeHtml(p.serving_size)+')':'')):'per 100 g' };
+    basis: perServ?('per serving'+(p.serving_size?' ('+p.serving_size+')':'')):'per 100 g' };
   el('bcResult').innerHTML='<div style="background:var(--s2);border:1px solid var(--b1);border-radius:10px;padding:12px">'+
     '<div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:2px">'+escapeHtml(_bcProduct.n)+'</div>'+
     '<div style="font-size:10px;color:var(--mu);font-family:DM Mono,monospace;margin-bottom:8px">'+escapeHtml(_bcProduct.basis)+' · '+code+'</div>'+
@@ -8575,8 +8593,8 @@ function applyDeload(ei){
   if(!st){ showToast('No stall detected on this lift'); return; }
   var unit=getWeightUnit();
   showConfirm(
-    'Deload '+escapeHtml(ex.n)+' to '+toDisplayWeight(st.suggestedWeight)+' '+unit+' for today? '
-    +'(down from '+toDisplayWeight(st.topWeight)+' — '+escapeHtml(st.sessions)+' sessions without progress). '
+    'Deload '+ex.n+' to '+toDisplayWeight(st.suggestedWeight)+' '+unit+' for today? '
+    +'(down from '+toDisplayWeight(st.topWeight)+' — '+st.sessions+' sessions without progress). '
     +'Same reps, lighter bar: build back up from there.',
     function(){
       var exD=GS(k)&&GS(k).exercises[ei];
@@ -10314,7 +10332,7 @@ function setPlanView(view,btn){S.planView=view;S.planOffset=0;saveS();document.q
 function shiftPlanCal(delta){S.planOffset+=delta;saveS();buildPlanCalendar();updatePlanWeekSummary();}
 function buildPlanCalendar(){var grid=el('planCalGrid'),lbl=el('planCalLabel');if(!grid||!lbl)return;document.querySelectorAll('.pvtab').forEach(function(t){var oc=t.getAttribute('onclick')||'';t.classList.toggle('active',oc.indexOf("'"+(S.planView||'week')+"'")>=0);});var today=new Date();today.setHours(0,0,0,0);var _ws=weekStartDow();var _hdr=el('planWeekHeader');if(_hdr){var _DH=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'],_hh='';for(var _hi=0;_hi<7;_hi++)_hh+='<div class="pwh">'+_DH[(_ws+_hi)%7]+'</div>';_hdr.innerHTML=_hh;}var tdow=today.getDay(),monday=new Date(today);monday.setDate(today.getDate()-((tdow-_ws+7)%7));monday.setDate(monday.getDate()+(S.planOffset||0)*7);var nw=S.planView==='month'?4:S.planView==='2week'?2:1;var ls=new Date(monday),le=new Date(monday);le.setDate(monday.getDate()+nw*7-1);var MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];lbl.textContent=ls.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' - '+le.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});var html='';for(var i=0;i<nw*7;i++){var d=new Date(monday);d.setDate(monday.getDate()+i);var k=dKey(d),isPast=d<today,isTodc=d.toDateString()===today.toDateString(),dtype=getDayType(k),isG=(dtype==='gym'||dtype==='both'),isR=(dtype==='run'||dtype==='both'),gDone=S.history.some(function(h){return h.date===k&&h.type==='gym';}),rDone=S.history.some(function(h){return h.date===k&&h.type==='run';});var cls='pcell';if(dtype==='gym')cls+=' gym-c';else if(dtype==='run')cls+=' run-c';else if(dtype==='both')cls+=' both-c';else cls+=' rest-c';if(isTodc)cls+=' today-c';if(isPast&&!isTodc)cls+=' past-c';if(gDone||rDone)cls+=' done-c';var splitLbl='';if(isG){var tplKey=getEffTpl(k),tpl=WTPL[tplKey];if(tpl)splitLbl=tpl.focus.split(' ').slice(0,2).join(' ');}var showMo=(d.getDate()===1||i===0);var doneNote='';if(gDone){var _gE=S.history.slice().reverse().find(function(h){return h.date===k&&h.type==='gym';});if(_gE){var _gVD=toDisplayWeight(_gE.volume||0);var _gV=_gVD>999?Math.round(_gVD/1000)+'k':Math.round(_gVD);doneNote+='<div class="pcell-foc" style="color:var(--gr)">'+_gV+getWeightUnit().slice(0,2)+'</div>';}}if(rDone){var _rE=S.history.slice().reverse().find(function(h){return h.date===k&&h.type==='run';});if(_rE&&_rE.distance)doneNote+='<div class="pcell-foc" style="color:var(--ru)">'+parseFloat(_rE.distance).toFixed(1)+'mi</div>';}// Add note indicator if day has a note
 var _cellNote=(S.dayConfig[k]&&S.dayConfig[k].note)||'';
-html+='<div class="'+cls+'" onclick="openDayModal(\''+jsArg(k)+'\')" '+ (_cellNote?'title="'+_cellNote.replace(/"/g,"'")+'"':'')+'>'+   '<div class="pcell-dt">'+d.getDate()+'</div>'+(showMo?'<div class="pcell-mo">'+MN[d.getMonth()]+'</div>':'')+'<div class="pcell-ic">'+(isG?'<span style="font-size:9px">🏋️</span>':'')+(isR?'<span style="font-size:9px">🏃</span>':'')+(gDone||rDone?'<span style="font-size:8px;background:rgba(34,197,94,.2);color:var(--gr);border-radius:3px;padding:1px 3px;border:1px solid rgba(34,197,94,.4);line-height:1.2">✓</span>':'')+'</div>'+(doneNote||( splitLbl?'<div class="pcell-foc">'+splitLbl+'</div>':'' ))+'</div>';}grid.innerHTML=html;}
+html+='<div class="'+cls+'" onclick="openDayModal(\''+jsArg(k)+'\')" '+ (_cellNote?'title="'+escapeHtml(_cellNote)+'"':'')+'>'+   '<div class="pcell-dt">'+d.getDate()+'</div>'+(showMo?'<div class="pcell-mo">'+MN[d.getMonth()]+'</div>':'')+'<div class="pcell-ic">'+(isG?'<span style="font-size:9px">🏋️</span>':'')+(isR?'<span style="font-size:9px">🏃</span>':'')+(gDone||rDone?'<span style="font-size:8px;background:rgba(34,197,94,.2);color:var(--gr);border-radius:3px;padding:1px 3px;border:1px solid rgba(34,197,94,.4);line-height:1.2">✓</span>':'')+'</div>'+(doneNote||( splitLbl?'<div class="pcell-foc">'+splitLbl+'</div>':'' ))+'</div>';}grid.innerHTML=html;}
 function openDayModal(k){editDK=k;var d=new Date(k+'T12:00:00'),dayName=d.toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'});el('dayModalTitle').textContent=dayName.toUpperCase();var dtype=getDayType(k),cfg=S.dayConfig[k];mDayType=dtype;_originalDtype=dtype;mDaySplit=(cfg&&cfg.split)||'auto';refreshDTypeButtons();buildSplitGrid();el('dayGymSect').style.display=(mDayType==='gym'||mDayType==='both')?'block':'none';buildDayPreview();var _dni=el('dayNoteInput');if(_dni)_dni.value=(cfg&&cfg.note)||'';openModal('dayModal');}
 function setDType(t){
   mDayType=t;
@@ -15038,21 +15056,21 @@ function showAITips(){
     // Focus-specific stat tip
     var rec=S.recovery&&S.recovery[k2]||{};
     if(rec.soreness>=4){
-      pool.unshift({em:'⚠️',title:'High Soreness Detected — Adjust Accordingly',text:'You logged significant muscle soreness today ('+escapeHtml(rec.soreness)+'/5). Consider reducing your working weights by 10-15% and prioritizing form. Soreness above 4/5 means you need more recovery, not more load.'});
+      pool.unshift({em:'⚠️',title:'High Soreness Detected — Adjust Accordingly',text:'You logged significant muscle soreness today ('+rec.soreness+'/5). Consider reducing your working weights by 10-15% and prioritizing form. Soreness above 4/5 means you need more recovery, not more load.'});
     }
     if(rec.sleepH&&rec.sleepH<=5){
-      pool.unshift({em:'😴',title:'Poor Sleep = Reduced Strength Output',text:'Poor sleep reduces maximal strength by 8-12% and impairs motor coordination. With '+escapeHtml(rec.sleepH)+' hours logged, consider dropping to standard intensity today and prioritizing sleep recovery.'});
+      pool.unshift({em:'😴',title:'Poor Sleep = Reduced Strength Output',text:'Poor sleep reduces maximal strength by 8-12% and impairs motor coordination. With '+rec.sleepH+' hours logged, consider dropping to standard intensity today and prioritizing sleep recovery.'});
     }
 
   } else if((dtype2==='run'||dtype2==='both')&&cMode==='run'){
     pool=RUN_TIPS.slice();
     var rs=S.sessions[k2]&&S.sessions[k2].run||{};
     if(rs.distance&&rs.distance>8){
-      pool.unshift({em:'🏅',title:'Long Run Fuel Strategy',text:'With '+escapeHtml(rs.distance)+' miles planned, aim for 30-60g of carbohydrates per hour after the first 60 minutes. Energy gels, dates, or sports drink prevent the bonk in the final miles.'});
+      pool.unshift({em:'🏅',title:'Long Run Fuel Strategy',text:'With '+rs.distance+' miles planned, aim for 30-60g of carbohydrates per hour after the first 60 minutes. Energy gels, dates, or sports drink prevent the bonk in the final miles.'});
     }
     var rec2=S.recovery&&S.recovery[k2]||{};
     if(rec2.sleepH&&rec2.sleepH<=5){
-      pool.unshift({em:'😴',title:'Low Sleep = Slower Pace Today',text:'With '+escapeHtml(rec2.sleepH)+' hours of sleep, your perceived effort will feel higher today. Run by effort (RPE 6-7 out of 10), not by pace. The data will look slower but your fitness is still there.'});
+      pool.unshift({em:'😴',title:'Low Sleep = Slower Pace Today',text:'With '+rec2.sleepH+' hours of sleep, your perceived effort will feel higher today. Run by effort (RPE 6-7 out of 10), not by pace. The data will look slower but your fitness is still there.'});
     }
   } else {
     pool=REST_TIPS.slice();
@@ -16469,12 +16487,12 @@ function shareWorkout(){
     lines.push('');
     if(s.distance>0) lines.push('Distance: '+s.distance.toFixed(2)+' mi');
     if(durStr) lines.push('Duration: '+durStr);
-    if(s.pace) lines.push('Pace: '+escapeHtml(s.pace)+'/mi');
-    if(s.hr) lines.push('Avg HR: '+escapeHtml(s.hr)+' bpm');
+    if(s.pace) lines.push('Pace: '+s.pace+'/mi');
+    if(s.hr) lines.push('Avg HR: '+s.hr+' bpm');
     if(s.calories>0) lines.push('Calories: '+Math.round(s.calories)+' kcal');
-    if(s.rpe) lines.push('Effort: '+escapeHtml(s.rpe)+'/10');
-    if(s.cadence) lines.push('Cadence: '+escapeHtml(s.cadence)+' spm');
-    if(s.elevation) lines.push('Elevation: '+escapeHtml(s.elevation)+' ft');
+    if(s.rpe) lines.push('Effort: '+s.rpe+'/10');
+    if(s.cadence) lines.push('Cadence: '+s.cadence+' spm');
+    if(s.elevation) lines.push('Elevation: '+s.elevation+' ft');
     if(s.notes){lines.push('');lines.push('Notes: '+s.notes);}
     txt=lines.join('\n');
   } else {
@@ -16487,11 +16505,11 @@ function shareWorkout(){
     lines2.push('Sets: '+s.sets);
     var _wuSh=getWeightUnit(),_shVD=toDisplayWeight(s.volume||0);
     lines2.push('Volume: '+(_shVD>=1000?(_shVD/1000).toFixed(1)+'k':Math.round(_shVD))+' '+_wuSh);
-    if(s.calories>0) lines2.push('Calories: '+escapeHtml(s.calories)+' kcal');
+    if(s.calories>0) lines2.push('Calories: '+s.calories+' kcal');
     if(durStr2) lines2.push('Duration: '+durStr2);
-    lines2.push('Completion: '+escapeHtml(s.compPct)+'%');
-    if(s.prs&&s.prs.length){lines2.push('');lines2.push('🏆 PRs Hit:');s.prs.forEach(function(p){lines2.push('  • '+escapeHtml(p.exercise)+': '+toDisplayWeight(parseFloat(p.weight)||0)+' '+_wuSh+' × '+p.reps);});}
-    if(s.progressions&&s.progressions.length){lines2.push('');lines2.push('📈 Weight Increases Next Session:');s.progressions.forEach(function(p){lines2.push('  • '+escapeHtml(p.exercise)+': '+toDisplayWeight(parseFloat(p.lastW)||0)+' → '+toDisplayWeight(parseFloat(p.nextW)||0)+' '+_wuSh);});}
+    lines2.push('Completion: '+s.compPct+'%');
+    if(s.prs&&s.prs.length){lines2.push('');lines2.push('🏆 PRs Hit:');s.prs.forEach(function(p){lines2.push('  • '+p.exercise+': '+toDisplayWeight(parseFloat(p.weight)||0)+' '+_wuSh+' × '+p.reps);});}
+    if(s.progressions&&s.progressions.length){lines2.push('');lines2.push('📈 Weight Increases Next Session:');s.progressions.forEach(function(p){lines2.push('  • '+p.exercise+': '+toDisplayWeight(parseFloat(p.lastW)||0)+' → '+toDisplayWeight(parseFloat(p.nextW)||0)+' '+_wuSh);});}
     if(s.rating) lines2.push('');if(s.rating) lines2.push('Rating: '+starStr[s.rating]);
     if(s.notes){lines2.push('');lines2.push('Notes: '+s.notes);}
     txt=lines2.join('\n');
@@ -17815,7 +17833,7 @@ function buildExtraActivitiesCard(k){
         if(a.calories) meta.push(a.calories+' cal');
         if(a.hr) meta.push(a.hr+' bpm avg HR');
         return '<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--b1)">'+
-          '<div style="font-size:12px;color:#fff">'+escapeHtml(a.name)+(meta.length?' <span style="color:var(--mu);font-size:11px">\xB7 '+meta.join(' \xB7 ')+'</span>':'')+(a.notes?' <span style="color:var(--mu);font-size:11px;font-style:italic">\xB7 '+escapeHtml(a.notes)+'</span>':'')+'</div>'+
+          '<div style="font-size:12px;color:#fff">'+escapeHtml(a.name)+(meta.length?' <span style="color:var(--mu);font-size:11px">\xB7 '+escapeHtml(meta.join(' \xB7 '))+'</span>':'')+(a.notes?' <span style="color:var(--mu);font-size:11px;font-style:italic">\xB7 '+escapeHtml(a.notes)+'</span>':'')+'</div>'+
           '<button onclick="removeExtraActivity(\''+jsArg(k)+'\','+i+')" style="background:none;border:none;color:var(--mu);font-size:14px;cursor:pointer;padding:0 4px">✕</button>'+
         '</div>';
       }).join('')
@@ -17826,9 +17844,9 @@ function buildExtraActivitiesCard(k){
     var rows = c.items.map(function(it){
       var nm=it[0], em=it[1];
       var safe=nm;
-      return '<button type="button" class="xact-chip" data-name="'+nm.toLowerCase()+'" data-cat="'+c.cat.toLowerCase()+'" onclick="selectExtraActivity(\''+jsArg(k)+'\',\''+jsArg(safe)+'\')" style="display:inline-flex;align-items:center;gap:5px;background:var(--s3);border:1px solid var(--b2);border-radius:16px;padding:6px 11px;font-size:12px;color:#e2e8f0;cursor:pointer;line-height:1">'+em+' '+nm+'</button>';
+      return '<button type="button" class="xact-chip" data-name="'+escapeHtml(nm.toLowerCase())+'" data-cat="'+escapeHtml(c.cat.toLowerCase())+'" onclick="selectExtraActivity(\''+jsArg(k)+'\',\''+jsArg(safe)+'\')" style="display:inline-flex;align-items:center;gap:5px;background:var(--s3);border:1px solid var(--b2);border-radius:16px;padding:6px 11px;font-size:12px;color:#e2e8f0;cursor:pointer;line-height:1">'+em+' '+nm+'</button>';
     }).join('');
-    return '<div class="xact-group" data-cat="'+c.cat.toLowerCase()+'" style="margin-bottom:10px">'+
+    return '<div class="xact-group" data-cat="'+escapeHtml(c.cat.toLowerCase())+'" style="margin-bottom:10px">'+
       '<div class="xact-group-lbl" style="font-family:\'DM Mono\',monospace;font-size:9px;color:var(--mu);letter-spacing:.06em;margin-bottom:6px">'+escapeHtml(c.emoji)+' '+c.cat.toUpperCase()+'</div>'+
       '<div style="display:flex;flex-wrap:wrap;gap:6px">'+rows+'</div></div>';
   }).join('');
@@ -17963,7 +17981,7 @@ function logExtraActivity(k){
     logEl.innerHTML=acts.length?acts.map(function(a,i){
       var meta=[]; if(a.duration)meta.push(a.duration+' min'); if(a.calories)meta.push(a.calories+' cal'); if(a.hr)meta.push(a.hr+' bpm avg HR');
       return '<div style="display:flex;align-items:center;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--b1)">'+
-        '<div style="font-size:12px;color:#fff">'+escapeHtml(a.name)+(meta.length?' <span style="color:var(--mu);font-size:11px">\xB7 '+meta.join(' \xB7 ')+'</span>':'')+(a.notes?' <span style="color:var(--mu);font-size:11px;font-style:italic">\xB7 '+escapeHtml(a.notes)+'</span>':'')+'</div>'+
+        '<div style="font-size:12px;color:#fff">'+escapeHtml(a.name)+(meta.length?' <span style="color:var(--mu);font-size:11px">\xB7 '+escapeHtml(meta.join(' \xB7 '))+'</span>':'')+(a.notes?' <span style="color:var(--mu);font-size:11px;font-style:italic">\xB7 '+escapeHtml(a.notes)+'</span>':'')+'</div>'+
         '<button onclick="removeExtraActivity(\''+jsArg(k)+'\','+i+')" style="background:none;border:none;color:var(--mu);font-size:14px;cursor:pointer;padding:0 4px">✕</button>'+
       '</div>';
     }).join(''):'<div style="font-size:11px;color:var(--mu)">No additional activities logged yet.</div>';
@@ -18904,7 +18922,7 @@ function renderBevSearch(q){
     return mQ&&mC;
   });
   var res=el('bevSearchResults'); if(!res)return;
-  if(!items.length){res.innerHTML='<div style="color:var(--mu);font-size:12px;padding:16px;text-align:center">No results for "'+q+'"</div>';return;}
+  if(!items.length){res.innerHTML='<div style="color:var(--mu);font-size:12px;padding:16px;text-align:center">No results for "'+escapeHtml(q)+'"</div>';return;}
   res.innerHTML=items.map(function(b){
     var ii=BEVERAGE_DB.indexOf(b);
     return '<div style="padding:8px 0;border-bottom:1px solid var(--b1)">'+
@@ -18941,7 +18959,7 @@ function logBevFromSearch(idx){
   S.nutLog[k].water=S.nutLog[k].waterLog.reduce(function(a,e){return a+(e.ml||0);},0);
   if(b.cal>0){
     S.nutLog[k].snacks=S.nutLog[k].snacks||[];
-    var snk={n:b.n+' ('+escapeHtml(b.srv)+')',cal:b.cal,pro:0,carb:Math.round(b.sugar||0),fat:0,fiber:0,sodium:b.sodium||0,sugar:b.sugar||0,srv:b.srv,timing:'other'};
+    var snk={n:b.n+' ('+b.srv+')',cal:b.cal,pro:0,carb:Math.round(b.sugar||0),fat:0,fiber:0,sodium:b.sodium||0,sugar:b.sugar||0,srv:b.srv,timing:'other'};
     if(b.cat==='Alcohol'){ snk.isAlcohol=true; snk.alc=b.alcG||14; snk.drinks=b.drinks||1; }
     S.nutLog[k].snacks.push(snk);
   }
@@ -19327,7 +19345,7 @@ function renderMyFoods(filter){
 function deleteCustomFood(encodedName){
   var name=decodeURIComponent(encodedName);
   showConfirm('Remove "'+name+'" from My Foods?',function(){
-    S.customFoods=(S.customFoods||[]).filter(function(f){return f.n!==name;});
+    var _fi=(S.customFoods||[]).findIndex(function(f){return f.n===name;}); if(_fi>=0) S.customFoods.splice(_fi,1);
     saveS(); renderMyFoods(el('myFoodsSearch')?el('myFoodsSearch').value:'');
     showToast('Removed from My Foods');
   });
@@ -21750,7 +21768,7 @@ function renderRestaurantTab(filter){
 
   var summaryLine=q
     ?'<div style="font-size:10px;color:var(--mu);margin-bottom:6px;font-family:\'DM Mono\',monospace">'
-      +items.length+' result'+(items.length===1?'':'s')+' for "'+filter+'"</div>'
+      +items.length+' result'+(items.length===1?'':'s')+' for "'+escapeHtml(filter)+'"</div>'
     :'';
 
   var groups={};
@@ -21761,7 +21779,7 @@ function renderRestaurantTab(filter){
   if(!items.length){
     html+='<div style="text-align:center;padding:24px 16px">'
       +'<div style="font-size:2rem;margin-bottom:8px">&#x1F374;</div>'
-      +'<div style="font-size:13px;color:#fff;margin-bottom:4px">No results for "'+filter+'"</div>'
+      +'<div style="font-size:13px;color:#fff;margin-bottom:4px">No results for "'+escapeHtml(filter)+'"</div>'
       +'<div style="font-size:11px;color:var(--mu);line-height:1.5">Try a chain name (McDonald\'s, Chipotle, Wendy\'s), '
       +'food type (burger, pizza, tacos), or calorie level</div>'
       +'</div>';
@@ -28375,7 +28393,7 @@ function allRestProtocols(){ return REST_PROTOCOLS.concat(S.customRestProtocols|
 var REST_CATEGORIES=['🧘 Mobility & Flexibility','💆 Soft-Tissue & Myofascial','🚶 Active Recovery & Cardio','🌡️ Heat, Cold & Therapy','🧠 Mind & Sleep','🦵 Core & Stability','🌿 General Recovery'];
 function _restCategory(p){
   if(p.isCustom){ return (p.focus && REST_CATEGORIES.indexOf(p.focus)>=0) ? p.focus : '⭐ My Custom Activities'; }
-  var s=((p.name||'')+' '+escapeHtml(p.id||'')+' '+escapeHtml(p.tagline||'')+' '+(p.desc||'')).toLowerCase();
+  var s=((p.name||'')+' '+(p.id||'')+' '+(p.tagline||'')+' '+(p.desc||'')).toLowerCase();
   if(/foam|trigger|massage|myofascial|percuss|lacrosse|compression boot|normatec|self-massage|self massage/.test(s)) return '💆 Soft-Tissue & Myofascial';
   if(/sauna|cold plunge|cryo|contrast|ice bath|infrared|red.?light|epsom|hot tub|steam|hyperbaric|heat therapy|cold therapy/.test(s)) return '🌡️ Heat, Cold & Therapy';
   if(/breath|meditat|wim hof|journal|sleep|mindful/.test(s)) return '🧠 Mind & Sleep';
@@ -28945,7 +28963,7 @@ function _eqItemRow(item, cat, gym, _equipUsage, _equipLastUsed){
         '<div style="font-size:13px;color:#fff;font-weight:500">'+escapeHtml(item.n)+'</div>'+
         (item.isCustom?'<button class="eq-delete-custom-btn" data-exname="'+encodeURIComponent(item.n)+'" data-catid="'+cat.id+'" style="background:none;border:none;color:rgba(239,68,68,.5);font-size:11px;cursor:pointer;padding:0 2px;line-height:1">✕</button>':'')+
       '</div>';
-      html += '<div style="font-size:10px;color:var(--mu);font-family:\'DM Mono\',monospace">'+escapeHtml(item.sub)+(item.note?' · '+item.note:'')+'</div>';
+      html += '<div style="font-size:10px;color:var(--mu);font-family:\'DM Mono\',monospace">'+escapeHtml(item.sub)+(item.note?' · '+escapeHtml(item.note):'')+'</div>';
       // Usage count from history
       if(on){
         var useCount = _equipUsage[item.n]||0;
@@ -29302,7 +29320,8 @@ function deleteActiveGym(){
     return;
   }
   showConfirm('Remove "'+getActiveGym().name+'" gym profile?', function(){
-    S.gymProfiles = S.gymProfiles.filter(function(g){return g.id!==S.activeGymId;});
+    // One profile only, even if an older backup carried two with this id.
+    var _gi=S.gymProfiles.findIndex(function(g){return g.id===S.activeGymId;}); if(_gi>=0) S.gymProfiles.splice(_gi,1);
     S.activeGymId = S.gymProfiles[0].id;
     saveS();
     buildEquipmentPage();

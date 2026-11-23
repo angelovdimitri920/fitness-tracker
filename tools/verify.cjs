@@ -454,6 +454,31 @@ let server, browser;
       check(btn&&!threw,'quoted name broke the Info handler: '+(btn?threw:'no Info button for the added exercise: '+getRenderedExList(dKey(vDate)).map(e=>e.n).join('|')));
       document.querySelectorAll('.mo.show').forEach(m=>m.classList.remove('show'));
     });
+    test('one delete removes one gym or food; composed labels stay text; plain text is not escaped', () => {
+      reset(); buildTodayWorkout(); saveS(); const k=dKey(vDate), base=localStorage.getItem('pf_v4');
+      const mk=(id)=>'<i id="'+id+'">x</i>';
+      const good=JSON.parse(base); const g0=good.gymProfiles[0];
+      good.gymProfiles=[g0,Object.assign({},g0,{name:'Second'}),Object.assign({},g0,{name:'Third'})];
+      good.customFoods=[{n:'Bar',cal:100,pro:5},{n:'Bar',cal:200,pro:9},{n:'Bar',cal:100,pro:5}];
+      check(_commitRestore(validateBackupState(good))===true,'restore rejected: '+window._lastRestoreError);
+      const gids=S.gymProfiles.map(g=>g.id); check(new Set(gids).size===3&&gids[0]===g0.id,'gym ids not unique: '+gids);
+      check(S.customFoods.map(f=>f.n).join('|')==='Bar|Bar (2)','duplicate foods not resolved: '+S.customFoods.map(f=>f.n));
+      S.activeGymId=gids[1]; deleteActiveGym(); confirmYes&&confirmYes();
+      check(S.gymProfiles.length===2,'one delete removed '+(3-S.gymProfiles.length)+' gym profiles');
+      deleteCustomFood(encodeURIComponent('Bar')); confirmYes&&confirmYes();
+      check(S.customFoods.length===1&&S.customFoods[0].n==='Bar (2)','one delete removed '+(2-S.customFoods.length)+' foods');
+      // composed labels
+      const parse=(h)=>{ const d=document.createElement('div'); d.innerHTML=h; return d; };
+      check(!parse(_eqItemRow({n:'Rack',sub:'s',note:mk('eqn')},{id:'c'},getActiveGym(),{},{})).querySelector('#eqn'),'equipment note became HTML');
+      S.sessions[k]=S.sessions[k]||{}; S.sessions[k].extraActivities=[{name:'Walk',duration:mk('xa'),notes:'n'}];
+      const xa=buildExtraActivitiesCard(k); check(!(typeof xa==='string'?parse(xa).querySelector('#xa'):document.getElementById('xa')),'activity metadata became HTML');
+      renderBevSearch(mk('bq')); check(!document.getElementById('bq'),'beverage search echoed HTML');
+      // plain-text outputs keep the characters as typed
+      const tk=dKey(new Date()); S.planOffset=0; S.dayConfig[tk]=Object.assign({},S.dayConfig[tk],{note:'say "hi" &quot;'}); switchPage('plan',null); buildPlanCalendar();
+      const cell=[...document.querySelectorAll('[title]')].find(e=>/say/.test(e.getAttribute('title')));
+      check(cell&&cell.getAttribute('title')==='say "hi" &quot;','tooltip changed the note: '+(cell&&cell.getAttribute('title')));
+      document.querySelectorAll('.mo.show').forEach(m=>m.classList.remove('show'));
+    });
     test('an untagged unfinished set withholds the increase; a picked date cancels a deferred rollover', () => {
       reset(); const k=dKey(vDate);
       S.weekFocus='power'; const sx=(w,r,lead,done=true)=>{ const s=Object.assign(set(w,r,'wk',done),{targetReps:lead?4:7}); if(lead!=null) s.lead=lead; return s; };
